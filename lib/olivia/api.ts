@@ -43,6 +43,18 @@ type Hints = Pick<OliviaFetchOptions, "next" | "signal" | "maxRetries">;
 
 const cid = (clientId: string) => encodeURIComponent(clientId);
 
+// Some PII text fields (e.g. call transcript) arrive wrapped as `{ raw: "…" }` rather than a
+// plain string. Normalize to a string|null so the UI never tries to render an object.
+function flatText(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && "raw" in (v as Record<string, unknown>)) {
+    const raw = (v as { raw: unknown }).raw;
+    return typeof raw === "string" ? raw : raw == null ? null : String(raw);
+  }
+  return String(v);
+}
+
 // ---- Discovery (scope clients:read) — not client-scoped ----
 export async function discoverClients(
   opts: { page?: number; limit?: number } & Hints = {},
@@ -125,12 +137,17 @@ export async function getCalls(
   h: Hints = {},
 ): Promise<ListResponse<Call>> {
   const r = await oliviaFetch<{
-    calls: Call[];
+    calls: Array<Record<string, unknown>>;
     total: number;
     page: number;
     limit: number;
   }>(`${ANALYTICS}/clients/${cid(clientId)}/calls`, { params: params as QueryParams, ...h });
-  return { items: r.calls ?? [], total: r.total, page: r.page, limit: r.limit };
+  const items: Call[] = (r.calls ?? []).map((c) => ({
+    ...(c as unknown as Call),
+    transcript: flatText(c.transcript),
+    callback_notes: flatText(c.callback_notes),
+  }));
+  return { items, total: r.total, page: r.page, limit: r.limit };
 }
 
 export async function getConversations(
@@ -139,15 +156,14 @@ export async function getConversations(
   h: Hints = {},
 ): Promise<ListResponse<Conversation>> {
   const r = await oliviaFetch<{
-    conversations: Conversation[];
+    conversations: Array<Record<string, unknown>>;
     total: number;
     page: number;
     limit: number;
   }>(`${ANALYTICS}/clients/${cid(clientId)}/conversations`, { params: params as QueryParams, ...h });
-  return {
-    items: r.conversations ?? [],
-    total: r.total,
-    page: r.page,
-    limit: r.limit,
-  };
+  const items: Conversation[] = (r.conversations ?? []).map((c) => ({
+    ...(c as unknown as Conversation),
+    summary: flatText(c.summary),
+  }));
+  return { items, total: r.total, page: r.page, limit: r.limit };
 }
