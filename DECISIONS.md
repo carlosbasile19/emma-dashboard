@@ -268,3 +268,20 @@ verified on the live deploy (Phases 9–10).
   redacted/empty state.
 - Removed the now-unused `lib/sample-data.ts`; made `EmptyState`/`ErrorState` client components.
 - **Full live render** is verified after Phase 7 (needs a provisioned user) and on the deploy.
+
+## Phase 7 — Provisioning (done)
+
+`scripts/seed.mjs` (service role, idempotent) — run with `node --env-file=.env scripts/seed.mjs`:
+(a) calls Olivia discovery and upserts `olivia_clients`; (b) creates/updates a test Supabase user
+(`email_confirm: true`) and maps it to one `olivia_client_id` via `workspace_members`. Configurable
+via `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_CLIENT_ID`.
+
+**Seeded:** `demo@heyemma.io` → client `01b1fb8e-…` ("000. Emma Test Funnel"). Generated credentials
+are written to `.seed-credentials.txt` (**gitignored**, never committed/printed).
+
+**Verified end-to-end** (anon-key sign-in as the seeded user): login **OK**; the user sees exactly
+their own `workspace_members` row and **only** their own `olivia_clients` row (the other agency client,
+SOLVI, is invisible) — workspace isolation **PASS**. This also satisfies Phase 3's deferred
+login-round-trip check.
+
+**No self-serve agency-admin UI in v1** — re-run `scripts/seed.mjs` to (re)provision clients/users.
