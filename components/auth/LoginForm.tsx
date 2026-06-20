@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { passwordSignIn, sendMagicLink } from "@/app/auth/actions";
 
@@ -10,7 +9,6 @@ const LABEL =
   "mb-[7px] block font-mono text-[11px] uppercase tracking-[0.1em] text-muted";
 
 export function LoginForm({ initialError }: { initialError?: string | null }) {
-  const router = useRouter();
   const [mode, setMode] = useState<"magic" | "password">("magic");
   const [view, setView] = useState<"form" | "sent">("form");
   const [email, setEmail] = useState("");
@@ -32,9 +30,9 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
+      // On success the action redirects to /dashboard (carrying the new session cookie).
       const res = await passwordSignIn(email, password);
-      if (res.error) setError(res.error);
-      else router.push("/dashboard");
+      if (res?.error) setError(res.error);
     });
   }
 

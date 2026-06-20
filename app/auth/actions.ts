@@ -56,7 +56,7 @@ export async function passwordSignIn(
   if (error) {
     return { error: "That didn’t match. Check your email and password, then try again." };
   }
-  return { error: null };
+  redirect("/dashboard");
 }
 
 export async function signOut() {
