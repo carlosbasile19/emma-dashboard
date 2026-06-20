@@ -41,3 +41,7 @@ public/sitemap-0.xml
 
 # environment variables
 .env*
+!.env.example
+
+# seeded test credentials (never commit)
+.seed-credentials.txt

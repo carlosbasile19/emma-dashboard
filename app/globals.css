@@ -1,76 +1,164 @@
 @import "tailwindcss";
-@plugin "daisyui" {
-  themes: light --default;
+
+/*
+ * Emma design tokens (Tailwind v4 `@theme`). DaisyUI removed — plain Tailwind only.
+ * Sourced from the imported "Emma Dashboard" design + Skilled Coaching brand kit.
+ * Color tokens become utilities automatically: e.g. `bg-warm`, `text-ink`, `text-violet`,
+ * `border-ink/10` (hairline). Radius/shadow tokens map to `rounded-*` / `shadow-*`.
+ */
+@theme {
+  /* Foundation */
+  --color-warm: #f7f5f2; /* page background — the calm field */
+  --color-ink: #1a2b2e; /* primary text, hero & footer surfaces */
+  --color-muted: #5c6b6d; /* secondary copy, captions */
+  --color-surface: #ffffff;
+  --color-surface-tint: #fbfaf8;
+
+  /* The pops */
+  --color-violet: #6d4aff; /* primary — CTAs, interactive */
+  --color-pink: #ff3d77; /* accent — one pop per view */
+  --color-violet-light: #a48bff; /* text/links on dark only */
+
+  /* Lavender family */
+  --color-lavender: #eceaf7; /* card tints, zebra, chart bands */
+  --color-lavender-deep: #c9c2e8; /* borders & dividers on lavender */
+
+  /* Semantic status */
+  --color-success: #2bb673;
+  --color-warning: #e8a33d;
+  --color-danger: #e5484d;
+  --color-info: #2e86f2;
+
+  /* Categorical chart palette (color-blind aware) */
+  --color-chart-1: #6d4aff;
+  --color-chart-2: #2e86f2;
+  --color-chart-3: #0fb5ae;
+  --color-chart-4: #2bb673;
+  --color-chart-5: #e8a33d;
+  --color-chart-6: #f2724b;
+  --color-chart-7: #b56be0;
+  --color-chart-8: #5c6b6d;
+
+  /* Fonts — CSS variables provided by next/font in app/layout.tsx */
+  --font-display: var(--font-space-grotesk), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), "Space Mono", ui-monospace, monospace;
+
+  /* Radii (match the design scale) */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(26, 43, 46, 0.06);
+  --shadow-md: 0 4px 16px rgba(26, 43, 46, 0.08);
+  --shadow-lg: 0 12px 32px rgba(26, 43, 46, 0.12);
+  --shadow-ink: 0 18px 44px rgba(26, 43, 46, 0.28);
+
+  /* Motion */
+  --animate-fade-up: fade-up 0.25s ease both;
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  --animate-shimmer: shimmer 1.5s infinite linear;
+  @keyframes shimmer {
+    0% {
+      background-position: -500px 0;
+    }
+    100% {
+      background-position: 500px 0;
+    }
+  }
+  --animate-spin-slow: spin 0.7s linear infinite;
+
+  /* Brief Emma modal */
+  --animate-pop: pop 0.2s ease both;
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  --animate-wave: wave 0.9s ease-in-out infinite;
+  @keyframes wave {
+    0%,
+    100% {
+      transform: scaleY(0.4);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+  --animate-ring: ring 1.4s ease-out infinite;
+  @keyframes ring {
+    0% {
+      box-shadow: 0 0 0 0 rgba(109, 74, 255, 0.4);
+    }
+    100% {
+      box-shadow: 0 0 0 22px rgba(109, 74, 255, 0);
+    }
+  }
+  --animate-blink: blink 1s infinite;
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
 }
 
-@theme {
-  --font-display: "Satoshi", "sans-serif";
-  
-  --animate-shimmer: shimmer 3s ease-out infinite alternate;
-  --animate-opacity: opacity 0.25s ease-in-out;
-  --animate-appearFromRight: appearFromRight 300ms ease-in-out;
-  --animate-wiggle: wiggle 1.5s ease-in-out infinite;
-  --animate-popup: popup 0.25s ease-in-out;
-
-  @keyframes shimmer {
-    0% { background-position: 0 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-
-  @keyframes opacity {
-    0% { opacity: 0; }
-    100% { opacity: 1; }
-  }
-
-  @keyframes appearFromRight {
-    0% { opacity: 0.3; transform: translate(15%, 0px); }
-    100% { opacity: 1; transform: translate(0); }
-  }
-
-  @keyframes wiggle {
-    0%, 20%, 80%, 100% { transform: rotate(0deg); }
-    30%, 60% { transform: rotate(-2deg); }
-    40%, 70% { transform: rotate(2deg); }
-    45% { transform: rotate(-4deg); }
-    55% { transform: rotate(4deg); }
-  }
-
-  @keyframes popup {
-    0% { transform: scale(0.8); opacity: 0.8; }
-    50% { transform: scale(1.1); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
-  }
+:root {
+  --gradient-brand: linear-gradient(100deg, #6d4aff 0%, #ff3d77 100%);
 }
 
 html,
 body {
-  scroll-behavior: smooth !important;
+  scroll-behavior: smooth;
 }
 
-progress::-webkit-progress-value {
-  transition: 0.6s width ease-out;
+::selection {
+  background: rgba(109, 74, 255, 0.18);
 }
 
-.btn-gradient {
-  background: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82) !important;
-  background-size: 300% 300% !important;
-  animation: var(--animate-shimmer) !important;
-  border: 0 !important;
-  border-color: transparent !important;
-  color: white !important;
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+/* Brand gradient helpers */
+.bg-gradient-brand {
+  background-image: var(--gradient-brand);
+}
+.text-gradient-brand {
+  background-image: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.btn-gradient:hover {
-  filter: saturate(1.2) !important;
+/* Shimmer skeleton block */
+.shimmer {
+  background: linear-gradient(90deg, #eceaf7 25%, #f5f3fb 37%, #eceaf7 63%);
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
 }
 
-.btn-gradient:disabled {
-  background: rgb(107 114 128 / 0.3) !important;
-  color: rgb(156 163 175) !important;
+/* Themed scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
-
-.btn {
-  text-transform: capitalize !important;
+::-webkit-scrollbar-thumb {
+  background: rgba(26, 43, 46, 0.16);
+  border-radius: 99px;
+  border: 3px solid var(--color-warm);
 }
