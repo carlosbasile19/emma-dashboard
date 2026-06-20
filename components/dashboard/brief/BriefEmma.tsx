@@ -80,8 +80,22 @@ export function BriefEmma({
           setBriefingId(s.briefingId);
           setCallId(s.briefingId);
         }
-        // TODO(briefing-bridge): when s.mode === "live" && s.realtime, connect the realtime
-        // voice provider (s.realtime.{provider,url,token}) so the user actually hears Emma.
+        // ACTIVATION (briefing-bridge): once OLIVIA_BRIEFING_ENABLED=true and the backend
+        // ships the endpoint, `s.mode` is "live" with Retell web-call creds. Install the
+        // Retell Web SDK (`npm i retell-client-js-sdk`) and connect the live audio here:
+        //
+        //   if (s.mode === "live" && s.realtime?.access_token) {
+        //     const { RetellWebClient } = await import("retell-client-js-sdk");
+        //     const client = new RetellWebClient();
+        //     retellRef.current = client;                         // useRef<RetellWebClient|null>(null)
+        //     client.on("call_started", () => setStep("live"));
+        //     client.on("call_ended", () => close());
+        //     await client.startCall({ accessToken: s.realtime.access_token });
+        //   }
+        //
+        // and in close(): retellRef.current?.stopCall(); retellRef.current = null;
+        // Until then, the local walkthrough below carries the UX. If the backend returns
+        // voice:false / no realtime, the agenda still shows without audio (current behaviour).
       })
       .catch(() => {});
   }
