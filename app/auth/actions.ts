@@ -39,23 +39,24 @@ export async function sendMagicLink(email: string): Promise<{ error: string | nu
   return { error: null };
 }
 
-export async function signIn(
-  _prev: SignInState,
-  formData: FormData,
+/**
+ * Password fallback sign-in (the UI is magic-link first; this is the "use a password instead"
+ * path and an emergency route if email delivery is unavailable). Returns an error on failure;
+ * on success the session cookie is set and the client navigates to /dashboard.
+ */
+export async function passwordSignIn(
+  email: string,
+  password: string,
 ): Promise<SignInState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-  if (!email || !password) {
-    return { error: "Enter your email and password." };
-  }
+  const e = email.trim().toLowerCase();
+  if (!e || !password) return { error: "Enter your email and password." };
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({ email: e, password });
   if (error) {
     return { error: "That didn’t match. Check your email and password, then try again." };
   }
-
-  redirect("/dashboard");
+  return { error: null };
 }
 
 export async function signOut() {
