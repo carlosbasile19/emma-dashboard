@@ -198,3 +198,43 @@ inconclusive (the test client has 0 leads); the UI null-guards PII regardless.
 - `9c6d445a-4d4a-465b-aca7-b8108083e529` — "001. SOLVI" (Europe/London)
 - `01b1fb8e-2b65-4330-8f0d-ed631afa03bf` — "000. Emma Test Funnel" (Australia/Sydney) ← will
   map the seeded test user to this client.
+
+## Phase 5 — Freshness, caching & rate governance (done)
+
+**Architecture decision (documented deviation).** Made **Supabase Postgres the authoritative
+SWR cache + governance layer** instead of the Next.js Data Cache. Rationale: (1) the brief's
+hard constraint — *all* shared server state in Supabase, no Redis; (2) a real `fetched_at`
+timestamp is needed for the "updated Xm ago" freshness signal and for deterministic
+stale-on-error, which Next's opaque cache doesn't expose; (3) the Supabase cache is strictly
+server-side + RLS-locked, satisfying "PII list responses cache server-side only — never
+CDN/edge/browser." Tag-based invalidation is replaced by `force` re-fetch + the fact that any
+filter/date change yields a new cache key.
+
+**`cachedFetch` (`lib/olivia/cache.ts`)** — every service call flows through it:
+- Cache key = `clientId::endpoint::stableParams` — includes client_id + endpoint + every param;
+  a cached value can never be served to another client_id (tenant isolation).
+- Per-endpoint tiers: overview/timeseries/funnel/outcomes = fresh 60s / stale +5m;
+  agents/campaigns = 120s / +10m; leads/calls/conversations = 30s / +60s; discovery = 1h / +24h.
+- `fresh` window → served from cache, no upstream call.
+- stale/expired/force → single-flight refresh (`try_acquire_lock`) + a rate token
+  (`consume_rate_token`); concurrent callers await the holder's result or serve stale.
+- **Stale-on-error**: upstream error or governor-block → serve last-known-good; error only when
+  there is no cached value at all.
+- Freshness: returns `WithFreshness<T>` = `{ data, freshness: { fetchedAt, stale } }`.
+
+**Governance** (`lib/olivia/governor.ts` + SQL in `response_cache`/`api_rate_state`/`request_locks`):
+- Rate governor: token bucket, **500/min** (margin under Olivia's 600/min-per-key), cross-instance
+  via atomic SQL refill+decrement (`for update`). Proven: 510 requests → exactly 500 granted.
+- Single-flight: `try_acquire_lock` / `release_lock` (20s TTL). Proven: acquire→deny→release→acquire.
+- Helper functions revoked from `anon`/`authenticated` (service-role only).
+
+**Parallel fan-out** is enabled (`Promise.all` over service calls in Phase 6 pages — concurrent,
+never serial).
+
+**Manual refresh:** the `force` capability exists in the service layer, but **no refresh button is
+added** — the imported design has no such control, and the brief says wire only to controls present
+in the design. Date-range/campaign/pagination changes already produce new cache keys → fresh data.
+
+**Verification:** the atomic governor + lock primitives are proven via direct SQL (above);
+`cachedFetch` composition is typechecked + reviewed; full concurrent end-to-end behaviour is
+verified on the live deploy (Phases 9–10).
