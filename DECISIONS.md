@@ -302,3 +302,24 @@ login-round-trip check.
   `CRON_SECRET`), so the cron isn't redirected to `/login`.
 - `.env.example` documents `SNAPSHOTS_ENABLED` / `CRON_SECRET` (both off).
 - **Not activated.**
+
+## Phase 9 — Deploy to Vercel (done, verified live)
+
+- Linked to Vercel project **emma-dashboard** (`prj_pArNAVfSA7hDzxySPyfW7eEXat7D`) under team
+  **Impero Agency LLC** (`lunar-growth`). `.vercel/` is gitignored.
+- **Env vars**: all five present in Production + Preview (the user had pre-set these on the
+  project; my add attempts reported "already exists") and added to Development by the seed step.
+  `OLIVIA_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY` are server-only; `OLIVIA_API_BASE`,
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` round out the set.
+- **Cron** registered via `vercel.json` → `/api/cron/snapshot` (disabled no-op).
+- **Production deploy green**: `READY` at https://emma-dashboard-blue.vercel.app (build ~35s).
+- **Verified on production**:
+  - `/` and `/dashboard` (unauth) → `307` → `/login`; `/login` → `200` (renders).
+  - `/api/cron/snapshot` → `{status:"disabled"}`.
+  - **Authenticated `/dashboard`** (seeded `demo@heyemma.io` session) → `200`, renders the live
+    workspace name "000. Emma Test Funnel", KPI labels, and the sidebar nav — i.e. one workspace
+    renders live, scoped to the session's client.
+  - **No server secret in the client bundle**: the production bundle (9 chunks, 476 KB) and a local
+    comprehensive `.next/static` scan both show **0** occurrences of `oa_live` / the Olivia key /
+    the service-role key.
+- Removed the unused browser Supabase client (`lib/supabase/client.ts`) — all auth is server-side.
