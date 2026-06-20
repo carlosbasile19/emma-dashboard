@@ -83,6 +83,11 @@ export type CallDirection = "inbound" | "outbound";
 export type BadgeKind = "lead" | "call" | "disp" | "booking" | "campaign" | "source";
 
 // ---- Workspace ----
+export interface WorkspaceClient {
+  id: string;
+  name: string;
+}
+
 export interface Workspace {
   clientId: string;
   name: string;
@@ -95,6 +100,10 @@ export interface Workspace {
   /** Initials shown in the sidebar avatar. */
   initials?: string | null;
   role?: string | null;
+  /** True for platform admins (can switch across all agency clients). */
+  isAdmin?: boolean;
+  /** Clients selectable in the workspace switcher (admins: all; members: just their own). */
+  clients?: WorkspaceClient[];
 }
 
 // ---- Period / filters ----

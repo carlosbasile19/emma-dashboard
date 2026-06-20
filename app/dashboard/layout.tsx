@@ -39,7 +39,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
             <div className="sticky top-0 z-20 h-[57px] border-b border-ink/10 bg-warm/85 backdrop-blur-[10px]" />
           }
         >
-          <Header workspaceName={ws.name} campaignOptions={campaignOptions} />
+          <Header
+            workspaceName={ws.name}
+            campaignOptions={campaignOptions}
+            isAdmin={ws.isAdmin}
+            clients={ws.clients}
+            activeClientId={ws.clientId}
+          />
         </Suspense>
         <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">{children}</main>
       </div>

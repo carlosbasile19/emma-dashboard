@@ -2,7 +2,9 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
+import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
 import { NAV_ITEMS, SCREEN_TITLES, type NavKey } from "@/lib/design";
+import type { WorkspaceClient } from "@/lib/types";
 
 export interface CampaignOption {
   value: string;
@@ -26,9 +28,15 @@ function titleFor(pathname: string): string {
 export function Header({
   workspaceName,
   campaignOptions,
+  isAdmin = false,
+  clients,
+  activeClientId,
 }: {
   workspaceName: string;
   campaignOptions: CampaignOption[];
+  isAdmin?: boolean;
+  clients?: WorkspaceClient[];
+  activeClientId?: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -60,9 +68,13 @@ export function Header({
           <h1 className="m-0 text-[21px] font-bold tracking-[-0.02em]">
             {titleFor(pathname)}
           </h1>
-          <span className="rounded-[6px] border border-lavender-deep bg-lavender px-2 py-0.5 font-mono text-[11px] text-muted">
-            {workspaceName}
-          </span>
+          {isAdmin && clients && clients.length > 0 && activeClientId ? (
+            <WorkspaceSwitcher clients={clients} activeClientId={activeClientId} />
+          ) : (
+            <span className="rounded-[6px] border border-lavender-deep bg-lavender px-2 py-0.5 font-mono text-[11px] text-muted">
+              {workspaceName}
+            </span>
+          )}
         </div>
       </div>
 

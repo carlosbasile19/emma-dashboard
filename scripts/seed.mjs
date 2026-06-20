@@ -27,6 +27,8 @@ const {
 const SEED_EMAIL = process.env.SEED_USER_EMAIL || "demo@heyemma.io";
 const SEED_PASSWORD = process.env.SEED_USER_PASSWORD || `Emma-${randomBytes(9).toString("base64url")}`;
 const SEED_CLIENT_ID = process.env.SEED_CLIENT_ID || "01b1fb8e-2b65-4330-8f0d-ed631afa03bf";
+// "member" (default) or "platform_admin" (can switch across all agency clients).
+const SEED_ROLE = process.env.SEED_USER_ROLE || "member";
 
 function need(name, val) {
   if (!val) {
@@ -106,12 +108,15 @@ if (created.error) {
 // ---- map user -> client ----
 const { error: mapErr } = await admin
   .from("workspace_members")
-  .upsert({ user_id: userId, olivia_client_id: SEED_CLIENT_ID }, { onConflict: "user_id" });
+  .upsert(
+    { user_id: userId, olivia_client_id: SEED_CLIENT_ID, role: SEED_ROLE },
+    { onConflict: "user_id" },
+  );
 if (mapErr) {
   console.error("workspace_members mapping failed:", mapErr.message);
   process.exit(1);
 }
-console.log(`✓ Mapped ${SEED_EMAIL} -> client ${SEED_CLIENT_ID}`);
+console.log(`✓ Mapped ${SEED_EMAIL} -> client ${SEED_CLIENT_ID} (role: ${SEED_ROLE})`);
 
 writeFileSync(
   ".seed-credentials.txt",
