@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { beginBrief, endBrief } from "@/app/auth/actions";
 import { tint } from "@/lib/design";
 import type { BriefCategory, BriefItem } from "@/lib/overview";
 
@@ -35,12 +36,21 @@ const Wave = ({ count, h, w }: { count: number; h: number; w: number }) => (
   </span>
 );
 
-export function BriefEmma({ items, rangeLabel }: { items: BriefItem[]; rangeLabel: string }) {
+export function BriefEmma({
+  items,
+  rangeLabel,
+  range,
+}: {
+  items: BriefItem[];
+  rangeLabel: string;
+  range: string;
+}) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("form");
   const [focus, setFocus] = useState<Focus>("all");
   const [callId, setCallId] = useState("");
   const [liveIdx, setLiveIdx] = useState(0);
+  const [briefingId, setBriefingId] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -48,11 +58,13 @@ export function BriefEmma({ items, rangeLabel }: { items: BriefItem[]; rangeLabe
   const countLabel = `${filtered.length} item${filtered.length === 1 ? "" : "s"}`;
 
   function close() {
+    if (briefingId) endBrief(briefingId).catch(() => {});
     if (timer.current) clearTimeout(timer.current);
     if (ticker.current) clearInterval(ticker.current);
     setOpen(false);
     setStep("form");
     setLiveIdx(0);
+    setBriefingId(null);
   }
 
   function start() {
@@ -60,6 +72,18 @@ export function BriefEmma({ items, rangeLabel }: { items: BriefItem[]; rangeLabe
     setCallId(`BR-${Math.floor(1000 + Math.random() * 8999)}`);
     setLiveIdx(0);
     setStep("connecting");
+    // Attempt the real Olivia briefing bridge. Until it's enabled this resolves to a
+    // simulated session and the local walkthrough below carries the UX.
+    beginBrief(range, focus)
+      .then((s) => {
+        if (s.briefingId) {
+          setBriefingId(s.briefingId);
+          setCallId(s.briefingId);
+        }
+        // TODO(briefing-bridge): when s.mode === "live" && s.realtime, connect the realtime
+        // voice provider (s.realtime.{provider,url,token}) so the user actually hears Emma.
+      })
+      .catch(() => {});
   }
 
   // connecting → live

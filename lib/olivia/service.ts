@@ -1,7 +1,7 @@
 import "server-only";
 import { getSessionClientId } from "@/lib/auth";
 import * as api from "./api";
-import type { DateParams, LeadsParams, PageParams } from "./api";
+import type { BriefRealtime, DateParams, LeadsParams, PageParams } from "./api";
 import { cachedFetch, TIERS } from "./cache";
 import type {
   Agent,
@@ -161,4 +161,41 @@ export async function fetchConversations(
     force: opts.force,
     fetcher: () => api.getConversations(clientId, params),
   });
+}
+
+// ---- Briefing bridge ----
+// Flag-gated and graceful: until OLIVIA_BRIEFING_ENABLED=true AND the backend ships the
+// endpoint, this returns { mode: "simulated" } and the dashboard runs its local walkthrough.
+// The moment the backend is live, flip the flag and live realtime creds flow through.
+export interface BriefSession {
+  mode: "live" | "simulated";
+  briefingId?: string;
+  realtime?: BriefRealtime;
+}
+
+const briefingEnabled = () => process.env.OLIVIA_BRIEFING_ENABLED === "true";
+
+export async function startBriefing(
+  params: DateParams,
+  focus: string,
+): Promise<BriefSession> {
+  if (!briefingEnabled()) return { mode: "simulated" };
+  const clientId = await getSessionClientId();
+  try {
+    const r = await api.startBriefing(clientId, { ...params, focus, voice: true });
+    return { mode: "live", briefingId: r.briefing_id, realtime: r.realtime };
+  } catch {
+    // backend not ready / errored → fall back to the simulated walkthrough
+    return { mode: "simulated" };
+  }
+}
+
+export async function endBriefing(briefingId: string): Promise<void> {
+  if (!briefingEnabled() || !briefingId) return;
+  try {
+    const clientId = await getSessionClientId();
+    await api.endBriefing(clientId, briefingId);
+  } catch {
+    /* best effort */
+  }
 }

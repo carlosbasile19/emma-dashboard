@@ -12,6 +12,10 @@ export type QueryParams = Record<string, QueryValue>;
 
 export interface OliviaFetchOptions {
   params?: QueryParams;
+  /** Defaults to GET. POST is used only for the (future) briefing action endpoint. */
+  method?: "GET" | "POST";
+  /** JSON request body for POST. */
+  body?: unknown;
   /** Max 429 retries (honoring Retry-After). Default 2. */
   maxRetries?: number;
   signal?: AbortSignal;
@@ -46,8 +50,13 @@ export async function oliviaFetch<T>(
     let res: Response;
     try {
       res = await fetch(url, {
-        method: "GET",
-        headers: { "x-api-key": key, accept: "application/json" },
+        method: opts.method ?? "GET",
+        headers: {
+          "x-api-key": key,
+          accept: "application/json",
+          ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         signal: opts.signal,
         // server-to-server; no credentials/CORS
         ...(opts.next ? { next: opts.next } : { cache: "no-store" }),

@@ -167,3 +167,49 @@ export async function getConversations(
   }));
   return { items, total: r.total, page: r.page, limit: r.limit };
 }
+
+// ---- Briefing bridge (server-to-server action; see docs/olivia-briefing-bridge.md) ----
+export interface BriefRealtime {
+  provider: string;
+  url: string;
+  token: string;
+  room?: string;
+  expires_at?: string;
+}
+export interface BriefAgendaItem {
+  id: string;
+  category: string;
+  title: string;
+  detail?: string;
+  priority?: number;
+}
+export interface BriefingResponse {
+  briefing_id: string;
+  client_id: string;
+  status: string;
+  agenda?: BriefAgendaItem[];
+  realtime?: BriefRealtime;
+}
+
+export interface StartBriefingBody {
+  from?: string;
+  to?: string;
+  tz?: string;
+  focus?: string;
+  voice?: boolean;
+}
+
+export function startBriefing(clientId: string, body: StartBriefingBody, h: Hints = {}) {
+  return oliviaFetch<BriefingResponse>(`${ANALYTICS}/clients/${cid(clientId)}/briefings`, {
+    method: "POST",
+    body,
+    ...h,
+  });
+}
+
+export function endBriefing(clientId: string, briefingId: string, h: Hints = {}) {
+  return oliviaFetch<{ status: string }>(
+    `${ANALYTICS}/clients/${cid(clientId)}/briefings/${encodeURIComponent(briefingId)}/end`,
+    { method: "POST", ...h },
+  );
+}

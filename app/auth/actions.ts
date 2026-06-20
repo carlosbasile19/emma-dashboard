@@ -3,6 +3,12 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACTIVE_CLIENT_COOKIE, getSessionContext } from "@/lib/auth";
+import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
+import {
+  type BriefSession,
+  endBriefing as svcEndBriefing,
+  startBriefing as svcStartBriefing,
+} from "@/lib/olivia/service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -94,4 +100,19 @@ export async function setActiveClient(formData: FormData) {
     maxAge: 60 * 60 * 24 * 365,
   });
   redirect("/dashboard");
+}
+
+/**
+ * Start a briefing for the session's client over the current date window. Returns a live
+ * session (with realtime join creds) when the Olivia briefing bridge is enabled, otherwise a
+ * { mode: "simulated" } result so the dashboard runs its local walkthrough.
+ */
+export async function beginBrief(range: string, focus: string): Promise<BriefSession> {
+  const ctx = await getSessionContext();
+  const period = rangeToPeriod(parseRange(range), ctx.activeClientTimezone ?? DEFAULT_TZ);
+  return svcStartBriefing(period, focus);
+}
+
+export async function endBrief(briefingId: string): Promise<void> {
+  await svcEndBriefing(briefingId);
 }

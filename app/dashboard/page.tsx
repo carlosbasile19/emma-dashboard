@@ -69,7 +69,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               Emma picked up, called back and followed through on every channel. Here’s the
               period at a glance.
             </div>
-            <BriefEmma items={briefItems} rangeLabel={rangeLabel} />
+            <BriefEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
           </div>
           <div className="flex gap-[30px] font-mono">
             <HeroStat value={pct(k.pickup_rate)} label="pickup rate" />
