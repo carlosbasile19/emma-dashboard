@@ -163,6 +163,18 @@ export function buildBriefItems(ov: Overview, campaigns: Campaign[]): BriefItem[
     });
   }
 
+  const fresh = s.new ?? 0;
+  if (fresh > 0) {
+    items.push({
+      id: "new",
+      category: "leads",
+      title: `${num(fresh)} new lead${fresh === 1 ? "" : "s"} to work`,
+      sub: "Fresh leads waiting for first contact.",
+      tag: "New",
+      color: "#2E86F2",
+    });
+  }
+
   const chase = (s.contacted ?? 0) + (s.qualified ?? 0);
   if (chase > 0) {
     items.push({
