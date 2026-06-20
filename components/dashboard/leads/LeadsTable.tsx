@@ -151,7 +151,10 @@ export function LeadsTable({
                   <Badge kind="source" value={r.source} />
                 </div>
                 <div className="truncate text-[12.5px] text-muted">{r.agent ?? "—"}</div>
-                <div className="text-right font-mono text-[11.5px] text-muted">
+                <div
+                  className="text-right font-mono text-[11.5px] text-muted"
+                  suppressHydrationWarning
+                >
                   {relTime(r.updated_at)}
                 </div>
               </div>

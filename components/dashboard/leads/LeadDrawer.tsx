@@ -90,7 +90,9 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () =
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[13px] text-muted">Last updated</span>
-              <span className="font-mono text-[13px]">{relTime(lead.updated_at)}</span>
+              <span className="font-mono text-[13px]" suppressHydrationWarning>
+                {relTime(lead.updated_at)}
+              </span>
             </div>
           </div>
 
@@ -110,7 +112,10 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () =
                 <span className="mt-[5px] h-2 w-2 flex-none rounded-full bg-violet" />
                 <div>
                   <div className="text-[13.5px]">{lead.activity}</div>
-                  <div className="mt-0.5 font-mono text-[11px] text-muted">
+                  <div
+                    className="mt-0.5 font-mono text-[11px] text-muted"
+                    suppressHydrationWarning
+                  >
                     {relTime(lead.updated_at)}
                   </div>
                 </div>

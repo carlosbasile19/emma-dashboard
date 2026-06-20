@@ -174,7 +174,12 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
   return (
     <div>
       <div className="mb-1 text-[11px] text-muted">{label}</div>
-      <div className={`text-[13.5px] ${mono ? "font-mono" : "font-medium"}`}>{value}</div>
+      <div
+        className={`text-[13.5px] ${mono ? "font-mono" : "font-medium"}`}
+        suppressHydrationWarning
+      >
+        {value}
+      </div>
     </div>
   );
 }
