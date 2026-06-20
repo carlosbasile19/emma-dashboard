@@ -285,3 +285,20 @@ SOLVI, is invisible) — workspace isolation **PASS**. This also satisfies Phase
 login-round-trip check.
 
 **No self-serve agency-admin UI in v1** — re-run `scripts/seed.mjs` to (re)provision clients/users.
+
+## Phase 8 — Snapshot seam (scaffolded, OFF)
+
+- `daily_snapshots` table already exists (Phase 3).
+- `app/api/cron/snapshot/route.ts` — the cron entrypoint, **disabled by default**: returns
+  `{status:"disabled"}` unless `SNAPSHOTS_ENABLED=true`. When enabled it requires `CRON_SECRET`
+  (Vercel cron `Authorization: Bearer …`) and runs `runDailySnapshots()`.
+- `lib/olivia/snapshots.ts` (inactive): `captureDailySnapshot` (per client/day — only *today's*
+  row is ever rewritten, so closed days are immutable), `runDailySnapshots` (iterate
+  `olivia_clients`), and `getSnapshotHistory` — the read seam so a future "history from snapshots
+  + today live" path composes without refactoring (same domain types as the live path).
+- `vercel.json` registers the cron at `/api/cron/snapshot`, daily `5 0 * * *` (UTC) — a harmless
+  no-op until activated. Chose `vercel.json` over `vercel.ts` for zero-dependency simplicity.
+- `middleware.ts` matcher now excludes `/api` (API routes self-authenticate; the cron uses
+  `CRON_SECRET`), so the cron isn't redirected to `/login`.
+- `.env.example` documents `SNAPSHOTS_ENABLED` / `CRON_SECRET` (both off).
+- **Not activated.**
