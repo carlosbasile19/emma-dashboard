@@ -405,3 +405,39 @@ non-admins strictly isolated.
 - **Verified in a real headless browser** (admin / SOLVI, 1,902 leads): completed-call drawer +
   recording player, conversations tab + drill-down, and leads drill-down — **all 0 client errors**.
   (Playwright was used only to capture the error and removed afterward.)
+
+## Design update 2: landing page, magic-link login, Brief Emma
+
+Re-pulled the claude.ai design (new `Emma Landing.dc.html`, brief flow, magic-link login).
+
+### Landing page (public `/`)
+- `app/page.tsx` is now the public marketing landing (was a redirect to `/dashboard`). Indexable
+  (`robots: index` overriding the layout's noindex). `middleware` makes `/` public; Sign-in / CTAs
+  point to `/login`. Verified: `/` → 200, public.
+
+### Magic-link login (passwordless)
+- `LoginForm`: email → "Email me a magic link" → "Check your inbox" (Resend / use a different email).
+  Uses `signInWithOtp({ shouldCreateUser: false, emailRedirectTo: <origin>/auth/callback })`.
+- `app/auth/callback/route.ts` exchanges the link (PKCE `code` or `token_hash`) for a session →
+  `/dashboard`; failures → `/login?error=link`.
+- **Password grant is kept at the Supabase API level as a fallback** (no UI) — the seeded users still
+  have passwords, so access isn't lost if email delivery has issues.
+- **⚠ REQUIRED one-time Supabase config (dashboard) for magic links to complete:**
+  Authentication → URL Configuration → **Site URL** = `https://emma-dashboard-blue.vercel.app`;
+  **Redirect URLs** add `https://emma-dashboard-blue.vercel.app/auth/callback` (and
+  `http://localhost:3000/auth/callback` for dev). Without it the link redirects to the default Site
+  URL and won't sign in. Supabase's built-in auth email is also rate-limited — add custom SMTP for
+  production volume. (These are GoTrue/project settings not reachable via the MCP/CLI.)
+- Verified: login renders the magic-link UI; `signInWithOtp` is accepted (OTP enabled; non-provisioned
+  emails return "Signups not allowed" — secure, no auto-signup / enumeration via success).
+
+### Brief Emma
+- "Brief Emma" button on the overview hero → modal: **form → connecting → live** web-call
+  walkthrough. Brief items are derived from **real data** (`buildBriefItems`: new / booked /
+  in-progress / converted leads + active campaigns); focus filter (Everything / Bookings / Leads /
+  Campaigns); window = the current dashboard range. Campaigns are fetched alongside the overview and
+  fail-soft (don't break the page).
+- The "web call" is a faithful **UI simulation** (matching the design) — an actual voice brief needs a
+  voice backend, which the read-only Olivia API does not provide.
+- Fixed an empty-brief case: "new leads to work" is now included (SOLVI's leads are all `new`).
+  Verified end-to-end in a browser: button → form → connecting → live, **0 errors**.
