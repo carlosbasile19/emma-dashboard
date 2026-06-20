@@ -385,3 +385,23 @@ non-admins strictly isolated.
 - **Verified live on production (all pass):** admin sees the switcher + both clients, default active
   = SOLVI, switching to Test Funnel works; member has no switcher, sees only their client, and a
   tampered `emma-active-client` cookie is ignored (isolation holds).
+
+## Post-launch fix: `{raw}`-wrapped transcript (Calls & Conversations crash)
+
+- **Symptom:** opening a **completed call** in the Calls & Conversations view crashed into the
+  dashboard error boundary ("Something went wrong"). Server SSR returned 200; the crash was
+  client-side (React error **#31** — "object with keys {raw}").
+- **Root cause:** the **live** Olivia API returns `call.transcript` as **`{ raw: "…" }`** (an object),
+  not the plain string that `docs/olivia-external-api.md` §6.8 documents. `CallDrawer` rendered
+  `{call.transcript}` → React cannot render an object child → crash. (Real SOLVI data also has
+  `started_at`/`duration_seconds`/`recording_url`/`transcript`/`callback_notes` null on no-answer
+  calls — those were already null-guarded.)
+- **Fix:** normalize any `{raw}`-wrapped text field to `string|null` at the proxy boundary
+  (`lib/olivia/api.ts` → `flatText`), applied to call `transcript` + `callback_notes` and conversation
+  `summary`. Cleared `response_cache` so previously-cached object-shaped payloads re-fetch normalized.
+- **Doc discrepancy:** the source doc says `transcript` is a string; the live API wraps it in `{raw}`.
+  The proxy adapts to the real shape.
+- **Also fixed earlier:** hydration-safe relative timestamps (`suppressHydrationWarning`).
+- **Verified in a real headless browser** (admin / SOLVI, 1,902 leads): completed-call drawer +
+  recording player, conversations tab + drill-down, and leads drill-down — **all 0 client errors**.
+  (Playwright was used only to capture the error and removed afterward.)
