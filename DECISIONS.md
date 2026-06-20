@@ -173,3 +173,28 @@ review/revoke rather than modifying a DB object we didn't create.
 
 **Note.** Generated Supabase TS types were not added; server queries use explicit casts. Can be
 added later via the MCP if stricter DB typing is wanted.
+
+## Phase 4 — Olivia proxy layer (done, server-only)
+
+`lib/olivia/`:
+- `errors.ts` — `OliviaError` + machine codes (`unauthorized` / `forbidden_scope` /
+  `client_not_found` / `invalid_date_range` / `invalid_timezone` / `date_range_too_large` /
+  `internal_error` / `rate_limited` / `network_error`).
+- `client.ts` — `oliviaFetch` (`server-only`): sets `x-api-key`, builds query, retries 429
+  honoring `Retry-After` (+ jitter), throws typed errors; `no-store` by default with optional
+  `next: { revalidate, tags }` cache hints for Phase 5.
+- `api.ts` — typed functions for the two trees: `discoverClients` (`/api/v1/external/clients`)
+  and the 9 analytics endpoints (`/api/external/v1/clients/{clientId}/…`). List endpoints
+  normalized to `ListResponse<T>`; `/campaigns` takes no date params (lifetime-to-date, §6.6).
+- `service.ts` — the ONLY frontend-facing surface. Every function derives `client_id` from
+  `getSessionClientId()`; the browser can never choose the client. PII fields stay optional /
+  null-guarded throughout (`Lead`/`Call`/`Conversation` types).
+
+**Verified live** against `https://www.lunarolivia.com`: discovery → HTTP 200 (2 clients);
+`/overview` → HTTP 200 with a shape matching the `Overview` type exactly. `dashboard:pii` was
+inconclusive (the test client has 0 leads); the UI null-guards PII regardless.
+
+**Discovered clients (for Phase 7 provisioning):**
+- `9c6d445a-4d4a-465b-aca7-b8108083e529` — "001. SOLVI" (Europe/London)
+- `01b1fb8e-2b65-4330-8f0d-ed631afa03bf` — "000. Emma Test Funnel" (Australia/Sydney) ← will
+  map the seeded test user to this client.
