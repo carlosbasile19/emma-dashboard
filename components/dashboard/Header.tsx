@@ -68,7 +68,7 @@ export function Header({
           <h1 className="m-0 text-[21px] font-bold tracking-[-0.02em]">
             {titleFor(pathname)}
           </h1>
-          {isAdmin && clients && clients.length > 0 && activeClientId ? (
+          {isAdmin && clients && clients.length > 1 && activeClientId ? (
             <WorkspaceSwitcher clients={clients} activeClientId={activeClientId} />
           ) : (
             <span className="rounded-[6px] border border-lavender-deep bg-lavender px-2 py-0.5 font-mono text-[11px] text-muted">

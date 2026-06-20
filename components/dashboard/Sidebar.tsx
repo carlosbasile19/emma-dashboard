@@ -16,7 +16,7 @@ function isActive(pathname: string, href: string): boolean {
 export function Sidebar({
   workspace,
 }: {
-  workspace: Pick<Workspace, "name" | "user" | "initials" | "role">;
+  workspace: Pick<Workspace, "name" | "user" | "initials" | "role" | "isAdmin">;
 }) {
   const pathname = usePathname();
   return (
@@ -60,8 +60,17 @@ export function Sidebar({
           {workspace.initials ?? "–"}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium">{workspace.user ?? "—"}</div>
-          <div className="truncate text-[11px] text-muted">{workspace.role ?? ""}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-medium">{workspace.user ?? "—"}</span>
+            {workspace.isAdmin ? (
+              <span className="bg-gradient-brand flex-none rounded-[5px] px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-white">
+                Admin
+              </span>
+            ) : null}
+          </div>
+          <div className="truncate text-[11px] text-muted">
+            {workspace.isAdmin ? "Platform admin" : "Member"}
+          </div>
         </div>
         <form action={signOut}>
           <button
