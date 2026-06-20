@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { signOut } from "@/app/auth/actions";
 import { LogoWordmark } from "@/components/brand/Logo";
 import { NavIcon } from "@/components/dashboard/nav-icons";
 import { NAV_GROUPS, NAV_ITEMS } from "@/lib/design";
@@ -14,15 +15,10 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar({
   workspace,
-  onSignOut,
 }: {
   workspace: Pick<Workspace, "name" | "user" | "initials" | "role">;
-  onSignOut?: () => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  // Phase 3 replaces this with a real Supabase sign-out (POST /auth/signout).
-  const handleSignOut = onSignOut ?? (() => router.push("/login"));
   return (
     <aside className="sticky top-0 flex h-screen w-[248px] flex-none flex-col border-r border-ink/10 bg-white px-[14px] py-5">
       <div className="px-2 pb-[18px] pt-1.5">
@@ -67,26 +63,28 @@ export function Sidebar({
           <div className="truncate text-[13px] font-medium">{workspace.user ?? "—"}</div>
           <div className="truncate text-[11px] text-muted">{workspace.role ?? ""}</div>
         </div>
-        <button
-          onClick={handleSignOut}
-          title="Sign out"
-          className="cursor-pointer rounded-[8px] p-1.5 text-muted transition-colors hover:bg-lavender"
-        >
-          <svg
-            width="17"
-            height="17"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <form action={signOut}>
+          <button
+            type="submit"
+            title="Sign out"
+            className="cursor-pointer rounded-[8px] p-1.5 text-muted transition-colors hover:bg-lavender"
           >
-            <path d="M8 17H5a2 2 0 01-2-2V5a2 2 0 012-2h3" />
-            <path d="M13 14l4-4-4-4" />
-            <path d="M17 10H8" />
-          </svg>
-        </button>
+            <svg
+              width="17"
+              height="17"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 17H5a2 2 0 01-2-2V5a2 2 0 012-2h3" />
+              <path d="M13 14l4-4-4-4" />
+              <path d="M17 10H8" />
+            </svg>
+          </button>
+        </form>
       </div>
     </aside>
   );

@@ -132,3 +132,44 @@ exists (calls, pickup rate, bookings, spend) and omitted otherwise — no invent
 **Build fix.** Wrapped `<Header>` (uses `useSearchParams`) in `<Suspense>` in the dashboard
 layout so statically-prerendered views (e.g. `/dashboard/design`) don't hit the CSR-bailout
 error. `npm run build` green — 17 routes.
+
+## Phase 3 — Supabase backend, auth & RLS (done)
+
+**Migrations** (applied via the Supabase MCP, also saved in `supabase/migrations/`):
+`emma_core_schema` (the 5 tables: `workspace_members`, `olivia_clients`, `daily_snapshots`,
+`api_rate_state`, `request_locks`) and `emma_rls_policies`.
+
+**RLS model.** All 5 tables have RLS enabled.
+- `workspace_members` — SELECT own row (`user_id = auth.uid()`); writes service-role only.
+- `olivia_clients` — SELECT only the row the caller is mapped to; writes service-role only.
+- `daily_snapshots` / `api_rate_state` / `request_locks` — RLS on, **no policies** (deny all
+  non-service-role). The three `rls_enabled_no_policy` advisor INFOs are intentional (these are
+  server-only tables).
+
+**RLS verified behaviourally** (transaction, rolled back): anonymous sees 0, an authenticated
+but unmapped user sees 0 (foreign client unreachable), and the mapped user sees exactly their
+own client + their own membership row. The `user_id` FK to `auth.users` is enforced.
+
+**Auth wiring.**
+- `@supabase/ssr` clients: `lib/supabase/server.ts` (RSC/actions, request-cookie bound),
+  `client.ts` (browser), `middleware.ts` (session refresh), and `admin.ts` (service-role,
+  `server-only`, bypasses RLS — for Phases 5/7/8).
+- Root `middleware.ts` calls `updateSession` to refresh the session and gate routes: public =
+  `/login` + `/auth/*`; everything else requires a session (unauth → `/login`, authed on
+  `/login` → `/dashboard`). `getUser()` (not `getSession`) validates the JWT server-side.
+- `getSessionClientId()` (`lib/auth.ts`) is the single source of tenant identity: validate
+  session → `workspace_members` → `olivia_client_id`, throwing `AuthError(401)` (no session) /
+  `AuthError(403)` (no mapping). `getWorkspace()` builds the chrome's workspace from the session.
+- Email/password sign-in/out via server actions (`app/auth/actions.ts`); `LoginForm` uses
+  `useActionState`; the sidebar sign-out posts the `signOut` action.
+
+**Login round-trip** is verified end-to-end in Phase 7, once a real user is seeded (no users
+exist yet). The flow is fully wired.
+
+**Pre-existing advisory (not from this build).** The security advisor flags
+`public.rls_auto_enable()` — a `SECURITY DEFINER` function callable by `anon`/`authenticated`.
+It predates this work and is unrelated to Emma; left untouched and surfaced to the user to
+review/revoke rather than modifying a DB object we didn't create.
+
+**Note.** Generated Supabase TS types were not added; server queries use explicit casts. Can be
+added later via the MCP if stricter DB typing is wanted.
