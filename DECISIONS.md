@@ -82,3 +82,53 @@ and `node_modules`. No `shipfast` string in product code.
   with Emma branding assets when provided; left in place rather than deleted to avoid a missing-icon build.
 - The only remaining `shipfast` string in the repo is in **this file** (the required removal record).
   Phase 10's `grep -ri shipfast` is therefore scoped to application files, excluding this build log.
+
+## Phase 2 — Import & implement the design (done)
+
+**Import method.** The design lives at the claude.ai/design project `0d1c71dd-…` ("Emma
+Dashboard"). The Vercel plugin's `import-claude-design-from-url` needs a *public* file URL
+(claude.ai is auth-gated), so it could not fetch it. Used the **`DesignSync` MCP**
+(authorized via `/design-login`) to read `Emma Dashboard.dc.html` (the `.dc.html` is a
+template-engine bundle: `<sc-if>`/`<sc-for>`/`{{ }}` driven by `support.js`) plus the
+brand kit, and re-implemented it as React + plain Tailwind. The design file is a build
+input, not committed.
+
+**Tokens.** All design tokens wired into Tailwind v4 `@theme` in `app/globals.css`
+(verified present in the compiled CSS): warm `#F7F5F2`, ink `#1A2B2E`, muted `#5C6B6D`,
+violet `#6D4AFF`, pink `#FF3D77`, violet-light `#A48BFF`, lavender `#ECEAF7` /
+lavender-deep `#C9C2E8`, surface/surface-tint, semantic success/warning/danger/info, an
+8-color chart palette, radii sm/md/lg/xl, shadows sm/md/lg/ink, fonts Space Grotesk +
+Space Mono, and the 100deg violet→pink gradient. Data-driven colors (badge accents, chart
+segments) are applied as inline styles (the value→color map is dynamic); all static chrome
+uses token utilities.
+
+**Routes = 9 views + login.** `/login`; `/dashboard` (overview), `/dashboard/trends`,
+`/dashboard/funnel`, `/dashboard/outcomes`, `/dashboard/agents`, `/dashboard/campaigns`,
+`/dashboard/leads`, `/dashboard/log` (calls & conversations), `/dashboard/design` (the
+design-system reference — the 9th view). Persistent sidebar nav (Analytics / Performance /
+Records / Reference) + sticky header with the global date-range (7d/30d/90d) and campaign
+filter (both URL-param driven). Loading (skeleton) / empty / error states built for every
+data view (`components/ui/states/*` + `lib/copy.ts`), plus lead and call drill-down drawers.
+
+**Charts via Recharts** (per the stack): `Sparkline`, `TrendChart` (area+gradient), `Donut`
+(with track ring) — styled to match the hand-rolled SVG in the design.
+
+**Data layer.** Placeholder data (`lib/sample-data.ts`) is shaped as the Olivia domain
+types (`lib/types.ts`). Pages compose view-models from those domain objects, so Phase 6
+swaps the source (sample → live proxy) without touching components.
+
+**Intentionally excluded design-tool artifacts** (not real product UI):
+- The **"Preview state" switcher** (live/loading/empty/error toggle) — real states come
+  from the fetch lifecycle in Phase 6, not a manual control.
+- The login **"preview: default/error"** buttons.
+- The **Agency Console** sidebar link → `Emma Console.dc.html` — agency-admin UI is out of
+  v1 scope (Phase 7 provisioning is a seed/admin route, no self-serve console).
+
+**KPI deltas.** The overview cards show period-over-period deltas computed from a previous
+equal-length period (`buildKpiCards` in `lib/overview.ts`). Phase 6 supplies the real
+previous-period `/overview`; sparklines are derived from `/timeseries` where a daily series
+exists (calls, pickup rate, bookings, spend) and omitted otherwise — no invented series.
+
+**Build fix.** Wrapped `<Header>` (uses `useSearchParams`) in `<Suspense>` in the dashboard
+layout so statically-prerendered views (e.g. `/dashboard/design`) don't hit the CSR-bailout
+error. `npm run build` green — 17 routes.

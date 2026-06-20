@@ -2,41 +2,94 @@
 
 /*
  * Emma design tokens (Tailwind v4 `@theme`). DaisyUI removed — plain Tailwind only.
- * Color tokens become utilities automatically: e.g. `bg-warm`, `text-ink`, `text-violet`.
+ * Sourced from the imported "Emma Dashboard" design + Skilled Coaching brand kit.
+ * Color tokens become utilities automatically: e.g. `bg-warm`, `text-ink`, `text-violet`,
+ * `border-ink/10` (hairline). Radius/shadow tokens map to `rounded-*` / `shadow-*`.
  */
 @theme {
-  /* Brand palette */
-  --color-warm: #f7f5f2; /* warm-neutral surface */
-  --color-ink: #1a2b2e; /* primary text */
-  --color-violet: #6d4aff;
-  --color-pink: #ff3d77;
-  --color-violet-light: #a48bff;
-  --color-lavender: #eceaf7;
-  --color-lavender-deep: #c9c2e8;
+  /* Foundation */
+  --color-warm: #f7f5f2; /* page background — the calm field */
+  --color-ink: #1a2b2e; /* primary text, hero & footer surfaces */
+  --color-muted: #5c6b6d; /* secondary copy, captions */
+  --color-surface: #ffffff;
+  --color-surface-tint: #fbfaf8;
 
-  /* Fonts — CSS variables are provided by next/font in app/layout.tsx */
+  /* The pops */
+  --color-violet: #6d4aff; /* primary — CTAs, interactive */
+  --color-pink: #ff3d77; /* accent — one pop per view */
+  --color-violet-light: #a48bff; /* text/links on dark only */
+
+  /* Lavender family */
+  --color-lavender: #eceaf7; /* card tints, zebra, chart bands */
+  --color-lavender-deep: #c9c2e8; /* borders & dividers on lavender */
+
+  /* Semantic status */
+  --color-success: #2bb673;
+  --color-warning: #e8a33d;
+  --color-danger: #e5484d;
+  --color-info: #2e86f2;
+
+  /* Categorical chart palette (color-blind aware) */
+  --color-chart-1: #6d4aff;
+  --color-chart-2: #2e86f2;
+  --color-chart-3: #0fb5ae;
+  --color-chart-4: #2bb673;
+  --color-chart-5: #e8a33d;
+  --color-chart-6: #f2724b;
+  --color-chart-7: #b56be0;
+  --color-chart-8: #5c6b6d;
+
+  /* Fonts — CSS variables provided by next/font in app/layout.tsx */
   --font-display: var(--font-space-grotesk), "Space Grotesk", system-ui, sans-serif;
   --font-mono: var(--font-space-mono), "Space Mono", ui-monospace, monospace;
 
+  /* Radii (match the design scale) */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(26, 43, 46, 0.06);
+  --shadow-md: 0 4px 16px rgba(26, 43, 46, 0.08);
+  --shadow-lg: 0 12px 32px rgba(26, 43, 46, 0.12);
+  --shadow-ink: 0 18px 44px rgba(26, 43, 46, 0.28);
+
   /* Motion */
-  --animate-fade: fade 0.25s ease-in-out;
-  @keyframes fade {
-    0% {
+  --animate-fade-up: fade-up 0.25s ease both;
+  @keyframes fade-up {
+    from {
       opacity: 0;
+      transform: translateY(8px);
     }
-    100% {
+    to {
       opacity: 1;
+      transform: none;
     }
   }
+  --animate-shimmer: shimmer 1.5s infinite linear;
+  @keyframes shimmer {
+    0% {
+      background-position: -500px 0;
+    }
+    100% {
+      background-position: 500px 0;
+    }
+  }
+  --animate-spin-slow: spin 0.7s linear infinite;
 }
 
 :root {
-  --gradient-brand: linear-gradient(100deg, #6d4aff, #ff3d77);
+  --gradient-brand: linear-gradient(100deg, #6d4aff 0%, #ff3d77 100%);
 }
 
 html,
 body {
   scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgba(109, 74, 255, 0.18);
 }
 
 /* Brand gradient helpers */
@@ -48,4 +101,22 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* Shimmer skeleton block */
+.shimmer {
+  background: linear-gradient(90deg, #eceaf7 25%, #f5f3fb 37%, #eceaf7 63%);
+  background-size: 800px 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Themed scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(26, 43, 46, 0.16);
+  border-radius: 99px;
+  border: 3px solid var(--color-warm);
 }
