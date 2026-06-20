@@ -238,3 +238,33 @@ in the design. Date-range/campaign/pagination changes already produce new cache 
 **Verification:** the atomic governor + lock primitives are proven via direct SQL (above);
 `cachedFetch` composition is typechecked + reviewed; full concurrent end-to-end behaviour is
 verified on the live deploy (Phases 9–10).
+
+## Phase 6 — Wire frontend to live data (done)
+
+- All 9 views now fetch live through the cached, session-scoped service (`lib/olivia/service`):
+  overview→/overview, trends→/timeseries, funnel→/funnel, outcomes→/outcomes, agents→/agents,
+  campaigns→/campaigns, leads→/leads, log→/calls + /conversations. Pages are now dynamic (`ƒ`).
+- **Workspace isolation**: every fetch resolves client_id from `getSessionClientId()` — a user
+  only ever sees their mapped client. `getWorkspace()`/`getSessionClientId()` are `cache()`-memoized
+  per request so the auth lookup runs once per render.
+- **Header** shows the live workspace name from `olivia_clients` (via `getWorkspace`).
+- **Date range** (7d/30d/90d, default 30d) → `{from,to,tz}` via `lib/filters` (window capped at
+  366d; tz from the workspace, else America/New_York). Changing it re-renders with new params.
+- **Pagination** server-side via Olivia `page`/`limit` (leads & calls, limit 25 ≤ 100; conversations
+  list limit 50). Lead `status`/`source` filters passed through to the proxy.
+- **Campaign filter — presentational only.** The Olivia analytics endpoints expose no campaign
+  param (guide §5/§6); only `/campaigns` is per-campaign. The selector is kept (design-faithful) and
+  its options come from the live `/campaigns` list, but it does not filter analytics data. Documented
+  limitation — would need an upstream API param to function.
+- **Parallel fan-out**: overview fetches current + previous-period `/overview` + `/timeseries`
+  concurrently (`Promise.all`); the log fetches `/calls` + `/conversations` concurrently.
+- **States wired to the fetch lifecycle**: per-route `loading.tsx` → the designed `Skeleton`
+  variants; per-view empty + error states (error retry reloads; 429/upstream failure → stale-on-error
+  serves cached data with the `FreshnessNote`, only erroring when no cache).
+- **Freshness signal**: `FreshnessNote` renders "updated Xm ago" only when serving stale data (the
+  design has no permanent freshness slot, so nothing is shown when fresh).
+- **PII** rendered null-guarded: leads table shows phone/email or a "PII hidden" pill; the lead and
+  call drawers show name/phone/email and recording/transcript/summary when present, otherwise a
+  redacted/empty state.
+- Removed the now-unused `lib/sample-data.ts`; made `EmptyState`/`ErrorState` client components.
+- **Full live render** is verified after Phase 7 (needs a provisioned user) and on the deploy.

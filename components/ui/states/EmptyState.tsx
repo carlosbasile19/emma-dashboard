@@ -1,3 +1,5 @@
+"use client";
+
 export interface EmptyCopy {
   title: string;
   body: string;

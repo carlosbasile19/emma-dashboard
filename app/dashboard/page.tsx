@@ -1,38 +1,54 @@
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import { RANGE_LABELS } from "@/lib/copy";
+import { EmptyState } from "@/components/ui/states/EmptyState";
+import { ErrorState } from "@/components/ui/states/ErrorState";
+import { FreshnessNote } from "@/components/ui/FreshnessNote";
+import { getWorkspace } from "@/lib/auth";
+import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { STAGE_COLORS } from "@/lib/design";
+import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
+import { fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
 import { buildKpiCards } from "@/lib/overview";
-import {
-  sampleOverview,
-  sampleOverviewPrev,
-  sampleTimeseries,
-  sampleWorkspace,
-} from "@/lib/sample-data";
-import { LEAD_STATUSES, type LeadStatus } from "@/lib/types";
+import { LEAD_STATUSES } from "@/lib/types";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
 export default async function OverviewPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
-  const range = typeof sp.range === "string" ? sp.range : "30d";
+  const range = parseRange(sp.range);
   const rangeLabel = RANGE_LABELS[range] ?? "Last 30 days";
+  const ws = await getWorkspace();
+  const tz = ws.timezone ?? DEFAULT_TZ;
 
-  const ov = sampleOverview;
+  let cur, prev, ts;
+  try {
+    [cur, prev, ts] = await Promise.all([
+      fetchOverview(rangeToPeriod(range, tz)),
+      fetchOverview(prevPeriod(range, tz)),
+      fetchTimeseries(rangeToPeriod(range, tz)),
+    ]);
+  } catch {
+    return <ErrorState copy={ERROR_COPY.overview} />;
+  }
+
+  const ov = cur.data;
   const k = ov.kpis;
-  const cards = buildKpiCards(ov, sampleOverviewPrev, sampleTimeseries);
-
-  const stages = LEAD_STATUSES.map((key: LeadStatus) => ({
-    key,
-    count: k.leads_by_stage[key] ?? 0,
-  }));
+  const stages = LEAD_STATUSES.map((key) => ({ key, count: k.leads_by_stage[key] ?? 0 }));
   const stageTotal = stages.reduce((a, s) => a + s.count, 0);
+
+  if (k.leads_total === 0 && k.calls_total === 0 && stageTotal === 0) {
+    return <EmptyState copy={EMPTY_COPY.overview} />;
+  }
+
+  const cards = buildKpiCards(ov, prev.data, ts.data);
   const stageMax = Math.max(1, ...stages.map((s) => s.count));
 
   return (
     <>
+      <FreshnessNote freshness={cur.freshness} />
+
       {/* hero band */}
       <div className="relative mb-[22px] overflow-hidden rounded-[16px] bg-ink px-8 py-7 shadow-ink">
         <div className="absolute -right-16 -top-44 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle,rgba(109,74,255,0.55),transparent_62%)]" />
@@ -40,41 +56,23 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
         <div className="relative flex flex-wrap items-end justify-between gap-7">
           <div className="max-w-[540px]">
             <div className="mb-3.5 font-mono text-[11px] uppercase tracking-[0.16em] text-violet-light">
-              {rangeLabel} · {sampleWorkspace.name}
+              {rangeLabel} · {ws.name}
             </div>
             <div className="text-[34px] font-bold leading-[1.1] tracking-[-0.02em] text-white text-balance">
               {num(k.converted_count)} leads converted — while you ran the practice.
             </div>
             <div className="mt-3.5 max-w-[480px] text-[15px] leading-[1.5] text-[#B7C3C4]">
-              Emma picked up, called back and followed through on every channel.
-              Here’s the period at a glance.
+              Emma picked up, called back and followed through on every channel. Here’s the
+              period at a glance.
             </div>
           </div>
           <div className="flex gap-[30px] font-mono">
-            <div>
-              <div className="text-[30px] tracking-[-0.01em] text-white">
-                {pct(k.pickup_rate)}
-              </div>
-              <div className="mt-1.5 text-[11px] uppercase tracking-[0.08em] text-[#8FA1A3]">
-                pickup rate
-              </div>
-            </div>
-            <div>
-              <div className="text-[30px] tracking-[-0.01em] text-violet-light">
-                {pct(k.bookings_rate)}
-              </div>
-              <div className="mt-1.5 text-[11px] uppercase tracking-[0.08em] text-[#8FA1A3]">
-                bookings rate
-              </div>
-            </div>
-            <div>
-              <div className="text-[30px] tracking-[-0.01em] text-white">
-                {centsToMoney(k.spend.total_cents, k.spend.currency)}
-              </div>
-              <div className="mt-1.5 text-[11px] uppercase tracking-[0.08em] text-[#8FA1A3]">
-                billed spend
-              </div>
-            </div>
+            <HeroStat value={pct(k.pickup_rate)} label="pickup rate" />
+            <HeroStat value={pct(k.bookings_rate)} label="bookings rate" violet />
+            <HeroStat
+              value={centsToMoney(k.spend.total_cents, k.spend.currency)}
+              label="billed spend"
+            />
           </div>
         </div>
       </div>
@@ -98,9 +96,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               <span className="font-mono text-[30px] font-medium tracking-[-0.01em] text-ink">
                 {c.value}
               </span>
-              {c.unit ? (
-                <span className="font-mono text-base text-muted">{c.unit}</span>
-              ) : null}
+              {c.unit ? <span className="font-mono text-base text-muted">{c.unit}</span> : null}
             </div>
             <div className="h-[34px]">
               {c.spark ? <Sparkline data={c.spark} color={c.color} /> : null}
@@ -142,5 +138,28 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
         </div>
       </Card>
     </>
+  );
+}
+
+function HeroStat({
+  value,
+  label,
+  violet,
+}: {
+  value: string;
+  label: string;
+  violet?: boolean;
+}) {
+  return (
+    <div>
+      <div
+        className={`text-[30px] tracking-[-0.01em] ${violet ? "text-violet-light" : "text-white"}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1.5 text-[11px] uppercase tracking-[0.08em] text-[#8FA1A3]">
+        {label}
+      </div>
+    </div>
   );
 }

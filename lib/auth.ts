@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { initials as toInitials } from "@/lib/format";
 import type { Workspace } from "@/lib/types";
@@ -14,26 +15,25 @@ export class AuthError extends Error {
   }
 }
 
-export async function getSessionUser() {
+// cache() dedupes these across all service calls within a single request render.
+export const getSessionUser = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
 /**
  * The single source of tenant identity. Validates the session server-side, looks up the
  * caller's workspace_members row, and returns their Olivia client_id. The client_id is
  * NEVER taken from anything the browser sends — only from the authenticated session.
  */
-export async function getSessionClientId(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getSessionClientId = cache(async (): Promise<string> => {
+  const user = await getSessionUser();
   if (!user) throw new AuthError(401, "Not authenticated");
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("workspace_members")
     .select("olivia_client_id")
@@ -43,16 +43,14 @@ export async function getSessionClientId(): Promise<string> {
   if (error) throw new AuthError(403, "Unable to resolve workspace");
   if (!data) throw new AuthError(403, "No workspace mapping for this user");
   return data.olivia_client_id as string;
-}
+});
 
 /** Workspace shown in the dashboard chrome — derived from the session's client mapping. */
-export async function getWorkspace(): Promise<Workspace> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getWorkspace = cache(async (): Promise<Workspace> => {
+  const user = await getSessionUser();
   if (!user) throw new AuthError(401, "Not authenticated");
 
+  const supabase = await createClient();
   const { data: member } = await supabase
     .from("workspace_members")
     .select("olivia_client_id, role")
@@ -82,4 +80,4 @@ export async function getWorkspace(): Promise<Workspace> {
     initials: toInitials(client?.name || userName),
     role: (member.role as string | null) ?? "member",
   };
-}
+});

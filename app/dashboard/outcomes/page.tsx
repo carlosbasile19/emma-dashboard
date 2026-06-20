@@ -1,9 +1,16 @@
 import { Donut, type DonutSegment } from "@/components/charts/Donut";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/states/EmptyState";
+import { ErrorState } from "@/components/ui/states/ErrorState";
+import { FreshnessNote } from "@/components/ui/FreshnessNote";
+import { getWorkspace } from "@/lib/auth";
+import { EMPTY_COPY, ERROR_COPY } from "@/lib/copy";
 import { BADGE_COLORS, CHART_PALETTE } from "@/lib/design";
+import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
 import { fmtEnum, num } from "@/lib/format";
+import { fetchOutcomes } from "@/lib/olivia/service";
 
-import { sampleOutcomes } from "@/lib/sample-data";
+type SP = Promise<Record<string, string | string[] | undefined>>;
 
 function toSegments(
   record: Record<string, number | undefined>,
@@ -17,6 +24,40 @@ function toSegments(
       color: colors[key] ?? CHART_PALETTE[i % CHART_PALETTE.length]!,
     }))
     .sort((a, b) => b.value - a.value);
+}
+
+export default async function OutcomesPage({ searchParams }: { searchParams: SP }) {
+  const sp = await searchParams;
+  const range = parseRange(sp.range);
+  const ws = await getWorkspace();
+  const tz = ws.timezone ?? DEFAULT_TZ;
+
+  let result;
+  try {
+    result = await fetchOutcomes(rangeToPeriod(range, tz));
+  } catch {
+    return <ErrorState copy={ERROR_COPY.outcomes} />;
+  }
+
+  const o = result.data.outcomes;
+  const calls = toSegments(o.call_outcomes, BADGE_COLORS.call);
+  const disp = toSegments(o.call_dispositions, BADGE_COLORS.disp);
+  const book = toSegments(o.booking_outcomes, BADGE_COLORS.booking);
+
+  if (calls.length === 0 && disp.length === 0 && book.length === 0) {
+    return <EmptyState copy={EMPTY_COPY.outcomes} />;
+  }
+
+  return (
+    <>
+      <FreshnessNote freshness={result.freshness} />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
+        <OutcomeCard title="Call outcomes" noun="calls" dark segments={calls} />
+        <OutcomeCard title="Call dispositions" noun="dispositions" segments={disp} />
+        <OutcomeCard title="Booking outcomes" noun="bookings" segments={book} />
+      </div>
+    </>
+  );
 }
 
 function OutcomeCard({
@@ -79,28 +120,4 @@ function OutcomeCard({
     );
   }
   return <Card className="px-6 py-[22px]">{body}</Card>;
-}
-
-export default function OutcomesPage() {
-  const o = sampleOutcomes.outcomes;
-  return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-4">
-      <OutcomeCard
-        title="Call outcomes"
-        noun="calls"
-        dark
-        segments={toSegments(o.call_outcomes, BADGE_COLORS.call)}
-      />
-      <OutcomeCard
-        title="Call dispositions"
-        noun="dispositions"
-        segments={toSegments(o.call_dispositions, BADGE_COLORS.disp)}
-      />
-      <OutcomeCard
-        title="Booking outcomes"
-        noun="bookings"
-        segments={toSegments(o.booking_outcomes, BADGE_COLORS.booking)}
-      />
-    </div>
-  );
 }

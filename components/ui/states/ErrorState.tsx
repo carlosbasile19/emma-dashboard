@@ -1,3 +1,5 @@
+"use client";
+
 export interface ErrorCopy {
   title: string;
   body: string;
@@ -10,6 +12,11 @@ export function ErrorState({
   copy: ErrorCopy;
   onRetry?: () => void;
 }) {
+  const retry =
+    onRetry ??
+    (() => {
+      if (typeof window !== "undefined") window.location.reload();
+    });
   return (
     <div className="flex min-h-[380px] flex-col items-center justify-center px-5 py-16 text-center">
       <div className="mb-[22px] flex h-[76px] w-[76px] items-center justify-center rounded-[22px] border border-danger/25 bg-danger/10">
@@ -34,7 +41,7 @@ export function ErrorState({
       </div>
       <div className="flex gap-[10px]">
         <button
-          onClick={onRetry}
+          onClick={retry}
           className="cursor-pointer rounded-[10px] bg-ink px-5 py-[11px] text-sm font-medium text-white transition hover:bg-[#0f1d20]"
         >
           Retry

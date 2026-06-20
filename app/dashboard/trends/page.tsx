@@ -1,14 +1,18 @@
 import { TrendChart, type TrendPoint } from "@/components/charts/TrendChart";
 import { Card } from "@/components/ui/Card";
-import { RANGE_LABELS } from "@/lib/copy";
+import { EmptyState } from "@/components/ui/states/EmptyState";
+import { ErrorState } from "@/components/ui/states/ErrorState";
+import { FreshnessNote } from "@/components/ui/FreshnessNote";
+import { getWorkspace } from "@/lib/auth";
+import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
+import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num } from "@/lib/format";
-import { sampleTimeseries } from "@/lib/sample-data";
+import { fetchTimeseries } from "@/lib/olivia/service";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
 
-// Momentum: second half of the window vs. first half (derived from the series shown).
 function momentum(values: number[]): { text: string; up: boolean } | undefined {
   if (values.length < 4) return undefined;
   const mid = Math.floor(values.length / 2);
@@ -29,18 +33,35 @@ function dayLabel(date: string): string {
 
 export default async function TrendsPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
-  const range = typeof sp.range === "string" ? sp.range : "30d";
+  const range = parseRange(sp.range);
   const rangeLabel = RANGE_LABELS[range] ?? "Last 30 days";
+  const ws = await getWorkspace();
+  const tz = ws.timezone ?? DEFAULT_TZ;
 
-  const s = sampleTimeseries.series;
-  const dates = s.map((p) => p.date);
-  const pt = (vals: number[]): TrendPoint[] =>
-    s.map((p, i) => ({ date: p.date, value: vals[i] ?? 0 }));
+  let result;
+  try {
+    result = await fetchTimeseries(rangeToPeriod(range, tz));
+  } catch {
+    return <ErrorState copy={ERROR_COPY.trends} />;
+  }
 
+  const s = result.data.series;
   const calls = s.map((p) => p.calls);
   const pickups = s.map((p) => p.picked_up);
   const bookings = s.map((p) => p.bookings);
   const spend = s.map((p) => p.spend_cents);
+
+  if (s.length === 0 || [...calls, ...pickups, ...bookings, ...spend].every((v) => v === 0)) {
+    return <EmptyState copy={EMPTY_COPY.trends} />;
+  }
+
+  const pt = (vals: number[]): TrendPoint[] =>
+    s.map((p, i) => ({ date: p.date, value: vals[i] ?? 0 }));
+  const dates = s.map((p) => p.date);
+  const labels =
+    dates.length >= 3
+      ? [dates[0]!, dates[Math.floor(dates.length / 2)]!, dates[dates.length - 1]!]
+      : [];
 
   const cards = [
     { key: "calls", label: "Calls placed", color: "#6D4AFF", points: pt(calls), total: num(sum(calls)), mom: momentum(calls) },
@@ -49,12 +70,9 @@ export default async function TrendsPage({ searchParams }: { searchParams: SP })
     { key: "spend", label: "Billed spend", color: "#B56BE0", points: pt(spend), total: centsToMoney(sum(spend)), mom: momentum(spend) },
   ];
 
-  const labels = dates.length
-    ? [dates[0]!, dates[Math.floor(dates.length / 2)]!, dates[dates.length - 1]!]
-    : [];
-
   return (
     <>
+      <FreshnessNote freshness={result.freshness} />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="m-0 text-lg font-medium">Daily activity</h2>
@@ -86,10 +104,7 @@ export default async function TrendsPage({ searchParams }: { searchParams: SP })
                   ) : null}
                 </div>
               </div>
-              <span
-                className="mt-1 h-2.5 w-2.5 rounded-[3px]"
-                style={{ background: c.color }}
-              />
+              <span className="mt-1 h-2.5 w-2.5 rounded-[3px]" style={{ background: c.color }} />
             </div>
             <div className="h-[150px]">
               <TrendChart data={c.points} color={c.color} id={c.key} />
