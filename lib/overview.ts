@@ -3,7 +3,7 @@
 
 import { CHART_PALETTE } from "@/lib/design";
 import { centsToMoney, num, secToMMSS } from "@/lib/format";
-import type { Overview, Timeseries } from "@/lib/types";
+import type { Campaign, Overview, Timeseries } from "@/lib/types";
 
 export interface KpiCardModel {
   key: string;
@@ -131,4 +131,72 @@ export function buildKpiCards(
       spark: ts?.series.map((s) => s.spend_cents),
     },
   ];
+}
+
+// ---- Brief Emma ----
+export type BriefCategory = "bookings" | "leads" | "campaigns";
+
+export interface BriefItem {
+  id: string;
+  category: BriefCategory;
+  title: string;
+  sub: string;
+  tag: string;
+  color: string;
+}
+
+/** Builds the "to brief" list from real workspace data for the active period. */
+export function buildBriefItems(ov: Overview, campaigns: Campaign[]): BriefItem[] {
+  const k = ov.kpis;
+  const s = k.leads_by_stage;
+  const items: BriefItem[] = [];
+
+  const booked = s.booked ?? 0;
+  if (booked > 0) {
+    items.push({
+      id: "bookings",
+      category: "bookings",
+      title: `${num(booked)} appointment${booked === 1 ? "" : "s"} to confirm`,
+      sub: "Booked leads awaiting their visit.",
+      tag: "Bookings",
+      color: "#E8A33D",
+    });
+  }
+
+  const chase = (s.contacted ?? 0) + (s.qualified ?? 0);
+  if (chase > 0) {
+    items.push({
+      id: "chase",
+      category: "leads",
+      title: `${num(chase)} lead${chase === 1 ? "" : "s"} to chase`,
+      sub: "In contact or qualified — Emma is still following up.",
+      tag: "Leads",
+      color: "#6D4AFF",
+    });
+  }
+
+  const converted = k.converted_count ?? 0;
+  if (converted > 0) {
+    items.push({
+      id: "converted",
+      category: "leads",
+      title: `${num(converted)} lead${converted === 1 ? "" : "s"} converted`,
+      sub: "Won this period — worth a quick review.",
+      tag: "Converted",
+      color: "#2BB673",
+    });
+  }
+
+  for (const c of campaigns.filter((c) => c.status === "active").slice(0, 3)) {
+    items.push({
+      id: `cmp-${c.id}`,
+      category: "campaigns",
+      title: c.name,
+      sub: `${num(c.replies)} replies · ${num(c.appointments_booked)} booked`,
+      tag: "Campaign",
+      color: "#2E86F2",
+    });
+  }
+
+  return items;
 }

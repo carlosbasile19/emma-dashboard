@@ -40,9 +40,10 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
+  const isLanding = path === "/"; // public marketing page
 
-  // Unauthenticated → bounce protected routes to /login.
-  if (!user && !isPublic(path)) {
+  // Unauthenticated → bounce protected routes to /login (landing + /login + /auth stay open).
+  if (!user && !isLanding && !isPublic(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

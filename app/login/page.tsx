@@ -4,7 +4,14 @@ import { LogoMark } from "@/components/brand/Logo";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-export default function LoginPage() {
+type SP = Promise<Record<string, string | string[] | undefined>>;
+
+export default async function LoginPage({ searchParams }: { searchParams: SP }) {
+  const sp = await searchParams;
+  const initialError =
+    sp.error === "link"
+      ? "That link didn’t work or has expired. Request a new one below."
+      : null;
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
       {/* left brand panel */}
@@ -58,7 +65,7 @@ export default function LoginPage() {
 
       {/* right form panel */}
       <div className="flex min-h-screen items-center justify-center p-10">
-        <LoginForm />
+        <LoginForm initialError={initialError} />
       </div>
     </div>
   );

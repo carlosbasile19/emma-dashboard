@@ -1,3 +1,4 @@
+import { BriefEmma } from "@/components/dashboard/brief/BriefEmma";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -9,8 +10,8 @@ import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { STAGE_COLORS } from "@/lib/design";
 import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
-import { fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
-import { buildKpiCards } from "@/lib/overview";
+import { fetchCampaigns, fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
+import { buildBriefItems, buildKpiCards } from "@/lib/overview";
 import { LEAD_STATUSES } from "@/lib/types";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
@@ -22,12 +23,14 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const ws = await getWorkspace();
   const tz = ws.timezone ?? DEFAULT_TZ;
 
-  let cur, prev, ts;
+  let cur, prev, ts, campaigns;
   try {
-    [cur, prev, ts] = await Promise.all([
+    [cur, prev, ts, campaigns] = await Promise.all([
       fetchOverview(rangeToPeriod(range, tz)),
       fetchOverview(prevPeriod(range, tz)),
       fetchTimeseries(rangeToPeriod(range, tz)),
+      // campaigns power the brief; don't fail the whole overview if they error
+      fetchCampaigns().catch(() => null),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.overview} />;
@@ -43,6 +46,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   }
 
   const cards = buildKpiCards(ov, prev.data, ts.data);
+  const briefItems = buildBriefItems(ov, campaigns?.data ?? []);
   const stageMax = Math.max(1, ...stages.map((s) => s.count));
 
   return (
@@ -65,6 +69,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               Emma picked up, called back and followed through on every channel. Here’s the
               period at a glance.
             </div>
+            <BriefEmma items={briefItems} rangeLabel={rangeLabel} />
           </div>
           <div className="flex gap-[30px] font-mono">
             <HeroStat value={pct(k.pickup_rate)} label="pickup rate" />

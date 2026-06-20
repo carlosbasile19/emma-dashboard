@@ -1,6 +1,6 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACTIVE_CLIENT_COOKIE, getSessionContext } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -8,6 +8,35 @@ import { createClient } from "@/lib/supabase/server";
 
 export interface SignInState {
   error: string | null;
+}
+
+async function requestOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
+/**
+ * Passwordless sign-in: email a one-click magic link. shouldCreateUser is false so only
+ * provisioned users can sign in (and we don't reveal which emails exist).
+ */
+export async function sendMagicLink(email: string): Promise<{ error: string | null }> {
+  const e = email.trim().toLowerCase();
+  if (!e) return { error: "Enter your email address." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email: e,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: `${await requestOrigin()}/auth/callback`,
+    },
+  });
+  if (error) {
+    return { error: "We couldn’t send that link. Check the email address, then try again." };
+  }
+  return { error: null };
 }
 
 export async function signIn(
