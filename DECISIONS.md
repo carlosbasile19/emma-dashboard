@@ -42,6 +42,43 @@ as work proceeds.
 - **Middleware:** staying on `middleware.ts` (Next.js 15.5.x). Next 16's `proxy.ts` is not
   used because the project is on Next 15.
 
-## Removed (Phase 1.5 — ShipFast/DaisyUI strip)
+## Phase 1.5 — ShipFast/DaisyUI strip (done)
 
-_Recorded as the strip is executed._
+**Dependencies removed** (16 direct; npm removed 129 transitive): `@auth/mongodb-adapter`,
+`@headlessui/react`, `axios`, `crisp-sdk-web`, `form-data`, `mongodb`, `mongoose`,
+`next-auth`, `next-sitemap`, `nextjs-toploader`, `nodemailer`, `react-hot-toast`,
+`react-tooltip`, `resend`, `stripe`, `daisyui`.
+
+**Dependencies added**: `@supabase/supabase-js`, `@supabase/ssr`, `recharts`, `typescript`,
+`@types/node`, `@types/react`, `@types/react-dom`.
+
+**Files/dirs deleted** (read-only dashboard needs none of these):
+- `app/api/**` — NextAuth route, `/lead`, Stripe (`create-checkout`, `create-portal`), `webhook/stripe`
+- `app/blog/**`, `app/privacy-policy`, `app/tos` — marketing/blog/legal pages
+- `app/dashboard/**` — ShipFast demo dashboard (rebuilt from the imported design in Phase 2)
+- `app/opengraph-image.png`, `app/twitter-image.png` — ShipFast OG art
+- `components/**` — all 28 ShipFast marketing/demo components (Hero, Pricing, FAQ, CTA, Testimonials, Footer, Header, Modal, Button*, etc.)
+- `libs/**` — `api`, `auth`, `gpt`, `mongo`, `mongoose`, `resend`, `seo`, `stripe`
+- `models/**` — Mongoose `Lead`, `User`, `plugins/toJSON`
+- `public/blog/**`
+- `next-sitemap.config.js`, `jsconfig.json`, `claude-instructions.md`, `.cursorrules`, plus old `middleware.js` / `config.js` (rewritten)
+
+**Files rewritten/added**:
+- `config.js` → `config.ts` (Hey Emma branding, `heyemma.io`)
+- `app/layout.js` → `app/layout.tsx` (Space Grotesk + Space Mono via `next/font`, metadata, `robots: noindex` for a private dashboard)
+- `app/globals.css` — removed `@plugin "daisyui"` + theme block; added Emma design tokens via Tailwind v4 `@theme`
+- `next.config.js` — removed MongoDB webpack `IgnorePlugin` block and demo image domains
+- `README.md` — rewritten for Hey Emma
+- `.eslintrc.json` — `next/core-web-vitals` + `next/typescript` (was `eslint:recommended`, which misfired `no-undef` on TS)
+- added `tsconfig.json` (strict, `noUncheckedIndexedAccess`)
+- `app/page.tsx`, `app/not-found.tsx`, `app/error.tsx` — minimal clean replacements
+
+**ACCEPT**: `npm run build` green (7 routes). `daisyui` absent from `package.json`, config, classes,
+and `node_modules`. No `shipfast` string in product code.
+
+**Deferred / ambiguous (noted, not guessed)**:
+- `app/icon.png`, `app/apple-icon.png`, `app/favicon.ico` retained — binary ShipFast app icons. They
+  contain no `shipfast` string. The design is HTML/CSS (no favicon asset), so these should be replaced
+  with Emma branding assets when provided; left in place rather than deleted to avoid a missing-icon build.
+- The only remaining `shipfast` string in the repo is in **this file** (the required removal record).
+  Phase 10's `grep -ri shipfast` is therefore scoped to application files, excluding this build log.

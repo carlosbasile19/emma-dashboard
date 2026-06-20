@@ -1,39 +1,38 @@
-# ShipFast — Javascript
+# Hey Emma — Dashboard
 
-Hey maker 👋 it's Marc from [ShipFast](https://shipfa.st/docs). Let's get your startup off the ground, FAST ⚡️
+A **read-only** analytics dashboard that surfaces each client's Olivia workspace —
+leads, calls, conversations, campaigns, agents and outcomes — one workspace per
+authenticated user.
 
-<sub>**Watch/Star the repo to be notified when updates are pushed**</sub>
+## Stack
 
-## Get Started
+- **Next.js** (App Router) + **TypeScript** (strict)
+- **Tailwind CSS v4** (design tokens via `@theme`, no DaisyUI)
+- **Supabase** — auth (email/password) + Postgres (workspace mapping, snapshots,
+  rate-limiter, single-flight locks)
+- **Recharts** for charts
+- Deployed on **Vercel**
 
-1. Follow the [Get Started Tutorial](https://shipfa.st/docs) to clone the repo and run your local server 💻
+## How it works
 
-<sub>**Looking for the /pages router version?** Use this [documentation](https://shipfa.st/docs-old) instead</sub>
+- The dashboard holds **one agency-scoped Olivia API key** (`OLIVIA_API_KEY`,
+  server-only). It is never exposed to the browser.
+- Each Supabase user maps to exactly **one** Olivia `client_id` (their workspace).
+  The server always derives `client_id` from the authenticated session — never from
+  anything the browser sends.
+- All Olivia calls happen server-side through a typed proxy layer; the frontend only
+  talks to Emma's own server routes.
 
-2. Follow the [Ship In 5 Minutes Tutorial](https://shipfa.st/docs/tutorials/ship-in-5-minutes) to learn the foundation and ship your app quickly ⚡️
+See [`docs/olivia-external-api.md`](docs/olivia-external-api.md) for the authoritative
+Olivia API contract and [`DECISIONS.md`](DECISIONS.md) for build decisions.
 
-## Links
+## Local development
 
--   [📚 Documentation](https://shipfa.st/docs)
--   [📣 Updates](https://shipfast.beehiiv.com/)
--   [🧑‍💻 Discord](https://shipfa.st/dashboard)
--   [🥇 Leaderboard](https://shipfa.st/leaderboard)
+```bash
+cp .env.example .env.local   # fill in real values
+npm install
+npm run dev
+```
 
-## Support
-
-Reach out at hello@shipfa.st
-
-Let's ship it, FAST ⚡️
-
-
-**📈 Grow your startup with [DataFast](https://datafa.st?ref=shipfast_readme)**
-
--   Analyze your traffic
--   Get insights on your customers
--   Make data-driven decisions
-
-ShipFast members get 30% OFF on all plans! 🎁
-
-![datafast](https://github.com/user-attachments/assets/085453a6-8a66-45be-b7ea-a7a08e856ed8)
-# emma-dashboard
-# emma-dashboard
+Required environment variables are documented in [`.env.example`](.env.example).
+`OLIVIA_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are **server-only** secrets.
