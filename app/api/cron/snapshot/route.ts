@@ -15,13 +15,16 @@ export async function GET(request: Request) {
     });
   }
 
-  // When enabled, require the Vercel cron secret.
+  // When enabled, a CRON_SECRET is mandatory (fail closed) and must match.
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json(
+      { error: "misconfigured", message: "CRON_SECRET is required when SNAPSHOTS_ENABLED=true" },
+      { status: 500 },
+    );
+  }
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const { runDailySnapshots } = await import("@/lib/olivia/snapshots");

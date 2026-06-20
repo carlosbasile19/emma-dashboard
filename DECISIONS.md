@@ -323,3 +323,38 @@ login-round-trip check.
     comprehensive `.next/static` scan both show **0** occurrences of `oa_live` / the Olivia key /
     the service-role key.
 - Removed the unused browser Supabase client (`lib/supabase/client.ts`) — all auth is server-side.
+
+## Phase 10 — Verify & PR (done)
+
+Ran a **parallel adversarial audit** (9 independent agents, read-only) against the acceptance
+checklist. **All 9 dimensions PASS:**
+
+- ✅ Read-only — Olivia client is GET-only (the only `fetch()` in the repo); no mutating Olivia
+  routes/UI; the only writes are to Emma's own Supabase tables.
+- ✅ `OLIVIA_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY` referenced only in `server-only` modules; no
+  `"use client"` file touches them; `client_id` always from `getSessionClientId()`, never from the
+  browser.
+- ✅ Workspace isolation — every fetch resolves `client_id` server-side; RLS on all user tables.
+- ✅ All 9 views live; date range + pagination + loading/empty/error states wired.
+- ✅ Caching tiers match the brief; client-scoped keys; single-flight; ~500/min governor;
+  stale-on-error.
+- ✅ PII null-guarded; no UI for never-returned fields (cost/notes/intel/custom/provider-ids/
+  message bodies).
+- ✅ Snapshot seam scaffolded but disabled.
+- ✅ No `shipfast` in product code; DaisyUI absent from deps/config/classes.
+- ✅ `tsc --noEmit` clean; `next build` green (17 routes).
+
+**Hardening applied from audit concerns:**
+- Added `app/dashboard/error.tsx` — a dashboard-scoped error boundary (keeps the shell on an
+  unexpected render error).
+- The snapshot cron now **fails closed**: when `SNAPSHOTS_ENABLED=true` it requires `CRON_SECRET`
+  (500 if missing, 401 on mismatch).
+
+**Noted as intentional / design-faithful (not changed):**
+- The conversations tab has no pagination control (the imported design has none); it shows the
+  most recent 50. Calls + leads paginate server-side.
+- The leads empty state lives inside `LeadsTable` so the filter chrome + "Clear filters" stay
+  available.
+- `api.discoverClients` is part of the typed proxy surface (Phase 4); the seed script does its own
+  discovery fetch (it can't import `server-only` modules).
+- The design-system reference page is static (no loading/error files needed).
