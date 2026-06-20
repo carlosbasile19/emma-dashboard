@@ -358,3 +358,30 @@ checklist. **All 9 dimensions PASS:**
 - `api.discoverClients` is part of the typed proxy surface (Phase 4); the seed script does its own
   discovery fetch (it can't import `server-only` modules).
 - The design-system reference page is static (no loading/error files needed).
+
+## Post-v1: Platform admin (cross-client access)
+
+Requested after v1: make `carlos@lunargrowth.com` a **complete platform admin**. Implemented a
+`platform_admin` role + a header **workspace switcher** to view ALL agency clients, while keeping
+non-admins strictly isolated.
+
+- **Tenant resolution centralized in `getSessionContext()`** (`lib/auth.ts`): members → their single
+  client, the active-client cookie is **ignored entirely** (isolation preserved); admins → all
+  agency clients listed via the **service role** *after* the admin role is verified from the session,
+  with the active client taken from the `emma-active-client` cookie and validated against that set
+  (a tampered/foreign id falls back to the home client). The agency key only exposes its own
+  clients, so even an admin can't reach a foreign agency's data.
+- **`setActiveClient`** server action: admin-gated, validates the target client, sets an httpOnly
+  cookie; non-admins are rejected.
+- **`WorkspaceSwitcher`** (admins only) replaces the static workspace badge.
+- **No RLS relaxation** — admin cross-client reads use the service-role client in server code after
+  the role check; RLS stays strict for member sessions.
+- `scripts/seed.mjs` gained `SEED_USER_ROLE`. **Seeded `carlos@lunargrowth.com` as `platform_admin`**
+  (home client: SOLVI); `demo@heyemma.io` stays a member. Temp passwords are in the gitignored
+  `.seed-credentials.txt` — change on first login.
+- **Deploy note:** the Vercel build hit a webpack `WasmHash` crash on **build-cache restore**
+  (`Cannot read properties of undefined (reading 'length')`). Local builds are clean; resolved with a
+  forced no-cache deploy (`vercel deploy --prod --force`). Not a code issue.
+- **Verified live on production (all pass):** admin sees the switcher + both clients, default active
+  = SOLVI, switching to Test Funnel works; member has no switcher, sees only their client, and a
+  tampered `emma-active-client` cookie is ignored (isolation holds).
