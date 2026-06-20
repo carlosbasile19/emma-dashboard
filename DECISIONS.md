@@ -441,3 +441,18 @@ Re-pulled the claude.ai design (new `Emma Landing.dc.html`, brief flow, magic-li
   voice backend, which the read-only Olivia API does not provide.
 - Fixed an empty-brief case: "new leads to work" is now included (SOLVI's leads are all `new`).
   Verified end-to-end in a browser: button → form → connecting → live, **0 errors**.
+
+## Briefing bridge — client wiring + Retell transport
+
+The dashboard is wired to the (future) Olivia briefing API ahead of the backend:
+`oliviaFetch` gained POST; `api.startBriefing`/`endBriefing`; `service.startBriefing`/`endBriefing`
+are session-scoped + gated by `OLIVIA_BRIEFING_ENABLED` and fall back to `{ mode: "simulated" }`;
+`beginBrief`/`endBrief` server actions; `BriefEmma` calls them (simulation carries the UX until the
+backend ships). Full contract in `docs/olivia-briefing-bridge.md`.
+
+**Transport decided: Retell web calls** — Olivia's voice already runs on Retell (`libs/retell.ts`,
+`createWebCall`), so `realtime` is `{ provider:"retell", access_token, call_id, sample_rate, expires_at }`
+and the browser joins with the Retell **Web** SDK (`retell-client-js-sdk`). The exact, ready-to-enable
+connect snippet lives in `BriefEmma.tsx` (`ACTIVATION (briefing-bridge)`); it is intentionally **not
+shipped wired** (no unverified SDK dependency added). Activation = `OLIVIA_BRIEFING_ENABLED=true` +
+`npm i retell-client-js-sdk` + uncomment the block.

@@ -169,12 +169,18 @@ export async function getConversations(
 }
 
 // ---- Briefing bridge (server-to-server action; see docs/olivia-briefing-bridge.md) ----
+// Realtime transport is Retell web calls (the backend already runs Olivia's voice on Retell).
 export interface BriefRealtime {
-  provider: string;
-  url: string;
-  token: string;
-  room?: string;
+  provider: string; // "retell"
+  // Retell web call — the browser joins via the Retell Web SDK with this access token.
+  access_token?: string;
+  call_id?: string;
+  sample_rate?: number;
   expires_at?: string;
+  // Generic fallback fields, in case the transport is ever swapped:
+  url?: string;
+  token?: string;
+  room?: string;
 }
 export interface BriefAgendaItem {
   id: string;

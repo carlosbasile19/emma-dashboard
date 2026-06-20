@@ -86,14 +86,19 @@ Response `200`:
     { "id": "new", "category": "leads", "title": "1,000 new leads to work", "detail": "Awaiting first contact.", "priority": 2 }
   ],
   "realtime": {
-    "provider": "livekit",       // livekit | vapi | retell | twilio | webrtc | ...
-    "url": "wss://...",          // realtime endpoint the browser connects to
-    "token": "eyJ...",           // short-lived join token, scoped to THIS briefing only
-    "room": "brf_8f3b...",       // room/session id if applicable
+    "provider": "retell",
+    "access_token": "eyJ...",    // Retell web-call access token — the browser joins with this
+    "call_id": "call_abc123",
+    "sample_rate": 24000,
     "expires_at": "2026-06-20T12:40:00Z"
   }
 }
 ```
+**Transport = Retell web calls** (Olivia's voice already runs on Retell). The backend creates a
+Retell web call (`createWebCall`, `libs/retell.ts`) with the agenda passed as dynamic variables/
+context, and returns its `access_token` + `call_id` in `realtime`. The dashboard joins with the
+Retell **Web** SDK (`retell-client-js-sdk` → `new RetellWebClient().startCall({ accessToken })`).
+The `access_token` is short-lived and bound to this `briefing_id` + `client_id`.
 - The **`agenda`** is computed server-side from the same analytics the dashboard shows, filtered by
   `focus` and ordered by `priority` (suggested order: bookings to confirm → new leads to work →
   leads to chase (contacted/qualified) → conversions → campaign results). The dashboard already has
@@ -152,11 +157,16 @@ the dashboard light up "Speaking now" live; polling every ~2s is an acceptable f
 Today the dashboard's `BriefEmma` modal does `form → connecting → live` locally. With this bridge it
 will, **all server-side via Emma's own backend** (so the agency key is never exposed):
 1. On "Start briefing": `POST …/briefings` with `{ from, to, tz, focus }` (clientId from the session).
-2. Use the returned `realtime` creds to open the audio session in the browser (your SDK / a thin
-   wrapper) → this is the "live" step.
+2. Join the **Retell web call** in the browser with `realtime.access_token`
+   (`retell-client-js-sdk` → `new RetellWebClient().startCall({ accessToken })`) → the "live" step.
 3. Render `agenda` as the on-screen list and use `current_item_id` (poll or stream) to show
    "Speaking now."
-4. "End call" → `POST …/briefings/{id}/end`.
+4. "End call" → `client.stopCall()` + `POST …/briefings/{id}/end`.
+
+**Dashboard activation (already wired up to the contract):** the proxy/actions/UI exist
+(`lib/olivia/api.ts` → `startBriefing`/`endBriefing`, `beginBrief`/`endBrief` actions, `BriefEmma`).
+To go live: set `OLIVIA_BRIEFING_ENABLED=true`, `npm i retell-client-js-sdk`, and uncomment the
+`ACTIVATION (briefing-bridge)` block in `components/dashboard/brief/BriefEmma.tsx`.
 
 ## 8. Acceptance
 
