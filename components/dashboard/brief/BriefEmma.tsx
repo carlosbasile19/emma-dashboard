@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { RetellWebClient } from "retell-client-js-sdk";
 import { beginBrief, endBrief } from "@/app/auth/actions";
 import { tint } from "@/lib/design";
 import type { BriefCategory, BriefItem } from "@/lib/overview";
 
 type Step = "form" | "connecting" | "live";
 type Focus = "all" | BriefCategory;
+// "pending" = deciding (real briefing creds in flight); "live" = a real Retell web call is
+// connected (audio); "sim" = no live session, run the local walkthrough animation.
+type Transport = "pending" | "live" | "sim";
 
 const FOCUS_OPTIONS: Array<{ v: Focus; l: string }> = [
   { v: "all", l: "Everything" },
@@ -51,13 +55,28 @@ export function BriefEmma({
   const [callId, setCallId] = useState("");
   const [liveIdx, setLiveIdx] = useState(0);
   const [briefingId, setBriefingId] = useState<string | null>(null);
+  const [transport, setTransport] = useState<Transport>("sim");
+  const [muted, setMuted] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retellRef = useRef<RetellWebClient | null>(null);
 
   const filtered = focus === "all" ? items : items.filter((i) => i.category === focus);
   const countLabel = `${filtered.length} item${filtered.length === 1 ? "" : "s"}`;
 
   function close() {
+    // Tear down the live call first; null the ref before stopCall so the "call_ended"
+    // handler (which also calls close) can't loop back into another stopCall.
+    const client = retellRef.current;
+    retellRef.current = null;
+    if (client) {
+      try {
+        client.stopCall();
+      } catch {
+        /* already torn down */
+      }
+    }
     if (briefingId) endBrief(briefingId).catch(() => {});
     if (timer.current) clearTimeout(timer.current);
     if (ticker.current) clearInterval(ticker.current);
@@ -65,60 +84,114 @@ export function BriefEmma({
     setStep("form");
     setLiveIdx(0);
     setBriefingId(null);
+    setTransport("sim");
+    setMuted(false);
+    setLiveError(null);
+  }
+
+  function toggleMute() {
+    const client = retellRef.current;
+    setMuted((m) => {
+      const next = !m;
+      if (client) {
+        try {
+          if (next) client.mute();
+          else client.unmute();
+        } catch {
+          /* no live call to mute */
+        }
+      }
+      return next;
+    });
   }
 
   function start() {
     if (filtered.length === 0) return;
     setCallId(`BR-${Math.floor(1000 + Math.random() * 8999)}`);
     setLiveIdx(0);
+    setMuted(false);
+    setLiveError(null);
+    setTransport("pending"); // hold the simulated walkthrough until we know if a live call connects
     setStep("connecting");
-    // Attempt the real Olivia briefing bridge. Until it's enabled this resolves to a
-    // simulated session and the local walkthrough below carries the UX.
     beginBrief(range, focus)
-      .then((s) => {
+      .then(async (s) => {
         if (s.briefingId) {
           setBriefingId(s.briefingId);
           setCallId(s.briefingId);
         }
-        // ACTIVATION (briefing-bridge): once OLIVIA_BRIEFING_ENABLED=true and the backend
-        // ships the endpoint, `s.mode` is "live" with Retell web-call creds. Install the
-        // Retell Web SDK (`npm i retell-client-js-sdk`) and connect the live audio here:
-        //
-        //   if (s.mode === "live" && s.realtime?.access_token) {
-        //     const { RetellWebClient } = await import("retell-client-js-sdk");
-        //     const client = new RetellWebClient();
-        //     retellRef.current = client;                         // useRef<RetellWebClient|null>(null)
-        //     client.on("call_started", () => setStep("live"));
-        //     client.on("call_ended", () => close());
-        //     await client.startCall({ accessToken: s.realtime.access_token });
-        //   }
-        //
-        // and in close(): retellRef.current?.stopCall(); retellRef.current = null;
-        // Until then, the local walkthrough below carries the UX. If the backend returns
-        // voice:false / no realtime, the agenda still shows without audio (current behaviour).
+
+        // No live voice session (bridge disabled / backend returned voice:false) → walkthrough.
+        if (s.mode !== "live" || !s.realtime?.access_token) {
+          setTransport("sim");
+          return;
+        }
+
+        // Live: join Emma's Retell web call. The SDK is browser-only (WebRTC/mic), so load it
+        // lazily here — keeps it out of the SSR + initial client bundle.
+        try {
+          const { RetellWebClient } = await import("retell-client-js-sdk");
+          const client = new RetellWebClient();
+          retellRef.current = client;
+          client.on("call_started", () => {
+            setTransport("live");
+            setStep("live");
+          });
+          client.on("call_ended", () => close());
+          client.on("error", () => {
+            // Audio dropped mid-call → degrade to the silent walkthrough rather than ejecting
+            // the user from the modal.
+            const c = retellRef.current;
+            retellRef.current = null;
+            if (c) {
+              try {
+                c.stopCall();
+              } catch {
+                /* already torn down */
+              }
+            }
+            setLiveError("Emma’s audio dropped — showing the walkthrough instead.");
+            setTransport("sim");
+            setStep("live");
+          });
+          await client.startCall({
+            accessToken: s.realtime.access_token,
+            ...(s.realtime.sample_rate ? { sampleRate: s.realtime.sample_rate } : {}),
+          });
+        } catch {
+          // startCall rejected (mic permission denied, token expired) or the SDK failed to load.
+          retellRef.current = null;
+          setLiveError(
+            "Couldn’t start the audio call — check microphone permissions. Showing the walkthrough.",
+          );
+          setTransport("sim");
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        // beginBrief itself failed → fall back to the walkthrough.
+        setTransport("sim");
+      });
   }
 
-  // connecting → live
+  // connecting → live (simulated only; a real call transitions on the "call_started" event)
   useEffect(() => {
-    if (step !== "connecting") return;
+    if (step !== "connecting" || transport !== "sim") return;
     timer.current = setTimeout(() => setStep("live"), 1600);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [step]);
+  }, [step, transport]);
 
-  // advance the "speaking now" item
+  // advance the "speaking now" item (simulated only — the real call carries the audio; per-item
+  // sync from the backend's current_item_id is a follow-up, see docs/olivia-briefing-bridge.md §4.2)
   useEffect(() => {
-    if (step !== "live") return;
+    if (step !== "live" || transport !== "sim") return;
     ticker.current = setInterval(() => {
       setLiveIdx((i) => (i + 1 < filtered.length ? i + 1 : i));
     }, 2600);
     return () => {
       if (ticker.current) clearInterval(ticker.current);
     };
-  }, [step, filtered.length]);
+  }, [step, transport, filtered.length]);
 
   return (
     <>
@@ -282,9 +355,14 @@ export function BriefEmma({
                   </div>
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-danger/25 bg-danger/10 py-1.5 pl-2.5 pr-3 font-display text-xs font-medium text-danger">
                     <span className="h-[7px] w-[7px] animate-blink rounded-full bg-danger" />
-                    Live · {rangeLabel}
+                    {transport === "live" ? "Live" : "Preview"} · {rangeLabel}
                   </span>
                 </div>
+                {liveError ? (
+                  <div className="mb-4 rounded-[11px] border border-ink/10 bg-lavender px-3.5 py-2.5 text-[12.5px] leading-[1.45] text-muted">
+                    {liveError}
+                  </div>
+                ) : null}
                 <div className="mb-[11px] font-mono text-[11px] uppercase tracking-[0.1em] text-muted">
                   Walking through · {countLabel}
                 </div>
@@ -294,12 +372,16 @@ export function BriefEmma({
                   ))}
                 </div>
                 <div className="flex gap-2.5">
-                  <button className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-[11px] border border-ink/10 bg-white py-3 font-display text-sm font-medium text-ink hover:bg-lavender">
+                  <button
+                    onClick={toggleMute}
+                    disabled={transport !== "live"}
+                    className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-[11px] border border-ink/10 bg-white py-3 font-display text-sm font-medium text-ink hover:bg-lavender disabled:cursor-not-allowed disabled:opacity-50"
+                  >
                     <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="7.5" y="3" width="5" height="9" rx="2.5" />
                       <path d="M5 9a5 5 0 0010 0M10 14v3" />
                     </svg>
-                    Mute
+                    {muted ? "Unmute" : "Mute"}
                   </button>
                   <button
                     onClick={() => setStep("form")}
