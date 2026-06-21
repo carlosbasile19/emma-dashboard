@@ -120,8 +120,12 @@ export function BriefEmma({
           setCallId(s.briefingId);
         }
 
-        // No live voice session (bridge disabled / backend returned voice:false) → walkthrough.
-        if (s.mode !== "live" || !s.realtime?.access_token) {
+        // The bridge returns the Retell join token as realtime.access_token (the documented shape)
+        // or realtime.token (the generic transport shape the backend currently emits) — accept
+        // either. No token → no call to join, so run the local walkthrough.
+        const rt = s.realtime;
+        const accessToken = rt?.access_token ?? rt?.token;
+        if (s.mode !== "live" || !accessToken) {
           setTransport("sim");
           return;
         }
@@ -154,8 +158,8 @@ export function BriefEmma({
             setStep("live");
           });
           await client.startCall({
-            accessToken: s.realtime.access_token,
-            ...(s.realtime.sample_rate ? { sampleRate: s.realtime.sample_rate } : {}),
+            accessToken,
+            ...(rt?.sample_rate ? { sampleRate: rt.sample_rate } : {}),
           });
         } catch {
           // startCall rejected (mic permission denied, token expired) or the SDK failed to load.
