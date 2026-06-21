@@ -173,18 +173,38 @@ export interface BriefSession {
   realtime?: BriefRealtime;
 }
 
-const briefingEnabled = () => process.env.OLIVIA_BRIEFING_ENABLED === "true";
+// Trim: env values set via `echo` can carry a trailing newline ("true\n" !== "true").
+const briefingEnabled = () => process.env.OLIVIA_BRIEFING_ENABLED?.trim() === "true";
 
 export async function startBriefing(
   params: DateParams,
   focus: string,
 ): Promise<BriefSession> {
+  // TEMP diagnostics (remove once prod briefing is verified): reveal why we fall back to sim.
+  console.warn(
+    "[brief] start enabled=%s flagRaw=%s",
+    briefingEnabled(),
+    JSON.stringify(process.env.OLIVIA_BRIEFING_ENABLED),
+  );
   if (!briefingEnabled()) return { mode: "simulated" };
   const clientId = await getSessionClientId();
   try {
     const r = await api.startBriefing(clientId, { ...params, focus, voice: true });
+    console.warn(
+      "[brief] live ok briefing_id=%s hasRealtime=%s tokenField=%s",
+      r.briefing_id,
+      !!r.realtime,
+      r.realtime ? (r.realtime.access_token ? "access_token" : r.realtime.token ? "token" : "none") : "n/a",
+    );
     return { mode: "live", briefingId: r.briefing_id, realtime: r.realtime };
-  } catch {
+  } catch (e) {
+    const err = e as { status?: number; code?: string; message?: string };
+    console.warn(
+      "[brief] api.startBriefing FAILED status=%s code=%s msg=%s",
+      err?.status,
+      err?.code,
+      err?.message,
+    );
     // backend not ready / errored → fall back to the simulated walkthrough
     return { mode: "simulated" };
   }
