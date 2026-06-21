@@ -58,6 +58,7 @@ export function BriefEmma({
   const [transport, setTransport] = useState<Transport>("sim");
   const [muted, setMuted] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
   const retellRef = useRef<RetellWebClient | null>(null);
@@ -87,6 +88,7 @@ export function BriefEmma({
     setTransport("sim");
     setMuted(false);
     setLiveError(null);
+    setAudioBlocked(false);
   }
 
   function toggleMute() {
@@ -105,12 +107,21 @@ export function BriefEmma({
     });
   }
 
+  // Browser blocked audio autoplay — call from a real click so LiveKit can start playback.
+  function enableAudio() {
+    retellRef.current
+      ?.startAudioPlayback()
+      .then(() => setAudioBlocked(false))
+      .catch(() => setAudioBlocked(true));
+  }
+
   function start() {
     if (filtered.length === 0) return;
     setCallId(`BR-${Math.floor(1000 + Math.random() * 8999)}`);
     setLiveIdx(0);
     setMuted(false);
     setLiveError(null);
+    setAudioBlocked(false);
     setTransport("pending"); // hold the simulated walkthrough until we know if a live call connects
     setStep("connecting");
     beginBrief(range, focus)
@@ -139,6 +150,11 @@ export function BriefEmma({
           client.on("call_started", () => {
             setTransport("live");
             setStep("live");
+            // startCall ran after awaits (server action + dynamic import), so the browser may
+            // have suspended audio autoplay (LiveKit room.startAudio under the hood). Try to
+            // start playback; if the browser blocks it, surface a tap-to-enable control — a
+            // fresh user gesture always unblocks it.
+            client.startAudioPlayback().catch(() => setAudioBlocked(true));
           });
           client.on("call_ended", () => close());
           client.on("error", () => {
@@ -366,6 +382,18 @@ export function BriefEmma({
                   <div className="mb-4 rounded-[11px] border border-ink/10 bg-lavender px-3.5 py-2.5 text-[12.5px] leading-[1.45] text-muted">
                     {liveError}
                   </div>
+                ) : null}
+                {audioBlocked ? (
+                  <button
+                    onClick={enableAudio}
+                    className="mb-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-[11px] bg-violet px-4 py-2.5 font-display text-sm font-medium text-white hover:bg-[#5d3df0]"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="#fff">
+                      <path d="M4 8v4h3l4 3V5L7 8H4z" />
+                      <path d="M14 7a4 4 0 010 6" stroke="#fff" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+                    </svg>
+                    Tap to hear Emma
+                  </button>
                 ) : null}
                 <div className="mb-[11px] font-mono text-[11px] uppercase tracking-[0.1em] text-muted">
                   Walking through · {countLabel}
