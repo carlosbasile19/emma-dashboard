@@ -25,9 +25,14 @@ async function requestOrigin(): Promise<string> {
 
 /**
  * Passwordless sign-in: email a one-click magic link. shouldCreateUser is false so only
- * provisioned users can sign in (and we don't reveal which emails exist).
+ * provisioned users can sign in — we never auto-create accounts. When the email has no
+ * account, GoTrue rejects the request with HTTP 422 / code "otp_disabled" ("Signups not
+ * allowed for otp"); we surface that as an explicit "contact your administrator" message
+ * rather than the generic send-failure copy.
  */
-export async function sendMagicLink(email: string): Promise<{ error: string | null }> {
+export async function sendMagicLink(
+  email: string,
+): Promise<{ error: string | null; code?: "no_account" }> {
   const e = email.trim().toLowerCase();
   if (!e) return { error: "Enter your email address." };
 
@@ -40,6 +45,13 @@ export async function sendMagicLink(email: string): Promise<{ error: string | nu
     },
   });
   if (error) {
+    if (error.code === "otp_disabled") {
+      return {
+        error:
+          "There’s no Hey Emma account for that email yet. Please contact your administrator to request access.",
+        code: "no_account",
+      };
+    }
     return { error: "We couldn’t send that link. Check the email address, then try again." };
   }
   return { error: null };

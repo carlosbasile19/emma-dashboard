@@ -14,21 +14,26 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(initialError ?? null);
+  const [noAccount, setNoAccount] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function sendLink(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNoAccount(false);
     startTransition(async () => {
       const res = await sendMagicLink(email);
-      if (res.error) setError(res.error);
-      else setView("sent");
+      if (res.error) {
+        setError(res.error);
+        setNoAccount(res.code === "no_account");
+      } else setView("sent");
     });
   }
 
   function signInPassword(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNoAccount(false);
     startTransition(async () => {
       // On success the action redirects to /dashboard (carrying the new session cookie).
       const res = await passwordSignIn(email, password);
@@ -40,6 +45,7 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
     setMode(next);
     setView("form");
     setError(null);
+    setNoAccount(false);
   }
 
   const ErrorBox = error ? (
@@ -48,7 +54,9 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
         !
       </div>
       <div>
-        <div className="text-[13.5px] font-medium text-[#B8323A]">We couldn’t sign you in.</div>
+        <div className="text-[13.5px] font-medium text-[#B8323A]">
+          {noAccount ? "Account not found." : "We couldn’t sign you in."}
+        </div>
         <div className="mt-0.5 text-[13px] text-muted">{error}</div>
       </div>
     </div>
