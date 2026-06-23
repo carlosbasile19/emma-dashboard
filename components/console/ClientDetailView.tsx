@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
+import { createInvite } from "@/app/console/actions";
 import { initials as toInitials, num, pct } from "@/lib/format";
 import type { ClientDetail } from "@/lib/olivia/agency";
 
@@ -93,6 +94,25 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
               </div>
             ))
           )}
+          <form
+            action={createInvite}
+            className="flex items-center gap-2 border-t border-ink/10 bg-surface-tint px-4 py-3"
+          >
+            <input type="hidden" name="clientId" value={client.id} />
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder="Invite a teammate by email…"
+              className="min-w-0 flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60"
+            />
+            <button
+              type="submit"
+              className="bg-gradient-brand flex-none rounded-[9px] px-3 py-1.5 font-display text-[12.5px] font-medium text-white transition-transform active:scale-95"
+            >
+              Invite
+            </button>
+          </form>
         </div>
 
         {/* workspace details */}

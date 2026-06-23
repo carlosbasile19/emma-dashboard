@@ -7,6 +7,7 @@ import { signOut } from "@/app/auth/actions";
 const NAV = [
   { href: "/console", label: "Overview", key: "overview" },
   { href: "/console/clients", label: "Clients", key: "clients" },
+  { href: "/console/invites", label: "Invites & members", key: "invites" },
 ] as const;
 
 function active(pathname: string, href: string): boolean {

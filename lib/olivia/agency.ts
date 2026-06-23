@@ -188,6 +188,76 @@ export async function getAgencyOverview(params: DateParams): Promise<AgencyOverv
   return { totals, perClient, leaderboard };
 }
 
+export interface InviteRow {
+  id: string;
+  token: string;
+  clientId: string;
+  clientName: string;
+  email: string;
+  role: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** All invites (pending + history), newest first, with workspace names resolved. */
+export async function listInvites(): Promise<InviteRow[]> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const [invitesRes, clients] = await Promise.all([
+    admin
+      .from("invites")
+      .select("id, token, olivia_client_id, email, role, status, created_at, expires_at")
+      .order("created_at", { ascending: false }),
+    listAgencyClients(),
+  ]);
+  const nameById = new Map(clients.map((c) => [c.id, c.name]));
+  return (invitesRes.data ?? []).map((i) => ({
+    id: i.id as string,
+    token: i.token as string,
+    clientId: i.olivia_client_id as string,
+    clientName: nameById.get(i.olivia_client_id as string) ?? (i.olivia_client_id as string),
+    email: i.email as string,
+    role: (i.role as string | null) ?? "member",
+    status: (i.status as string | null) ?? "pending",
+    createdAt: i.created_at as string,
+    expiresAt: i.expires_at as string,
+  }));
+}
+
+export interface MemberRow {
+  userId: string;
+  email: string | null;
+  clientId: string;
+  clientName: string;
+  role: string;
+}
+
+/** Every workspace member across the agency, with emails + workspace names resolved. */
+export async function listMembers(): Promise<MemberRow[]> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const [membersRes, clients, usersRes] = await Promise.all([
+    admin.from("workspace_members").select("user_id, olivia_client_id, role"),
+    listAgencyClients(),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
+  const nameById = new Map(clients.map((c) => [c.id, c.name]));
+  const emailById = new Map(
+    (usersRes.data?.users ?? []).map((u) => [u.id, u.email ?? null]),
+  );
+  return (membersRes.data ?? []).map((m) => {
+    const clientId = m.olivia_client_id as string;
+    return {
+      userId: m.user_id as string,
+      email: emailById.get(m.user_id as string) ?? null,
+      clientId,
+      clientName: nameById.get(clientId) ?? clientId,
+      role: (m.role as string | null) ?? "member",
+    };
+  });
+}
+
 export interface ClientDetail {
   client: AgencyClient;
   stats: { leads: number; calls: number; bookings: number; pickupRate: number };
