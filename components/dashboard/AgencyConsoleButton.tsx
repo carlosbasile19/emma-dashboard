@@ -1,12 +1,11 @@
-// Platform-admin affordance: jump back out of a client workspace to the agency-level admin
-// console. External link (opens a new tab). Rendered only for admins and only when the
-// destination is configured (AGENCY_CONSOLE_URL) — see DashboardLayout / Sidebar.
+import Link from "next/link";
+
+// Platform-admin affordance in the client dashboard sidebar: jump up to the agency-level admin
+// console (/console). Rendered only for admins (see Sidebar).
 export function AgencyConsoleButton({ href }: { href: string }) {
   return (
-    <a
+    <Link
       href={href}
-      target="_blank"
-      rel="noreferrer"
       title="Open the agency console"
       className="group mb-3 flex items-center gap-2.5 rounded-[14px] border border-dashed border-lavender-deep px-3.5 py-[11px] transition-colors hover:border-violet/45 hover:bg-lavender"
     >
@@ -42,6 +41,6 @@ export function AgencyConsoleButton({ href }: { href: string }) {
         <path d="M7 13 13 7" />
         <path d="M7.5 7H13v5.5" />
       </svg>
-    </a>
+    </Link>
   );
 }

@@ -16,10 +16,8 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar({
   workspace,
-  agencyConsoleUrl,
 }: {
   workspace: Pick<Workspace, "name" | "user" | "initials" | "role" | "isAdmin">;
-  agencyConsoleUrl?: string;
 }) {
   const pathname = usePathname();
   return (
@@ -62,9 +60,7 @@ export function Sidebar({
         })}
       </nav>
 
-      {workspace.isAdmin && agencyConsoleUrl ? (
-        <AgencyConsoleButton href={agencyConsoleUrl} />
-      ) : null}
+      {workspace.isAdmin ? <AgencyConsoleButton href="/console" /> : null}
 
       <div className="flex items-center gap-2.5 border-t border-ink/10 pt-[14px]">
         <div className="bg-gradient-brand flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] font-mono text-[13px] font-bold text-white">

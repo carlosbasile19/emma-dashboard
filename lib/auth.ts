@@ -126,6 +126,13 @@ export const getSessionContext = cache(async (): Promise<SessionContext> => {
   };
 });
 
+/** Platform-admin gate for agency-level surfaces (the console). Throws 403 for non-admins. */
+export const requireAdmin = cache(async (): Promise<SessionContext> => {
+  const ctx = await getSessionContext();
+  if (!ctx.isAdmin) throw new AuthError(403, "Admin access required");
+  return ctx;
+});
+
 /**
  * The single source of tenant identity for data fetches. Returns the active client_id, which
  * is derived entirely from the session (and, for admins only, a server-validated cookie) —
