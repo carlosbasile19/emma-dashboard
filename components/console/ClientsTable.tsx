@@ -1,14 +1,40 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
-import { initials as toInitials, num } from "@/lib/format";
+import { syncClients } from "@/app/console/actions";
+import { initials as toInitials, num, relTime } from "@/lib/format";
 import type { AgencyClientStats } from "@/lib/olivia/agency";
 
 const COLS = "grid-cols-[2fr_1fr_0.8fr_1fr_1fr_1.2fr]";
 
-export function ClientsTable({ clients }: { clients: AgencyClientStats[] }) {
+export function ClientsTable({
+  clients,
+  syncedAt,
+}: {
+  clients: AgencyClientStats[];
+  syncedAt: string | null;
+}) {
   return (
     <div className="mx-auto max-w-[1100px]">
-      <div className="mb-2 font-display text-[26px] font-bold tracking-[-0.02em]">Clients</div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <div className="font-display text-[26px] font-bold tracking-[-0.02em]">Clients</div>
+        <form action={syncClients} className="flex items-center gap-2.5">
+          {syncedAt ? (
+            <span className="font-mono text-[11px] text-muted" suppressHydrationWarning>
+              Synced {relTime(syncedAt)}
+            </span>
+          ) : null}
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 rounded-[10px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender"
+          >
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 4v4h-4" />
+              <path d="M16 8a6.5 6.5 0 1 0 1 5" />
+            </svg>
+            Sync from Olivia
+          </button>
+        </form>
+      </div>
       <div className="mb-6 text-[14px] text-muted">
         {num(clients.length)} {clients.length === 1 ? "workspace" : "workspaces"} in your agency ·
         open any one to view its dashboard
@@ -54,9 +80,15 @@ export function ClientsTable({ clients }: { clients: AgencyClientStats[] }) {
                   <div className="truncate text-[13.5px] font-medium group-hover:text-violet">
                     {c.name}
                   </div>
-                  <div className="truncate font-mono text-[10.5px] text-muted">
-                    {c.industry ?? "—"}
-                  </div>
+                  {c.memberCount === 0 ? (
+                    <span className="mt-0.5 inline-flex items-center rounded-[5px] border border-warning/40 bg-warning/10 px-1.5 py-px font-mono text-[10px] font-medium text-warning">
+                      Needs onboarding
+                    </span>
+                  ) : (
+                    <div className="truncate font-mono text-[10.5px] text-muted">
+                      {c.industry ?? "—"}
+                    </div>
+                  )}
                 </div>
               </Link>
               <div>

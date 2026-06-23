@@ -112,6 +112,19 @@ export async function refreshAgencyClients(maxAgeSec = 600): Promise<number> {
   return rows.length;
 }
 
+/** Latest olivia_clients sync time (for the console "Synced … ago" indicator). */
+export async function getMirrorSyncedAt(): Promise<string | null> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("olivia_clients")
+    .select("synced_at")
+    .order("synced_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.synced_at as string | null) ?? null;
+}
+
 // Per-client overview — admin-scoped. clientId originates from the agency mirror, and the SWR
 // cache + governor are shared with the per-client dashboard (same endpoint/key), so the console
 // rarely adds upstream load.

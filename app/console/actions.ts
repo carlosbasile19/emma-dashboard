@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { refreshAgencyClients } from "@/lib/olivia/agency";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const INVITE_TTL_DAYS = 7;
@@ -79,4 +80,11 @@ export async function createTeamInvite(formData: FormData) {
   });
 
   redirect("/console/team");
+}
+
+/** Platform-admin only: force-resync the client roster from Olivia discovery (bypass freshness). */
+export async function syncClients() {
+  await requireAdmin();
+  await refreshAgencyClients(0);
+  redirect("/console/clients");
 }
