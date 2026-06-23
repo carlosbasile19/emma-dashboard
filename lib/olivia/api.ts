@@ -1,5 +1,6 @@
 import "server-only";
 import { oliviaFetch, type OliviaFetchOptions, type QueryParams } from "./client";
+import { fullName } from "@/lib/format";
 import type {
   Agent,
   Call,
@@ -148,6 +149,49 @@ export async function getCalls(
     callback_notes: flatText(c.callback_notes),
   }));
   return { items, total: r.total, page: r.page, limit: r.limit };
+}
+
+// ---- Lead-name directory ----
+// The /calls and /conversations endpoints carry only `lead_id`, never a name. To show a name we
+// resolve lead_id → "First Last" from /leads (the sole name source, PII-gated). There is no
+// /leads/{id} or id filter, so we page the list and build a directory. The window is the widest
+// the API allows (≤366 days; omitting from/to would default to just 30) to maximize coverage —
+// leads older than this (or beyond the page cap) simply fall back to the lead_id in the UI.
+const LEAD_DIR_PAGE_SIZE = 100; // API max per page
+const LEAD_DIR_MAX_PAGES = 25; // safety cap (~2500 leads); overflow falls back to the lead_id
+
+function ymdUTC(msFromNow = 0): string {
+  return new Date(Date.now() + msFromNow).toISOString().slice(0, 10);
+}
+
+export async function getLeadDirectory(
+  clientId: string,
+  h: Hints = {},
+): Promise<Record<string, string>> {
+  const from = ymdUTC(-365 * 24 * 60 * 60 * 1000);
+  const to = ymdUTC();
+  const dir: Record<string, string> = {};
+  for (let page = 1; page <= LEAD_DIR_MAX_PAGES; page++) {
+    const { items, total, limit } = await getLeads(
+      clientId,
+      { from, to, page, limit: LEAD_DIR_PAGE_SIZE },
+      h,
+    );
+    for (const lead of items) {
+      const name = fullName(lead.first_name, lead.last_name);
+      if (name) dir[lead.id] = name;
+    }
+    const pageSize = limit || LEAD_DIR_PAGE_SIZE;
+    if (items.length < pageSize || page * pageSize >= total) break;
+    if (page === LEAD_DIR_MAX_PAGES) {
+      console.warn(
+        "[olivia] lead directory truncated at %d leads (total=%d) — older rows fall back to lead_id",
+        LEAD_DIR_MAX_PAGES * pageSize,
+        total,
+      );
+    }
+  }
+  return dir;
 }
 
 export async function getConversations(

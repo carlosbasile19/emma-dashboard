@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
-import { relTime, secToMMSS } from "@/lib/format";
+import { relTime, secToMMSS, shortId } from "@/lib/format";
 import type { Call } from "@/lib/types";
 
 // Deterministic waveform bar heights from the call id.
@@ -66,7 +66,7 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
               {call.id} · {call.direction === "inbound" ? "Inbound" : "Outbound"}
             </div>
             <div className="mt-1.5 text-[21px] font-bold tracking-[-0.01em]">
-              {call.lead ?? call.lead_id}
+              {call.lead ?? shortId(call.lead_id)}
             </div>
             <div className="mt-3 flex gap-2">
               <Badge kind="call" value={call.status} />

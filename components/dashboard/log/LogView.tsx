@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
-import { relTime, secToMMSS } from "@/lib/format";
+import { relTime, secToMMSS, shortId } from "@/lib/format";
 import type { Call, Conversation } from "@/lib/types";
 
 const CALL_COLS = "grid-cols-[0.7fr_1.4fr_1.3fr_1.1fr_1.2fr_0.7fr_1fr]";
@@ -103,7 +103,7 @@ export function LogView({
                     </span>
                   </div>
                   <div className="truncate text-[13px] font-medium">
-                    {c.lead ?? c.lead_id}
+                    {c.lead ?? shortId(c.lead_id)}
                   </div>
                   <div className="truncate text-[12.5px] text-muted">{c.agent ?? "—"}</div>
                   <div>
@@ -165,7 +165,7 @@ export function LogView({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="mb-0.5 flex items-center gap-2">
-                    <span className="text-sm font-medium">{m.lead ?? m.lead_id}</span>
+                    <span className="text-sm font-medium">{m.lead ?? shortId(m.lead_id)}</span>
                     {unread ? (
                       <span className="h-[7px] w-[7px] rounded-full bg-pink" />
                     ) : null}

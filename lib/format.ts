@@ -73,6 +73,11 @@ export function fullName(
   return name.length ? name : null;
 }
 
+/** Compact reference form of a record id (first UUID group), e.g. "bd61032d". */
+export function shortId(id: string): string {
+  return id ? (id.split("-")[0] ?? id) : id;
+}
+
 /** Initials for an avatar from a display name. */
 export function initials(name: string): string {
   return name

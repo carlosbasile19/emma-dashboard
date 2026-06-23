@@ -133,19 +133,57 @@ export async function fetchLeads(
   });
 }
 
+/**
+ * lead_id → display name directory for the session's client. Calls/conversations carry only
+ * `lead_id`; this resolves names from /leads so rows can show a person instead of a UUID.
+ * Cached separately (stable, long fresh window) and shared across the calls + conversations views.
+ */
+async function leadDirectory(
+  clientId: string,
+  opts: Opts = {},
+): Promise<Record<string, string>> {
+  const res = await cachedFetch({
+    clientId,
+    endpoint: "lead-directory",
+    params: {},
+    tier: TIERS.leadDirectory,
+    force: opts.force,
+    fetcher: () => api.getLeadDirectory(clientId),
+  });
+  return res.data;
+}
+
+/** Fill each row's `.lead` from the directory, leaving the lead_id fallback when unresolved. */
+function withLeadNames<T extends { lead_id: string; lead?: string | null }>(
+  items: T[],
+  dir: Record<string, string>,
+): T[] {
+  return items.map((item) =>
+    item.lead == null && dir[item.lead_id] ? { ...item, lead: dir[item.lead_id] } : item,
+  );
+}
+
 export async function fetchCalls(
   params: DateParams & PageParams = {},
   opts: Opts = {},
 ): Promise<WithFreshness<ListResponse<Call>>> {
   const clientId = await getSessionClientId();
-  return cachedFetch({
-    clientId,
-    endpoint: "calls",
-    params: rec(params),
-    tier: TIERS.calls,
-    force: opts.force,
-    fetcher: () => api.getCalls(clientId, params),
-  });
+  const [res, dir] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "calls",
+      params: rec(params),
+      tier: TIERS.calls,
+      force: opts.force,
+      fetcher: () => api.getCalls(clientId, params),
+    }),
+    // Name resolution is best-effort — never let it break the call log.
+    leadDirectory(clientId, opts).catch(() => ({}) as Record<string, string>),
+  ]);
+  return {
+    ...res,
+    data: { ...res.data, items: withLeadNames(res.data.items, dir) },
+  };
 }
 
 export async function fetchConversations(
@@ -153,14 +191,21 @@ export async function fetchConversations(
   opts: Opts = {},
 ): Promise<WithFreshness<ListResponse<Conversation>>> {
   const clientId = await getSessionClientId();
-  return cachedFetch({
-    clientId,
-    endpoint: "conversations",
-    params: rec(params),
-    tier: TIERS.conversations,
-    force: opts.force,
-    fetcher: () => api.getConversations(clientId, params),
-  });
+  const [res, dir] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "conversations",
+      params: rec(params),
+      tier: TIERS.conversations,
+      force: opts.force,
+      fetcher: () => api.getConversations(clientId, params),
+    }),
+    leadDirectory(clientId, opts).catch(() => ({}) as Record<string, string>),
+  ]);
+  return {
+    ...res,
+    data: { ...res.data, items: withLeadNames(res.data.items, dir) },
+  };
 }
 
 // ---- Briefing bridge ----
