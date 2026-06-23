@@ -87,3 +87,39 @@ export function initials(name: string): string {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
 }
+
+// ---- Transcript parsing ----
+export type TranscriptSpeaker = "agent" | "lead";
+export interface TranscriptTurn {
+  speaker: TranscriptSpeaker;
+  text: string;
+}
+
+const AGENT_SPEAKER = /^(agent|assistant|ai|bot|emma)$/i;
+const LEAD_SPEAKER = /^(user|customer|caller|human|lead|client|prospect|contact)$/i;
+
+/**
+ * Split a "Speaker: line" transcript into attributed turns. Olivia returns one turn per line
+ * prefixed with `Agent:` / `User:`. Lines without a recognized speaker prefix fold into the
+ * previous turn (continuations); a colon inside dialogue won't trigger a false split because
+ * only known speaker labels start a new turn.
+ */
+export function parseTranscript(raw: string): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [];
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const m = line.match(/^([A-Za-z][\w .'-]{0,18}?):\s*(.*)$/);
+    const label = m?.[1]?.trim() ?? "";
+    const isAgent = AGENT_SPEAKER.test(label);
+    const isLead = LEAD_SPEAKER.test(label);
+    if (m && (isAgent || isLead)) {
+      turns.push({ speaker: isAgent ? "agent" : "lead", text: (m[2] ?? "").trim() });
+    } else {
+      const last = turns[turns.length - 1];
+      if (last) last.text = last.text ? `${last.text} ${line}` : line;
+      else turns.push({ speaker: "lead", text: line });
+    }
+  }
+  return turns.filter((t) => t.text);
+}
