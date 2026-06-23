@@ -431,6 +431,23 @@ Re-pulled the claude.ai design (new `Emma Landing.dc.html`, brief flow, magic-li
 - Verified: login renders the magic-link UI; `signInWithOtp` is accepted (OTP enabled; non-provisioned
   emails return "Signups not allowed" — secure, no auto-signup / enumeration via success).
 
+### Branded transactional emails (Resend)
+- One in-code brand email system in `lib/email/` (theme → layout → templates → send). Image-free
+  gradient header + violet CTA; HTML + plain-text + preheader; fail-soft sends.
+- **Invitations** (`app/console/actions.ts`): `createInvite` / `createTeamInvite` send a branded
+  email via Resend after inserting the row. If the send fails, the invite still exists and the
+  console copy-link UI is the manual fallback.
+- **Login magic link**: a Supabase "Send Email" auth hook (`app/api/auth/email-hook/route.ts`)
+  renders the branded magic link and sends it via Resend. Covers both the login link and the
+  post-accept sign-in link. The callback (`/auth/callback`) is unchanged.
+- **Env:** `RESEND_API_KEY`, `EMAIL_REPLY_TO`, `SEND_EMAIL_HOOK_SECRET`. From `Hey Emma
+  <no-reply@heyemma.io>`, reply-to `carlos@imperoagency.com`.
+- **⚠ REQUIRED one-time Supabase config (dashboard):** Authentication → Hooks → **Send Email** →
+  enable, type **HTTPS**, URL `https://<app-domain>/api/auth/email-hook`, secret =
+  `SEND_EMAIL_HOOK_SECRET`. (Not reachable via MCP/CLI — same class as the redirect-URL config.)
+- Test: `npm run email:test-send` (live send of all three); end-to-end magic-link login after the
+  hook is configured.
+
 ### Brief Emma
 - "Brief Emma" button on the overview hero → modal: **form → connecting → live** web-call
   walkthrough. Brief items are derived from **real data** (`buildBriefItems`: new / booked /
