@@ -5,10 +5,13 @@ import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
 
 const NAV = [
-  { href: "/console", label: "Overview", key: "overview" },
-  { href: "/console/clients", label: "Clients", key: "clients" },
-  { href: "/console/invites", label: "Invites & members", key: "invites" },
+  { href: "/console", label: "Overview", key: "overview", group: "Agency" },
+  { href: "/console/clients", label: "Clients", key: "clients", group: "Agency" },
+  { href: "/console/invites", label: "Invites & members", key: "invites", group: "Agency" },
+  { href: "/console/team", label: "Agency team", key: "team", group: "Organisation" },
 ] as const;
+
+const GROUPS = ["Agency", "Organisation"] as const;
 
 function active(pathname: string, href: string): boolean {
   return href === "/console" ? pathname === "/console" : pathname.startsWith(href);
@@ -48,25 +51,33 @@ export function ConsoleSidebar({
         Back to a workspace
       </Link>
 
-      <nav className="flex flex-1 flex-col gap-0.5">
-        <div className="px-2 pb-[7px] font-mono text-[10px] uppercase tracking-[0.14em] text-muted opacity-80">
-          Agency
-        </div>
-        {NAV.map((item) => {
-          const on = active(pathname, item.href);
-          return (
-            <Link
-              key={item.key}
-              href={item.href}
-              aria-current={on ? "page" : undefined}
-              className={`flex items-center gap-[11px] rounded-[10px] px-2.5 py-[9px] text-sm transition-colors ${
-                on ? "bg-lavender font-semibold text-violet" : "font-normal text-ink hover:bg-lavender"
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex flex-1 flex-col gap-3.5">
+        {GROUPS.map((group) => (
+          <div key={group}>
+            <div className="px-2 pb-[7px] font-mono text-[10px] uppercase tracking-[0.14em] text-muted opacity-80">
+              {group}
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {NAV.filter((n) => n.group === group).map((item) => {
+                const on = active(pathname, item.href);
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    aria-current={on ? "page" : undefined}
+                    className={`flex items-center gap-[11px] rounded-[10px] px-2.5 py-[9px] text-sm transition-colors ${
+                      on
+                        ? "bg-lavender font-semibold text-violet"
+                        : "font-normal text-ink hover:bg-lavender"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       <div className="flex items-center gap-2.5 border-t border-ink/10 pt-[14px]">

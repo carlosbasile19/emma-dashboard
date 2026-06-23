@@ -258,6 +258,33 @@ export async function listMembers(): Promise<MemberRow[]> {
   });
 }
 
+export interface TeamMember {
+  userId: string;
+  email: string | null;
+  role: string;
+}
+
+/**
+ * The agency team = platform admins (the people who can reach the console + every client).
+ * Phase 3 reuses the existing role rather than a separate agency-membership model.
+ */
+export async function listAgencyTeam(): Promise<TeamMember[]> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const [membersRes, usersRes] = await Promise.all([
+    admin.from("workspace_members").select("user_id, role").eq("role", "platform_admin"),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
+  ]);
+  const emailById = new Map(
+    (usersRes.data?.users ?? []).map((u) => [u.id, u.email ?? null]),
+  );
+  return (membersRes.data ?? []).map((m) => ({
+    userId: m.user_id as string,
+    email: emailById.get(m.user_id as string) ?? null,
+    role: (m.role as string | null) ?? "platform_admin",
+  }));
+}
+
 export interface ClientDetail {
   client: AgencyClient;
   stats: { leads: number; calls: number; bookings: number; pickupRate: number };

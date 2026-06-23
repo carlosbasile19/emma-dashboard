@@ -8,10 +8,12 @@ export function AcceptInvite({
   token,
   clientName,
   email,
+  isTeam = false,
 }: {
   token: string;
   clientName: string;
   email: string;
+  isTeam?: boolean;
 }) {
   const [state, action, pending] = useActionState<AcceptState, FormData>(acceptInvite, {});
 
@@ -45,13 +47,25 @@ export function AcceptInvite({
         <LogoWordmark size={32} />
       </div>
       <div className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.1em] text-violet">
-        Workspace invitation
+        {isTeam ? "Agency invitation" : "Workspace invitation"}
       </div>
-      <h1 className="text-[22px] font-bold tracking-[-0.01em]">Join {clientName}</h1>
+      <h1 className="text-[22px] font-bold tracking-[-0.01em]">
+        {isTeam ? "Join the agency team" : `Join ${clientName}`}
+      </h1>
       <p className="mt-2.5 text-[14px] leading-[1.55] text-muted">
-        You&apos;ve been invited to the Hey Emma workspace for{" "}
-        <span className="font-medium text-ink">{clientName}</span>. We&apos;ll set up your account
-        for <span className="font-medium text-ink">{email}</span> and email you a one-click sign-in
+        {isTeam ? (
+          <>
+            You&apos;ve been invited to the Hey Emma agency console with admin access to every
+            client.
+          </>
+        ) : (
+          <>
+            You&apos;ve been invited to the Hey Emma workspace for{" "}
+            <span className="font-medium text-ink">{clientName}</span>.
+          </>
+        )}{" "}
+        We&apos;ll set up your account for{" "}
+        <span className="font-medium text-ink">{email}</span> and email you a one-click sign-in
         link.
       </p>
 

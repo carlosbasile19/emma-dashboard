@@ -11,7 +11,7 @@ export default async function InvitePage({
   const admin = createAdminClient();
   const { data: invite } = await admin
     .from("invites")
-    .select("olivia_client_id, email, status, expires_at")
+    .select("olivia_client_id, email, role, status, expires_at")
     .eq("token", token)
     .maybeSingle();
 
@@ -48,6 +48,7 @@ export default async function InvitePage({
             token={token}
             clientName={clientName}
             email={invite.email as string}
+            isTeam={(invite.role as string | null) === "platform_admin"}
           />
         ) : (
           <div className="text-center">

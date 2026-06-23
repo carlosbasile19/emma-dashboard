@@ -51,5 +51,32 @@ export async function revokeInvite(formData: FormData) {
   if (!id) return;
   const admin = createAdminClient();
   await admin.from("invites").update({ status: "revoked" }).eq("id", id).eq("status", "pending");
-  redirect("/console/invites");
+  redirect(String(formData.get("returnTo") ?? "/console/invites"));
+}
+
+/**
+ * Platform-admin only: invite a teammate to the agency itself. This grants platform_admin on
+ * accept (full console + cross-client access), anchored to the inviter's current home client so
+ * the user has a workspace_members row. Reuses the invites flow with role=platform_admin.
+ */
+export async function createTeamInvite(formData: FormData) {
+  const ctx = await requireAdmin();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
+  if (!email || !email.includes("@")) redirect("/console/team?error=missing");
+
+  const admin = createAdminClient();
+  const token = randomBytes(24).toString("base64url");
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  await admin.from("invites").insert({
+    token,
+    olivia_client_id: ctx.activeClientId, // anchor home client; admins switch across all
+    email,
+    role: "platform_admin",
+    invited_by: ctx.userId,
+    expires_at: expiresAt,
+  });
+
+  redirect("/console/team");
 }

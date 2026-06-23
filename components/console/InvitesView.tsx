@@ -16,7 +16,8 @@ export function InvitesView({
   clients: AgencyClient[];
   baseUrl: string;
 }) {
-  const pending = invites.filter((i) => i.status === "pending");
+  // Team (platform_admin) invites live in the Agency team view; here we show workspace invites.
+  const pending = invites.filter((i) => i.status === "pending" && i.role === "member");
 
   return (
     <div className="mx-auto max-w-[1000px]">
@@ -107,6 +108,7 @@ export function InvitesView({
                   </div>
                   <form action={revokeInvite}>
                     <input type="hidden" name="id" value={inv.id} />
+                    <input type="hidden" name="returnTo" value="/console/invites" />
                     <button
                       type="submit"
                       className="rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-danger transition-colors hover:bg-danger/8"
