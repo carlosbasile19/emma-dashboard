@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import { fullName, relTime } from "@/lib/format";
 import type { Lead } from "@/lib/types";
@@ -16,7 +17,10 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () =
   const name = fullName(lead.first_name, lead.last_name);
   const title = pii ? (name ?? lead.id) : lead.id;
 
-  return (
+  // Portal to <body>: the overlay is `position: fixed` and must resolve against the
+  // viewport, but an ancestor in the dashboard shell (the `animate-fade-up` <main>) creates
+  // a containing block that would otherwise trap it inside the scrolled content column.
+  return createPortal(
     <div
       onClick={onClose}
       className="fixed inset-0 z-[60] flex justify-end bg-ink/30 backdrop-blur-[2px]"
@@ -126,7 +130,8 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () =
           ) : null}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

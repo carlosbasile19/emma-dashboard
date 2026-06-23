@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import {
   initials,
@@ -30,7 +31,10 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
   if (!call) return null;
   const hasRecording = Boolean(call.recording_url) && (call.duration_seconds ?? 0) > 0;
 
-  return (
+  // Portal to <body>: the overlay is `position: fixed` and must resolve against the
+  // viewport, but an ancestor in the dashboard shell (the `animate-fade-up` <main>) creates
+  // a containing block that would otherwise trap it inside the scrolled content column.
+  return createPortal(
     <div
       onClick={onClose}
       className="fixed inset-0 z-[60] flex justify-end bg-ink/30 backdrop-blur-[2px]"
@@ -92,7 +96,8 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
           <Transcript call={call} />
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

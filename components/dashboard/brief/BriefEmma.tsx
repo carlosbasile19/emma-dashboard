@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { RetellWebClient } from "retell-client-js-sdk";
 import { beginBrief, endBrief } from "@/app/auth/actions";
 import { tint } from "@/lib/design";
@@ -228,11 +229,15 @@ export function BriefEmma({
         Brief Emma
       </button>
 
-      {open ? (
-        <div
-          onClick={close}
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-ink/45 p-6 backdrop-blur-[3px]"
-        >
+      {open
+        ? // Portal to <body>: the overlay is `position: fixed` and must resolve against the
+          // viewport, but an ancestor in the dashboard shell (the `animate-fade-up` <main>)
+          // creates a containing block that would otherwise trap it in the scrolled column.
+          createPortal(
+            <div
+              onClick={close}
+              className="fixed inset-0 z-[90] flex items-center justify-center bg-ink/45 p-6 backdrop-blur-[3px]"
+            >
           <div
             onClick={(e) => e.stopPropagation()}
             className="flex max-h-[92vh] w-[540px] max-w-full animate-pop flex-col overflow-hidden rounded-[16px] bg-white text-ink shadow-lg"
@@ -435,8 +440,10 @@ export function BriefEmma({
               </div>
             )}
           </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
