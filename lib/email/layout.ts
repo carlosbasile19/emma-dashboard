@@ -77,7 +77,7 @@ ${paras}
 <tr><td style="padding:4px 36px 0 36px;">${notes}</td></tr>
 <tr><td style="padding:26px 36px 30px 36px;">
 <div style="height:1px;line-height:1px;font-size:1px;background:${C.lavender};">&nbsp;</div>
-<p style="margin:18px 0 0 0;font-family:${FONT_DISPLAY};font-size:12.5px;line-height:1.6;color:${C.muted};">${FOOTER_SECURITY}<br>${FOOTER_IGNORE}</p>
+<p style="margin:18px 0 0 0;font-family:${FONT_DISPLAY};font-size:12.5px;line-height:1.6;color:${C.muted};">${escapeHtml(FOOTER_SECURITY)}<br>${escapeHtml(FOOTER_IGNORE)}</p>
 </td></tr>
 </table>
 </td></tr>
