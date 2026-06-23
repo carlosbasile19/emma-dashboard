@@ -32,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar workspace={ws} />
+      <Sidebar workspace={ws} agencyConsoleUrl={process.env.AGENCY_CONSOLE_URL} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Suspense
           fallback={
