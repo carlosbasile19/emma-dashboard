@@ -29,7 +29,7 @@ export async function POST(req: Request): Promise<Response> {
 
   let body: HookPayload;
   try {
-    const wh = new Webhook(secret.replace("v1,whsec_", ""));
+    const wh = new Webhook(secret.replace(/^v1,whsec_/, ""));
     body = wh.verify(payload, headers) as HookPayload;
   } catch {
     return Response.json(
