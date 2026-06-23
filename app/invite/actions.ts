@@ -53,14 +53,31 @@ export async function acceptInvite(
     return { error: "We couldn't set up your account. Please contact your administrator." };
   }
 
-  // Map into the workspace (one client per user).
-  const { error: mapErr } = await admin
+  // Map into the workspace (one client per user). Never silently re-map an existing user to a
+  // different workspace/role — that could move or demote someone via a stray invite. A matching
+  // mapping is a harmless re-accept; a conflicting one is refused.
+  const { data: existing } = await admin
     .from("workspace_members")
-    .upsert(
-      { user_id: userId, olivia_client_id: invite.olivia_client_id, role: invite.role },
-      { onConflict: "user_id" },
-    );
-  if (mapErr) return { error: "We couldn't add you to the workspace. Contact your administrator." };
+    .select("olivia_client_id, role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (
+    existing &&
+    (existing.olivia_client_id !== invite.olivia_client_id || existing.role !== invite.role)
+  ) {
+    return {
+      error:
+        "This email already belongs to a Hey Emma account in another workspace. Ask your administrator to move it.",
+    };
+  }
+  if (!existing) {
+    const { error: mapErr } = await admin
+      .from("workspace_members")
+      .insert({ user_id: userId, olivia_client_id: invite.olivia_client_id, role: invite.role });
+    if (mapErr) {
+      return { error: "We couldn't add you to the workspace. Contact your administrator." };
+    }
+  }
 
   await admin
     .from("invites")
