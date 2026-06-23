@@ -187,3 +187,48 @@ export async function getAgencyOverview(params: DateParams): Promise<AgencyOverv
   const leaderboard = [...perClient].sort((a, b) => b.bookings - a.bookings);
   return { totals, perClient, leaderboard };
 }
+
+export interface ClientDetail {
+  client: AgencyClient;
+  stats: { leads: number; calls: number; bookings: number; pickupRate: number };
+  members: Array<{ userId: string; email: string | null; role: string }>;
+}
+
+/** One client's full detail for the console: roster row + period stats + members (with emails). */
+export async function getClientDetail(
+  clientId: string,
+  params: DateParams,
+): Promise<ClientDetail | null> {
+  await requireAdmin();
+  const base = await getAgencyClient(clientId);
+  if (!base) return null;
+  const admin = createAdminClient();
+
+  const [ov, oc] = await Promise.all([
+    clientOverview(clientId, params),
+    clientOutcomes(clientId, params).catch(() => null),
+  ]);
+  const emails = await Promise.all(
+    base.members.map((m) =>
+      admin.auth.admin
+        .getUserById(m.userId)
+        .then((r) => r.data.user?.email ?? null)
+        .catch(() => null),
+    ),
+  );
+  const k = ov.data.kpis;
+  return {
+    client: base.client,
+    stats: {
+      leads: k.leads_total ?? 0,
+      calls: k.calls_total ?? 0,
+      bookings: sumBookings(oc?.data.outcomes.booking_outcomes),
+      pickupRate: k.pickup_rate ?? 0,
+    },
+    members: base.members.map((m, i) => ({
+      userId: m.userId,
+      email: emails[i] ?? null,
+      role: m.role,
+    })),
+  };
+}

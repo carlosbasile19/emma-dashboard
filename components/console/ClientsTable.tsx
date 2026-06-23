@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
 import { initials as toInitials, num } from "@/lib/format";
 import type { AgencyClientStats } from "@/lib/olivia/agency";
@@ -42,17 +43,22 @@ export function ClientsTable({ clients }: { clients: AgencyClientStats[] }) {
                 i % 2 ? "bg-lavender/40" : "bg-white"
               }`}
             >
-              <div className="flex min-w-0 items-center gap-2.5">
+              <Link
+                href={`/console/clients/${c.id}`}
+                className="group flex min-w-0 items-center gap-2.5"
+              >
                 <span className="bg-gradient-brand flex h-8 w-8 flex-none items-center justify-center rounded-[9px] font-mono text-[11px] font-bold text-white">
                   {toInitials(c.name)}
                 </span>
                 <div className="min-w-0">
-                  <div className="truncate text-[13.5px] font-medium">{c.name}</div>
+                  <div className="truncate text-[13.5px] font-medium group-hover:text-violet">
+                    {c.name}
+                  </div>
                   <div className="truncate font-mono text-[10.5px] text-muted">
                     {c.industry ?? "—"}
                   </div>
                 </div>
-              </div>
+              </Link>
               <div>
                 {c.status ? (
                   <span className="inline-flex rounded-[7px] border border-lavender-deep bg-lavender px-2 py-0.5 font-mono text-[11px] text-violet">

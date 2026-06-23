@@ -67,9 +67,10 @@ export function AgencyOverviewView({ overview }: { overview: AgencyOverview }) {
           </div>
         ) : (
           leaderboard.slice(0, 6).map((c, i) => (
-            <div
+            <Link
               key={c.id}
-              className={`flex items-center gap-3.5 border-b border-lavender px-[22px] py-3 ${
+              href={`/console/clients/${c.id}`}
+              className={`flex items-center gap-3.5 border-b border-lavender px-[22px] py-3 transition-colors hover:bg-lavender ${
                 i % 2 ? "bg-lavender/40" : "bg-white"
               }`}
             >
@@ -92,7 +93,7 @@ export function AgencyOverviewView({ overview }: { overview: AgencyOverview }) {
                 <div className="font-mono text-[14px] font-bold tabular-nums">{num(c.bookings)}</div>
                 <div className="font-mono text-[10px] text-muted">{num(c.leads)} leads</div>
               </div>
-            </div>
+            </Link>
           ))
         )}
       </div>
