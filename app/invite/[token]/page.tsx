@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AcceptInvite } from "@/components/invite/AcceptInvite";
+import { CheckInboxPanel } from "@/components/invite/CheckInboxPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function InvitePage({
@@ -28,15 +29,16 @@ export default async function InvitePage({
   const expired =
     invite && new Date(invite.expires_at as string).getTime() < Date.now();
   const valid = Boolean(invite && invite.status === "pending" && !expired);
+  // An accepted invite is a success, not an error: the sign-in link was emailed. Show the branded
+  // "check your inbox" panel (this is also what the server re-render lands on right after accept).
+  const accepted = invite?.status === "accepted";
   const reason = !invite
     ? "This invitation link isn’t valid."
-    : invite.status === "accepted"
-      ? "This invitation has already been used."
-      : invite.status === "revoked"
-        ? "This invitation was revoked."
-        : expired
-          ? "This invitation has expired."
-          : "This invitation isn’t valid.";
+    : invite.status === "revoked"
+      ? "This invitation was revoked."
+      : expired
+        ? "This invitation has expired."
+        : "This invitation isn’t valid.";
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-warm px-6">
@@ -50,6 +52,8 @@ export default async function InvitePage({
             email={invite.email as string}
             isTeam={(invite.role as string | null) === "platform_admin"}
           />
+        ) : accepted && invite ? (
+          <CheckInboxPanel email={invite.email as string} />
         ) : (
           <div className="text-center">
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full border border-lavender-deep bg-lavender text-violet">

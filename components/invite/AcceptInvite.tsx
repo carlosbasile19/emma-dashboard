@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { acceptInvite, type AcceptState } from "@/app/invite/actions";
+import { CheckInboxPanel } from "@/components/invite/CheckInboxPanel";
 import { LogoWordmark } from "@/components/brand/Logo";
 
 export function AcceptInvite({
@@ -18,27 +19,7 @@ export function AcceptInvite({
   const [state, action, pending] = useActionState<AcceptState, FormData>(acceptInvite, {});
 
   if (state.ok) {
-    return (
-      <div className="text-center">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-success/15 text-success">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12l5 5L20 7" />
-          </svg>
-        </div>
-        <h1 className="text-[20px] font-bold tracking-[-0.01em]">You&apos;re in</h1>
-        <p className="mt-2 text-[14px] leading-[1.55] text-muted">
-          We&apos;ve sent a one-click sign-in link to{" "}
-          <span className="font-medium text-ink">{state.email ?? email}</span>. Open it to enter
-          your workspace.
-        </p>
-        <a
-          href="/login"
-          className="mt-6 inline-block font-display text-[13px] font-medium text-violet hover:underline"
-        >
-          Go to sign in →
-        </a>
-      </div>
-    );
+    return <CheckInboxPanel email={state.email ?? email} />;
   }
 
   return (
