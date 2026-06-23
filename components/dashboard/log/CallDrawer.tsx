@@ -11,6 +11,7 @@ import {
   type TranscriptTurn,
 } from "@/lib/format";
 import type { Call } from "@/lib/types";
+import { useScrollLock } from "@/lib/useScrollLock";
 
 // Deterministic waveform bar heights from the call id. The recording is served cross-origin
 // without CORS headers, so the real amplitude can't be decoded client-side — these bars are a
@@ -25,6 +26,7 @@ function waveform(id: string): number[] {
 }
 
 export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () => void }) {
+  useScrollLock(Boolean(call));
   if (!call) return null;
   const hasRecording = Boolean(call.recording_url) && (call.duration_seconds ?? 0) > 0;
 
@@ -35,7 +37,7 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
     >
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="h-screen w-[460px] max-w-[92vw] animate-fade-up overflow-y-auto bg-white shadow-[-12px_0_40px_rgba(26,43,46,0.18)]"
+        className="h-screen w-[460px] max-w-[92vw] animate-fade-up overflow-y-auto overscroll-contain bg-white shadow-[-12px_0_40px_rgba(26,43,46,0.18)]"
       >
         <div className="flex items-start justify-between border-b border-ink/10 px-[26px] py-[22px]">
           <div>

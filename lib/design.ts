@@ -96,6 +96,8 @@ export interface NavItem {
   label: string;
   href: string;
   group: "Analytics" | "Performance" | "Records" | "Reference";
+  /** Hidden from the sidebar (route still exists) — for sections not ready for users yet. */
+  hidden?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -104,10 +106,10 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "funnel", label: "Funnel", href: "/dashboard/funnel", group: "Analytics" },
   { key: "outcomes", label: "Outcomes", href: "/dashboard/outcomes", group: "Analytics" },
   { key: "agents", label: "Agents", href: "/dashboard/agents", group: "Performance" },
-  { key: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", group: "Performance" },
+  { key: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", group: "Performance", hidden: true },
   { key: "leads", label: "Leads", href: "/dashboard/leads", group: "Records" },
   { key: "logs", label: "Calls & Conversations", href: "/dashboard/log", group: "Records" },
-  { key: "design", label: "Design System", href: "/dashboard/design", group: "Reference" },
+  { key: "design", label: "Design System", href: "/dashboard/design", group: "Reference", hidden: true },
 ];
 
 export const NAV_GROUPS = ["Analytics", "Performance", "Records", "Reference"] as const;

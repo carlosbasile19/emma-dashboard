@@ -26,13 +26,16 @@ export function Sidebar({
       </div>
 
       <nav className="flex flex-1 flex-col gap-[14px] overflow-y-auto">
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.map((group) => {
+          const items = NAV_ITEMS.filter((n) => n.group === group && !n.hidden);
+          if (items.length === 0) return null;
+          return (
           <div key={group}>
             <div className="px-2 pb-[7px] font-mono text-[10px] uppercase tracking-[0.14em] text-muted opacity-80">
               {group}
             </div>
             <div className="flex flex-col gap-0.5">
-              {NAV_ITEMS.filter((n) => n.group === group).map((item) => {
+              {items.map((item) => {
                 const active = isActive(pathname, item.href);
                 return (
                   <Link
@@ -52,7 +55,8 @@ export function Sidebar({
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div className="flex items-center gap-2.5 border-t border-ink/10 pt-[14px]">

@@ -3,12 +3,14 @@
 import { Badge } from "@/components/ui/Badge";
 import { fullName, relTime } from "@/lib/format";
 import type { Lead } from "@/lib/types";
+import { useScrollLock } from "@/lib/useScrollLock";
 
 function hasPii(lead: Lead): boolean {
   return Boolean(lead.first_name || lead.last_name || lead.phone || lead.email);
 }
 
 export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () => void }) {
+  useScrollLock(Boolean(lead));
   if (!lead) return null;
   const pii = hasPii(lead);
   const name = fullName(lead.first_name, lead.last_name);
@@ -21,7 +23,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead | null; onClose: () =
     >
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="h-screen w-[440px] max-w-[92vw] animate-fade-up overflow-y-auto bg-white shadow-[-12px_0_40px_rgba(26,43,46,0.18)]"
+        className="h-screen w-[440px] max-w-[92vw] animate-fade-up overflow-y-auto overscroll-contain bg-white shadow-[-12px_0_40px_rgba(26,43,46,0.18)]"
       >
         <div className="relative overflow-hidden bg-ink px-[26px] py-6">
           <div className="absolute -right-12 -top-32 h-[220px] w-[220px] rounded-full bg-[radial-gradient(circle,rgba(109,74,255,0.5),transparent_62%)]" />
