@@ -221,8 +221,7 @@ function Transcript({ call }: { call: Call }) {
     );
   }
 
-  const agentName = call.agent ?? "Agent";
-  const leadFirst = call.lead ? (call.lead.split(" ")[0] ?? call.lead) : "Lead";
+  const agentName = call.agent ?? "Emma";
   const leadMark = call.lead ? initials(call.lead) : null;
 
   return (
@@ -237,7 +236,7 @@ function Transcript({ call }: { call: Call }) {
             key={i}
             turn={turn}
             agentName={agentName}
-            leadName={leadFirst}
+            leadName="Lead"
             leadMark={leadMark}
           />
         ))}
