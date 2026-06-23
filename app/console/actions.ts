@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { refreshAgencyClients } from "@/lib/olivia/agency";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getRequestOrigin } from "@/lib/origin";
+import { sendEmail } from "@/lib/email/send";
+import { teamInvite, workspaceInvite } from "@/lib/email/templates";
 
 const INVITE_TTL_DAYS = 7;
 
@@ -26,7 +29,7 @@ export async function createInvite(formData: FormData) {
   const admin = createAdminClient();
   const { data: client } = await admin
     .from("olivia_clients")
-    .select("olivia_client_id")
+    .select("olivia_client_id, name")
     .eq("olivia_client_id", clientId)
     .maybeSingle();
   if (!client) redirect("/console/invites?error=client");
@@ -41,6 +44,22 @@ export async function createInvite(formData: FormData) {
     invited_by: ctx.userId,
     expires_at: expiresAt,
   });
+
+  // Fail-soft: a send error must not block invite creation — the copy-link UI remains the fallback.
+  try {
+    const origin = await getRequestOrigin();
+    const { subject, html, text } = workspaceInvite({
+      inviterName: ctx.userName,
+      clientName: (client.name as string | null) ?? clientId,
+      email,
+      acceptUrl: `${origin}/invite/${token}`,
+      expiresInDays: INVITE_TTL_DAYS,
+    });
+    const { error } = await sendEmail({ to: email, subject, html, text });
+    if (error) console.error("[invite] workspace email failed:", error);
+  } catch (e) {
+    console.error("[invite] workspace email threw:", e);
+  }
 
   redirect("/console/invites");
 }
@@ -78,6 +97,21 @@ export async function createTeamInvite(formData: FormData) {
     invited_by: ctx.userId,
     expires_at: expiresAt,
   });
+
+  // Fail-soft: a send error must not block invite creation — the copy-link UI remains the fallback.
+  try {
+    const origin = await getRequestOrigin();
+    const { subject, html, text } = teamInvite({
+      inviterName: ctx.userName,
+      email,
+      acceptUrl: `${origin}/invite/${token}`,
+      expiresInDays: INVITE_TTL_DAYS,
+    });
+    const { error } = await sendEmail({ to: email, subject, html, text });
+    if (error) console.error("[invite] team email failed:", error);
+  } catch (e) {
+    console.error("[invite] team email threw:", e);
+  }
 
   redirect("/console/team");
 }
