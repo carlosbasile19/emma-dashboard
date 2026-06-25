@@ -217,6 +217,8 @@ export interface Lead {
   last_disposition?: CallDisposition | null;
   total_calls: number;
   stage_entered_at?: string | null;
+  stage_id?: string | null;
+  pipeline_id?: string | null;
   // PII (present only when the key carries dashboard:pii) — null-guarded.
   first_name?: string | null;
   last_name?: string | null;
@@ -289,4 +291,37 @@ export interface Freshness {
 export interface WithFreshness<T> {
   data: T;
   freshness: Freshness;
+}
+
+// ---- Pipelines (board mirror) ----
+export const STAGE_TYPES = ["open", "won", "lost"] as const;
+export type StageType = (typeof STAGE_TYPES)[number];
+
+export interface PipelineStage {
+  id: string;
+  name: string;
+  color: string; // #RRGGBB — validate before use; the API value may be missing/invalid
+  stage_type: StageType;
+  order_index: number;
+  archived_at: string | null; // non-null = archived column still holding leads
+  lead_count: number; // LIVE count — authoritative badge source
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  is_default: boolean; // agency-level default
+  is_client_default: boolean; // == default_pipeline_id; show first
+  order_index: number;
+  archived_at: string | null;
+  lead_count: number; // pipeline total
+  stages: PipelineStage[];
+}
+
+export interface PipelinesResponse {
+  client_id: string;
+  default_pipeline_id: string | null;
+  pipelines: Pipeline[];
 }
