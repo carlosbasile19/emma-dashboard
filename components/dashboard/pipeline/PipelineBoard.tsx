@@ -15,6 +15,13 @@ import {
 import { type PrefetchMap } from "@/lib/pipeline/types";
 import type { PipelinesResponse } from "@/lib/types";
 
+const WINDOWS: Array<{ label: string; days: number | null }> = [
+  { label: "All", days: null },
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+];
+
 export function PipelineBoard({
   initialPipelines,
   initialMap,
@@ -33,6 +40,7 @@ export function PipelineBoard({
   const [fetchedAt, setFetchedAt] = useState(initialFetchedAt);
   const [stale, setStale] = useState(initialStale);
   const [loaded, setLoaded] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []));
+  const [windowDays, setWindowDays] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
   const visible = useMemo(() => visiblePipelines(pipelines), [pipelines]);
@@ -98,6 +106,27 @@ export function PipelineBoard({
                 </button>
               ))
             : null}
+          <div
+            role="group"
+            aria-label="Filter by stage entry date"
+            className="flex items-center gap-0.5 rounded-[10px] border border-ink/10 bg-white p-[3px]"
+          >
+            {WINDOWS.map((w) => {
+              const on = windowDays === w.days;
+              return (
+                <button
+                  key={w.label}
+                  onClick={() => setWindowDays(w.days)}
+                  aria-pressed={on}
+                  className={`cursor-pointer rounded-[7px] px-[11px] py-1.5 font-mono text-xs transition-colors ${
+                    on ? "bg-ink text-white" : "text-muted hover:bg-lavender"
+                  }`}
+                >
+                  {w.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[12px] text-muted" suppressHydrationWarning>
@@ -130,6 +159,7 @@ export function PipelineBoard({
               stage={stage}
               index={i}
               initial={active ? map[stageKey(active.id, stage.id)] : undefined}
+              windowDays={windowDays}
             />
           ))}
         </div>
