@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - Path alias: `@/*` → repo root (`tsconfig.json`). In standalone `tsx` assertions use **relative** imports (`./lib/...`) to avoid alias resolution.
+- `tsx -e` compiles to CJS: **no top-level await**, and a dynamic `import("./lib/x.ts")` exposes the module's named exports under `m.default` — destructure via `m.default ?? m` inside a `.then(...)` callback.
 - Dynamic route params are async: `{ params }: { params: Promise<{ id: string }> }` then `const { id } = await params;` (matches `app/invite/[token]/page.tsx`).
 - No new dependencies. Icons are inline SVG (no icon library). Custom Tailwind components — **not** shadcn.
 - Button idiom: `rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-ink transition-colors hover:bg-lavender`.
@@ -62,7 +63,7 @@ The SSRF-critical logic, isolated as pure functions so it can be asserted withou
 
 Run:
 ```bash
-npx tsx -e 'const {validateRecordingSrc,allowedRecordingHosts}=await import("./lib/recording.ts"); const hosts=["recordings.example.com"]; const good=validateRecordingSrc("https://recordings.example.com/a.mp3",hosts); const badHost=validateRecordingSrc("https://evil.internal/x",hosts); const badProto=validateRecordingSrc("http://recordings.example.com/a.mp3",hosts); const nul=validateRecordingSrc(null,hosts); const env=allowedRecordingHosts({RECORDING_HOST_ALLOWLIST:" A.com , b.com "}); if(good.ok!==true||badHost.ok||badProto.ok||nul.ok||JSON.stringify(env)!==JSON.stringify(["a.com","b.com"])){console.error("FAIL",JSON.stringify({good,badHost,badProto,nul,env}));process.exit(1)} console.log("PASS");'
+npx tsx -e 'import("./lib/recording.ts").then((m)=>{ const {validateRecordingSrc,allowedRecordingHosts}=m.default??m; const hosts=["recordings.example.com"]; const good=validateRecordingSrc("https://recordings.example.com/a.mp3",hosts); const badHost=validateRecordingSrc("https://evil.internal/x",hosts); const badProto=validateRecordingSrc("http://recordings.example.com/a.mp3",hosts); const nul=validateRecordingSrc(null,hosts); const env=allowedRecordingHosts({RECORDING_HOST_ALLOWLIST:" A.com , b.com "}); if(good.ok!==true||badHost.ok||badProto.ok||nul.ok||JSON.stringify(env)!==JSON.stringify(["a.com","b.com"])){console.error("FAIL",JSON.stringify({good,badHost,badProto,nul,env}));process.exit(1)} console.log("PASS"); }).catch((e)=>{console.error("ERR",e);process.exit(1)})'
 ```
 Expected: FAIL — `Cannot find module './lib/recording.ts'`.
 
@@ -121,7 +122,7 @@ export function validateRecordingSrc(
 
 Run:
 ```bash
-npx tsx -e 'const {validateRecordingSrc,allowedRecordingHosts}=await import("./lib/recording.ts"); const hosts=["recordings.example.com"]; const good=validateRecordingSrc("https://recordings.example.com/a.mp3",hosts); const badHost=validateRecordingSrc("https://evil.internal/x",hosts); const badProto=validateRecordingSrc("http://recordings.example.com/a.mp3",hosts); const nul=validateRecordingSrc(null,hosts); const env=allowedRecordingHosts({RECORDING_HOST_ALLOWLIST:" A.com , b.com "}); if(good.ok!==true||badHost.ok||badProto.ok||nul.ok||JSON.stringify(env)!==JSON.stringify(["a.com","b.com"])){console.error("FAIL",JSON.stringify({good,badHost,badProto,nul,env}));process.exit(1)} console.log("PASS");'
+npx tsx -e 'import("./lib/recording.ts").then((m)=>{ const {validateRecordingSrc,allowedRecordingHosts}=m.default??m; const hosts=["recordings.example.com"]; const good=validateRecordingSrc("https://recordings.example.com/a.mp3",hosts); const badHost=validateRecordingSrc("https://evil.internal/x",hosts); const badProto=validateRecordingSrc("http://recordings.example.com/a.mp3",hosts); const nul=validateRecordingSrc(null,hosts); const env=allowedRecordingHosts({RECORDING_HOST_ALLOWLIST:" A.com , b.com "}); if(good.ok!==true||badHost.ok||badProto.ok||nul.ok||JSON.stringify(env)!==JSON.stringify(["a.com","b.com"])){console.error("FAIL",JSON.stringify({good,badHost,badProto,nul,env}));process.exit(1)} console.log("PASS"); }).catch((e)=>{console.error("ERR",e);process.exit(1)})'
 ```
 Expected: `PASS`.
 
