@@ -21,7 +21,6 @@ export function StageColumn({
 }) {
   const ok = initial && initial.ok ? initial : null;
   const [items, setItems] = useState<Lead[]>(ok ? ok.items : []);
-  const [total, setTotal] = useState<number>(ok ? ok.total : 0);
   const [nextPage, setNextPage] = useState<number>(2);
   const [hasMore, setHasMore] = useState<boolean>(
     ok ? hasMoreLeads(ok.items.length, ok.total, ok.items.length, ok.limit) : false,
@@ -44,7 +43,6 @@ export function StageColumn({
       setErrorCode(null);
       const merged = replace ? res.items : [...items, ...res.items];
       setItems(merged);
-      setTotal(res.total);
       setNextPage(page + 1);
       setHasMore(hasMoreLeads(merged.length, res.total, res.items.length, res.limit));
     });

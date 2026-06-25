@@ -29,6 +29,7 @@ export function PipelineBoard({
   const [pipelines, setPipelines] = useState(initialPipelines);
   const [activeId, setActiveId] = useState<string | null>(() => defaultPipelineId(initialPipelines));
   const [map, setMap] = useState<PrefetchMap>(initialMap);
+  const [mapVersion, setMapVersion] = useState(0);
   const [fetchedAt, setFetchedAt] = useState(initialFetchedAt);
   const [stale, setStale] = useState(initialStale);
   const [loaded, setLoaded] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []));
@@ -44,7 +45,12 @@ export function PipelineBoard({
         setLoaded((prev) => new Set(prev).add(id));
         startTransition(async () => {
           const res = await loadPipelineStages(id);
-          if (res.ok) setMap((m) => ({ ...m, ...res.map }));
+          if (res.ok) {
+            setMap((m) => ({ ...m, ...res.map }));
+            setMapVersion((v) => v + 1);
+          } else {
+            setLoaded((prev) => { const n = new Set(prev); n.delete(id); return n; });
+          }
         });
       }
     },
@@ -59,6 +65,7 @@ export function PipelineBoard({
       if (res.ok) {
         setPipelines(res.pipelines);
         setMap(res.map);
+        setMapVersion((v) => v + 1);
         setFetchedAt(res.fetchedAt);
         setStale(res.stale);
         setLoaded(new Set([id]));
@@ -119,7 +126,7 @@ export function PipelineBoard({
         <div role="group" aria-label="Pipeline stages" tabIndex={0} className="flex gap-3 overflow-x-auto pb-3">
           {stages.map((stage, i) => (
             <StageColumn
-              key={stage.id}
+              key={`${active?.id ?? ""}:${stage.id}:${mapVersion}`}
               stage={stage}
               index={i}
               initial={active ? map[stageKey(active.id, stage.id)] : undefined}
