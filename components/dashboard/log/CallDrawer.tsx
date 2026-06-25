@@ -3,7 +3,9 @@
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
+import { CopyButton } from "@/components/ui/CopyButton";
 import {
+  formatTranscript,
   initials,
   parseTranscript,
   relTime,
@@ -75,7 +77,23 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
             />
           </div>
 
-          <Label>Recording</Label>
+          <div className="mb-2.5 flex items-center justify-between">
+            <Label>Recording</Label>
+            {hasRecording && call.recording_url ? (
+              <a
+                href={`/api/calls/${call.id}/recording?src=${encodeURIComponent(call.recording_url)}`}
+                download
+                className="flex flex-none items-center gap-1.5 rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-ink transition-colors hover:bg-lavender"
+              >
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path d="M10 3v9" />
+                  <path d="M6 9.5l4 4 4-4" />
+                  <path d="M4 16.5h12" />
+                </svg>
+                Download
+              </a>
+            ) : null}
+          </div>
           {hasRecording ? (
             <RecordingPlayer key={call.id} call={call} />
           ) : (
@@ -233,7 +251,10 @@ function Transcript({ call }: { call: Call }) {
     <>
       <div className="mb-2.5 flex items-center justify-between">
         <Label>Transcript</Label>
-        <span className="font-mono text-[10.5px] text-muted">{turns.length} turns</span>
+        <div className="flex items-center gap-2.5">
+          <span className="font-mono text-[10.5px] text-muted">{turns.length} turns</span>
+          <CopyButton value={formatTranscript(call)} />
+        </div>
       </div>
       <div className="flex flex-col gap-3.5">
         {turns.map((turn, i) => (
