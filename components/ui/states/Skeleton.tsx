@@ -4,7 +4,8 @@ export type SkeletonVariant =
   | "donuts"
   | "funnel"
   | "campaigns"
-  | "table";
+  | "table"
+  | "board";
 
 function Block({ className }: { className?: string }) {
   return <div className={`shimmer rounded-[8px] ${className ?? ""}`} />;
@@ -60,6 +61,22 @@ export function Skeleton({ variant }: { variant: SkeletonVariant }) {
               <Block key={i} className="m-1.5 h-[42px]" />
             ))}
           </div>
+        </div>
+      );
+    case "board":
+      return (
+        <div className="flex gap-3 overflow-x-auto pb-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex w-[300px] flex-none flex-col gap-2 rounded-[14px] border border-ink/10 bg-lavender/40 p-2.5"
+            >
+              <Block className="mb-1 h-[34px]" />
+              {Array.from({ length: 3 }).map((__, j) => (
+                <Block key={j} className="h-[72px]" />
+              ))}
+            </div>
+          ))}
         </div>
       );
     default:
