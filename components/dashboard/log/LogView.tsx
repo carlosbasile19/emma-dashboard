@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { relTime, secToMMSS, shortId } from "@/lib/format";
 import type { Call, Conversation } from "@/lib/types";
 
@@ -176,6 +177,9 @@ export function LogView({
                   <div className="flex-none">
                     <Badge kind="call" value={m.status} />
                   </div>
+                ) : null}
+                {m.summary ? (
+                  <CopyButton compact value={m.summary} title="Copy summary" />
                 ) : null}
                 <div
                   className="w-[90px] flex-none text-right font-mono text-[11px] text-muted"
