@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "email:selftest": "tsx scripts/email-selftest.ts",
-    "email:test-send": "tsx scripts/send-test-emails.ts"
+    "email:test-send": "tsx scripts/send-test-emails.ts",
+    "test:pipeline": "tsx scripts/pipeline-board-selftest.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
