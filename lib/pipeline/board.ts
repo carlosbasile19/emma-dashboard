@@ -1,7 +1,7 @@
 // Pure board logic — no server-only imports, safe in client/server/tsx.
 import { CHART_PALETTE } from "@/lib/design";
 import { fullName, relTime, shortId } from "@/lib/format";
-import type { Lead, Pipeline, PipelineStage, PipelinesResponse } from "@/lib/types";
+import type { Lead, Pipeline, PipelineStage, PipelinesResponse, StageType } from "@/lib/types";
 
 /** Composite map key — stage ids are not guaranteed unique across pipelines. */
 export function stageKey(pipelineId: string, stageId: string): string {
@@ -79,4 +79,12 @@ export function isWithinWindow(
   const t = new Date(stageEnteredAt).getTime();
   if (Number.isNaN(t)) return false;
   return t >= now - days * 24 * 60 * 60 * 1000;
+}
+
+/** Which date a stage's recency window keys off: open stages by lead creation, won/lost by stage entry. */
+export function recencyDate(
+  stageType: StageType,
+  lead: Pick<Lead, "created_at" | "stage_entered_at">,
+): string | null {
+  return (stageType === "open" ? lead.created_at : lead.stage_entered_at) ?? null;
 }

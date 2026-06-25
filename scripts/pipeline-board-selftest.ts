@@ -6,6 +6,7 @@ import {
   isWithinWindow,
   leadCardLabel,
   leadStageSince,
+  recencyDate,
   resolveStageColor,
   sortStagesForBoard,
   stageKey,
@@ -117,6 +118,24 @@ function pipeline(p: Partial<Pipeline>): Pipeline {
   assert.equal(isWithinWindow("2026-06-10T12:00:00Z", 7, wNow), false); // 15d ago, out of 7d
   assert.equal(isWithinWindow("2026-06-10T12:00:00Z", 30, wNow), true); // 15d ago, in 30d
   assert.equal(isWithinWindow("2026-03-01T12:00:00Z", 90, wNow), false); // ~116d ago, out of 90d
+
+  // recencyDate: open → created_at; won/lost → stage_entered_at
+  assert.equal(
+    recencyDate("open", { created_at: "2026-06-24T00:00:00Z", stage_entered_at: null }),
+    "2026-06-24T00:00:00Z",
+  );
+  assert.equal(
+    recencyDate("won", { created_at: "2026-01-01T00:00:00Z", stage_entered_at: "2026-06-20T00:00:00Z" }),
+    "2026-06-20T00:00:00Z",
+  );
+  assert.equal(
+    recencyDate("lost", { created_at: "2026-01-01T00:00:00Z", stage_entered_at: "2026-06-20T00:00:00Z" }),
+    "2026-06-20T00:00:00Z",
+  );
+  assert.equal(
+    recencyDate("won", { created_at: "2026-01-01T00:00:00Z", stage_entered_at: null }),
+    null,
+  );
 
   console.log("pipeline-board-selftest: OK");
 })();

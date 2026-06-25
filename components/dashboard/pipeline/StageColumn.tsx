@@ -4,7 +4,7 @@ import { loadStageLeads } from "@/app/dashboard/trends/actions";
 import { LeadCard } from "@/components/dashboard/pipeline/LeadCard";
 import { tint } from "@/lib/design";
 import { num } from "@/lib/format";
-import { hasMoreLeads, isWithinWindow, resolveStageColor } from "@/lib/pipeline/board";
+import { hasMoreLeads, isWithinWindow, recencyDate, resolveStageColor } from "@/lib/pipeline/board";
 import { type StageLeads } from "@/lib/pipeline/types";
 import type { Lead, PipelineStage } from "@/lib/types";
 
@@ -36,7 +36,7 @@ export function StageColumn({
   const archived = Boolean(stage.archived_at);
 
   const visible = windowDays
-    ? items.filter((l) => isWithinWindow(l.stage_entered_at, windowDays))
+    ? items.filter((l) => isWithinWindow(recencyDate(stage.stage_type, l), windowDays))
     : items;
 
   function loadPage(page: number, replace: boolean) {
