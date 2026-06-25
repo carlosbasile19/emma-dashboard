@@ -21,6 +21,7 @@ export const TIERS = {
   outcomes: { fresh: 60, stale: 300 },
   agents: { fresh: 120, stale: 600 },
   campaigns: { fresh: 120, stale: 600 },
+  pipelines: { fresh: 30, stale: 120 },
   leads: { fresh: 30, stale: 60 },
   // lead_id → name directory used to enrich call/conversation rows. Names are stable, so a
   // long fresh window avoids re-paging the whole leads list on every log view.
