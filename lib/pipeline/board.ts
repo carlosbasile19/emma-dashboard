@@ -68,3 +68,15 @@ export function hasMoreLeads(
 ): boolean {
   return loadedCount < total && lastPageCount === limit;
 }
+
+/** True when stage_entered_at falls within the last `days` (false for null/invalid). */
+export function isWithinWindow(
+  stageEnteredAt: string | null | undefined,
+  days: number,
+  now: number = Date.now(),
+): boolean {
+  if (!stageEnteredAt) return false;
+  const t = new Date(stageEnteredAt).getTime();
+  if (Number.isNaN(t)) return false;
+  return t >= now - days * 24 * 60 * 60 * 1000;
+}

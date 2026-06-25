@@ -3,6 +3,7 @@ import {
   defaultPipelineId,
   hasMoreLeads,
   isHexColor,
+  isWithinWindow,
   leadCardLabel,
   leadStageSince,
   resolveStageColor,
@@ -106,6 +107,16 @@ function pipeline(p: Partial<Pipeline>): Pipeline {
   assert.equal(hasMoreLeads(120, 120, 20, 50), false); // reached total
   assert.equal(hasMoreLeads(30, 120, 30, 50), false); // short page → stop
   assert.equal(hasMoreLeads(0, 0, 0, 50), false); // empty stage
+
+  // isWithinWindow (deterministic via fixed now)
+  const wNow = Date.parse("2026-06-25T12:00:00Z");
+  assert.equal(isWithinWindow(null, 30, wNow), false);
+  assert.equal(isWithinWindow(undefined, 30, wNow), false);
+  assert.equal(isWithinWindow("not-a-date", 30, wNow), false);
+  assert.equal(isWithinWindow("2026-06-23T12:00:00Z", 7, wNow), true); // 2d ago, in 7d
+  assert.equal(isWithinWindow("2026-06-10T12:00:00Z", 7, wNow), false); // 15d ago, out of 7d
+  assert.equal(isWithinWindow("2026-06-10T12:00:00Z", 30, wNow), true); // 15d ago, in 30d
+  assert.equal(isWithinWindow("2026-03-01T12:00:00Z", 90, wNow), false); // ~116d ago, out of 90d
 
   console.log("pipeline-board-selftest: OK");
 })();
