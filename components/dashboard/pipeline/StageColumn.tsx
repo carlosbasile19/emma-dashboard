@@ -4,7 +4,7 @@ import { loadStageLeads } from "@/app/dashboard/trends/actions";
 import { LeadCard } from "@/components/dashboard/pipeline/LeadCard";
 import { tint } from "@/lib/design";
 import { num } from "@/lib/format";
-import { hasMoreLeads, resolveStageColor } from "@/lib/pipeline/board";
+import { hasMoreLeads, isWithinWindow, resolveStageColor } from "@/lib/pipeline/board";
 import { type StageLeads } from "@/lib/pipeline/types";
 import type { Lead, PipelineStage } from "@/lib/types";
 
@@ -14,10 +14,12 @@ export function StageColumn({
   stage,
   index,
   initial,
+  windowDays,
 }: {
   stage: PipelineStage;
   index: number;
   initial: StageLeads | undefined;
+  windowDays?: number | null;
 }) {
   const ok = initial && initial.ok ? initial : null;
   const [items, setItems] = useState<Lead[]>(ok ? ok.items : []);
@@ -32,6 +34,10 @@ export function StageColumn({
 
   const accent = stage.stage_type === "lost" ? LOST_GREY : resolveStageColor(stage.color, index);
   const archived = Boolean(stage.archived_at);
+
+  const visible = windowDays
+    ? items.filter((l) => isWithinWindow(l.stage_entered_at, windowDays))
+    : items;
 
   function loadPage(page: number, replace: boolean) {
     startTransition(async () => {
@@ -72,6 +78,12 @@ export function StageColumn({
         </span>
       </header>
 
+      {windowDays ? (
+        <div className="border-b border-ink/5 px-3 py-1 font-mono text-[10.5px] text-muted">
+          {num(visible.length)} in last {windowDays}d
+        </div>
+      ) : null}
+
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2.5">
         {errorCode ? (
           <button
@@ -83,12 +95,16 @@ export function StageColumn({
           </button>
         ) : null}
 
-        {items.map((lead) => (
+        {visible.map((lead) => (
           <LeadCard key={lead.id} lead={lead} />
         ))}
 
         {!errorCode && items.length === 0 ? (
           <div className="px-1 py-6 text-center font-mono text-[11px] text-muted">No leads</div>
+        ) : !errorCode && windowDays && visible.length === 0 ? (
+          <div className="px-1 py-6 text-center font-mono text-[11px] text-muted">
+            No movement in last {windowDays}d
+          </div>
         ) : null}
 
         {hasMore && !errorCode ? (
