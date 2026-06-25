@@ -12,9 +12,8 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
     cta: "View setup checklist",
   },
   trends: {
-    title: "No activity in this window",
-    body: "Widen the date range, or give Emma a campaign to dial. Trends draw themselves as the days roll in.",
-    cta: "Reset to last 90 days",
+    title: "No pipeline to show",
+    body: "This client has no active pipeline yet. Once a pipeline and its stages are set up in Olivia, leads appear here on the board.",
   },
   funnel: {
     title: "The funnel is empty",
@@ -54,8 +53,8 @@ export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
     body: "Emma’s fine — this is on us. The data service didn’t answer in time.",
   },
   trends: {
-    title: "Trends didn’t load",
-    body: "The time-series service timed out. Your data is safe; give it another go.",
+    title: "We couldn’t load the pipeline",
+    body: "The pipeline service didn’t respond just now. Your data is safe — give it another go.",
   },
   funnel: {
     title: "Funnel failed to load",
