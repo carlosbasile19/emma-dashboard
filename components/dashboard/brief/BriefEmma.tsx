@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RetellWebClient } from "retell-client-js-sdk";
-import { beginBrief, endBrief } from "@/app/auth/actions";
+import { beginBrief, endBrief, fetchBriefWindow } from "@/app/auth/actions";
 import { tint } from "@/lib/design";
+import type { BriefWindow, BriefWindowKind } from "@/lib/filters";
 import type { BriefCategory, BriefItem } from "@/lib/overview";
 
 type Step = "form" | "connecting" | "live";
@@ -19,6 +20,34 @@ const FOCUS_OPTIONS: Array<{ v: Focus; l: string }> = [
   { v: "leads", l: "Leads" },
   { v: "campaigns", l: "Campaigns" },
 ];
+
+// Olivia-style segmented date filter for the brief. The dashboard's ?range= only knows
+// 7d/30d/90d; "week" + "custom" live here so the modal can re-scope the brief on its own.
+const WINDOW_TABS: Array<{ v: BriefWindowKind; l: string }> = [
+  { v: "week", l: "This week" },
+  { v: "30d", l: "30 days" },
+  { v: "90d", l: "90 days" },
+  { v: "custom", l: "Custom" },
+];
+
+const todayYMD = () => new Date().toISOString().slice(0, 10);
+const daysAgoYMD = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+const CalIcon = ({ size = 14 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="4" width="14" height="13" rx="2" />
+    <path d="M3 8h14M7 3v3M13 3v3" />
+  </svg>
+);
 
 const EqIcon = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 20 20" fill="#fff">
@@ -42,7 +71,7 @@ const Wave = ({ count, h, w }: { count: number; h: number; w: number }) => (
 );
 
 export function BriefEmma({
-  items,
+  items: initialItems,
   rangeLabel,
   range,
 }: {
@@ -64,8 +93,68 @@ export function BriefEmma({
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
   const retellRef = useRef<RetellWebClient | null>(null);
 
+  // The brief window is the modal's own filter. Seed it (+ the item list) from the props the
+  // dashboard rendered for its current ?range=, so the first open is instant. 90d maps straight
+  // to its button; everything else (incl. 7d, which has no button) starts on "30 days".
+  const initialWin: BriefWindow = range === "90d" ? { kind: "90d" } : { kind: "30d" };
+  const [win, setWin] = useState<BriefWindow>(initialWin);
+  const [items, setItems] = useState<BriefItem[]>(initialItems);
+  const [winLabel, setWinLabel] = useState(rangeLabel);
+  const [winLoading, setWinLoading] = useState(false);
+  const [winError, setWinError] = useState<string | null>(null);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  // When the dashboard range is 7d there's no matching button, so the seeded "30 days" items are
+  // really last-7-days data. Re-fetch the correct 30-day brief once, the first time the modal opens.
+  const reseeded = useRef(false);
+
   const filtered = focus === "all" ? items : items.filter((i) => i.category === focus);
   const countLabel = `${filtered.length} item${filtered.length === 1 ? "" : "s"}`;
+  const winActive = (k: BriefWindowKind) => (k === "custom" ? showCustom : !showCustom && win.kind === k);
+
+  async function applyWindow(next: BriefWindow) {
+    setWin(next);
+    setWinError(null);
+    setWinLoading(true);
+    try {
+      const res = await fetchBriefWindow(next);
+      setItems(res.items);
+      setWinLabel(res.label);
+      setLiveIdx(0);
+    } catch {
+      setWinError("Couldn’t load that window — keeping the last one.");
+    } finally {
+      setWinLoading(false);
+    }
+  }
+
+  function selectTab(k: BriefWindowKind) {
+    if (winLoading) return;
+    if (k === "custom") {
+      setShowCustom(true);
+      if (!customFrom) setCustomFrom(daysAgoYMD(29));
+      if (!customTo) setCustomTo(todayYMD());
+      return;
+    }
+    setShowCustom(false);
+    if (win.kind !== k || winError) void applyWindow({ kind: k });
+  }
+
+  function applyCustom() {
+    if (!customFrom || !customTo || winLoading) return;
+    void applyWindow({ kind: "custom", from: customFrom, to: customTo });
+  }
+
+  // 7d dashboard range → load the correct 30-day brief the first time the modal opens.
+  useEffect(() => {
+    if (open && range === "7d" && !reseeded.current) {
+      reseeded.current = true;
+      void applyWindow({ kind: "30d" });
+    }
+    // applyWindow is stable for this one-shot reseed; only the open transition should trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, range]);
 
   function close() {
     // Tear down the live call first; null the ref before stopCall so the "call_ended"
@@ -125,7 +214,7 @@ export function BriefEmma({
     setAudioBlocked(false);
     setTransport("pending"); // hold the simulated walkthrough until we know if a live call connects
     setStep("connecting");
-    beginBrief(range, focus)
+    beginBrief(win, focus)
       .then(async (s) => {
         if (s.briefingId) {
           setBriefingId(s.briefingId);
@@ -274,15 +363,74 @@ export function BriefEmma({
                       <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted">
                         Window
                       </span>
-                      <span className="font-mono text-[13px] text-ink">{rangeLabel}</span>
+                      <span className="flex items-center gap-1.5 font-mono text-[13px] text-ink">
+                        {winLoading ? (
+                          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-lavender-deep border-t-violet" />
+                        ) : null}
+                        {winLabel}
+                      </span>
                     </div>
-                    <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-violet/30 bg-violet/10 px-3.5 py-2 font-display text-[13px] font-medium text-violet">
-                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="4" width="14" height="13" rx="2" />
-                        <path d="M3 8h14M7 3v3M13 3v3" />
-                      </svg>
-                      {rangeLabel}
-                    </span>
+                    <div className="flex gap-1 rounded-[12px] border border-ink/10 bg-lavender/50 p-1">
+                      {WINDOW_TABS.map((t) => {
+                        const on = winActive(t.v);
+                        return (
+                          <button
+                            key={t.v}
+                            type="button"
+                            onClick={() => selectTab(t.v)}
+                            disabled={winLoading}
+                            className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] px-2.5 py-2 font-display text-[12.5px] font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              on
+                                ? "bg-white text-violet shadow-[0_1px_3px_rgba(26,43,46,0.14)]"
+                                : "text-muted hover:bg-white/70"
+                            }`}
+                          >
+                            <CalIcon size={13} />
+                            {t.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {showCustom ? (
+                      <div className="mt-3 flex flex-wrap items-end gap-2.5">
+                        <label className="flex flex-1 flex-col gap-1">
+                          <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
+                            From
+                          </span>
+                          <input
+                            type="date"
+                            value={customFrom}
+                            max={customTo || todayYMD()}
+                            onChange={(e) => setCustomFrom(e.target.value)}
+                            className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-3 py-2 font-display text-[13px] text-ink focus:border-violet focus:shadow-[0_0_0_3px_rgba(109,74,255,0.14)]"
+                          />
+                        </label>
+                        <label className="flex flex-1 flex-col gap-1">
+                          <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
+                            To
+                          </span>
+                          <input
+                            type="date"
+                            value={customTo}
+                            min={customFrom || undefined}
+                            max={todayYMD()}
+                            onChange={(e) => setCustomTo(e.target.value)}
+                            className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-3 py-2 font-display text-[13px] text-ink focus:border-violet focus:shadow-[0_0_0_3px_rgba(109,74,255,0.14)]"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={applyCustom}
+                          disabled={!customFrom || !customTo || winLoading}
+                          className="rounded-[10px] bg-violet px-4 py-2 font-display text-[13px] font-medium text-white hover:bg-[#5d3df0] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    ) : null}
+                    {winError ? (
+                      <div className="mt-2.5 font-display text-[12px] text-danger">{winError}</div>
+                    ) : null}
                   </div>
 
                   <div className="border-b border-ink/10 py-5">
@@ -380,7 +528,7 @@ export function BriefEmma({
                   </div>
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-danger/25 bg-danger/10 py-1.5 pl-2.5 pr-3 font-display text-xs font-medium text-danger">
                     <span className="h-[7px] w-[7px] animate-blink rounded-full bg-danger" />
-                    {transport === "live" ? "Live" : "Preview"} · {rangeLabel}
+                    {transport === "live" ? "Live" : "Preview"} · {winLabel}
                   </span>
                 </div>
                 {liveError ? (

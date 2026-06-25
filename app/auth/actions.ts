@@ -3,12 +3,20 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACTIVE_CLIENT_COOKIE, getSessionContext } from "@/lib/auth";
-import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
 import {
+  type BriefWindow,
+  briefWindowLabel,
+  briefWindowToPeriod,
+  DEFAULT_TZ,
+} from "@/lib/filters";
+import {
+  fetchCampaigns,
+  fetchOverview,
   type BriefSession,
   endBriefing as svcEndBriefing,
   startBriefing as svcStartBriefing,
 } from "@/lib/olivia/service";
+import { buildBriefItems, type BriefItem } from "@/lib/overview";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -115,13 +123,35 @@ export async function setActiveClient(formData: FormData) {
 }
 
 /**
- * Start a briefing for the session's client over the current date window. Returns a live
+ * Re-scope the "Brief Emma" list for a date window picked in the modal (This week / 30 / 90 days
+ * / Custom). Recomputes the brief from a fresh overview + campaigns for that window only — the
+ * dashboard's KPI cards keep their own ?range= and are untouched. The window is resolved
+ * server-side from the session's timezone; the browser only chooses the preset/dates.
+ */
+export async function fetchBriefWindow(
+  window: BriefWindow,
+): Promise<{ items: BriefItem[]; label: string }> {
+  const ctx = await getSessionContext();
+  const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
+  const [ov, campaigns] = await Promise.all([
+    fetchOverview(period),
+    // Campaigns power the brief but shouldn't sink the whole window if they error.
+    fetchCampaigns().catch(() => null),
+  ]);
+  return {
+    items: buildBriefItems(ov.data, campaigns?.data ?? []),
+    label: briefWindowLabel(window),
+  };
+}
+
+/**
+ * Start a briefing for the session's client over the chosen brief window. Returns a live
  * session (with realtime join creds) when the Olivia briefing bridge is enabled, otherwise a
  * { mode: "simulated" } result so the dashboard runs its local walkthrough.
  */
-export async function beginBrief(range: string, focus: string): Promise<BriefSession> {
+export async function beginBrief(window: BriefWindow, focus: string): Promise<BriefSession> {
   const ctx = await getSessionContext();
-  const period = rangeToPeriod(parseRange(range), ctx.activeClientTimezone ?? DEFAULT_TZ);
+  const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
   return svcStartBriefing(period, focus);
 }
 
