@@ -39,6 +39,7 @@ export function Header({
   activeClientId?: string;
 }) {
   const pathname = usePathname();
+  const isBoard = pathname.startsWith("/dashboard/trends");
   const router = useRouter();
   const params = useSearchParams();
 
@@ -78,41 +79,45 @@ export function Header({
         </div>
       </div>
 
-      {/* date range */}
-      <div className="flex gap-0.5 rounded-[10px] border border-ink/10 bg-white p-[3px]">
-        {RANGES.map((r) => {
-          const on = range === r.value;
-          return (
-            <button
-              key={r.value}
-              onClick={() => setParam("range", r.value)}
-              className={`cursor-pointer rounded-[7px] px-[11px] py-1.5 font-mono text-xs transition-colors ${
-                on ? "bg-ink text-white" : "text-muted hover:bg-lavender"
-              }`}
-            >
-              {r.label}
-            </button>
-          );
-        })}
-      </div>
+      {!isBoard ? (
+        <>
+          {/* date range */}
+          <div className="flex gap-0.5 rounded-[10px] border border-ink/10 bg-white p-[3px]">
+            {RANGES.map((r) => {
+              const on = range === r.value;
+              return (
+                <button
+                  key={r.value}
+                  onClick={() => setParam("range", r.value)}
+                  className={`cursor-pointer rounded-[7px] px-[11px] py-1.5 font-mono text-xs transition-colors ${
+                    on ? "bg-ink text-white" : "text-muted hover:bg-lavender"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* campaign filter */}
-      <div className="relative">
-        <select
-          value={campaign}
-          onChange={(e) => setParam("campaign", e.target.value)}
-          className="max-w-[200px] cursor-pointer appearance-none rounded-[10px] border border-ink/10 bg-white py-2 pl-3 pr-[30px] font-display text-[13px] text-ink"
-        >
-          {campaignOptions.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <span className="pointer-events-none absolute right-[11px] top-1/2 -translate-y-1/2 text-[10px] text-muted">
-          ▼
-        </span>
-      </div>
+          {/* campaign filter */}
+          <div className="relative">
+            <select
+              value={campaign}
+              onChange={(e) => setParam("campaign", e.target.value)}
+              className="max-w-[200px] cursor-pointer appearance-none rounded-[10px] border border-ink/10 bg-white py-2 pl-3 pr-[30px] font-display text-[13px] text-ink"
+            >
+              {campaignOptions.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-[11px] top-1/2 -translate-y-1/2 text-[10px] text-muted">
+              ▼
+            </span>
+          </div>
+        </>
+      ) : null}
     </header>
   );
 }
