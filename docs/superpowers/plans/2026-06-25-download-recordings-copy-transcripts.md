@@ -150,7 +150,7 @@ Expected: tsc prints nothing (exit 0), commit succeeds.
 
 Run:
 ```bash
-npx tsx -e 'const {formatTranscript}=await import("./lib/format.ts"); const got=formatTranscript({transcript:"Agent: Hi there\nUser: Hello\nback to you", agent:"Emma", lead:"Sam"}); const want="Emma: Hi there\nSam: Hello back to you"; const empty=formatTranscript({transcript:null, agent:null, lead:null}); if(got!==want||empty!==""){console.error("FAIL\nGOT:",JSON.stringify(got),"\nWANT:",JSON.stringify(want),"\nEMPTY:",JSON.stringify(empty));process.exit(1)} console.log("PASS");'
+npx tsx -e 'import("./lib/format.ts").then((m)=>{ const {formatTranscript}=m.default??m; const got=formatTranscript({transcript:"Agent: Hi there\nUser: Hello\nback to you", agent:"Emma", lead:"Sam"}); const want="Emma: Hi there\nSam: Hello back to you"; const empty=formatTranscript({transcript:null, agent:null, lead:null}); if(got!==want||empty!==""){console.error("FAIL\nGOT:",JSON.stringify(got),"\nWANT:",JSON.stringify(want),"\nEMPTY:",JSON.stringify(empty));process.exit(1)} console.log("PASS"); }).catch((e)=>{console.error("ERR",e.message);process.exit(1)})'
 ```
 Expected: FAIL — `formatTranscript is not a function` (or undefined).
 
@@ -188,7 +188,7 @@ export function formatTranscript(
 
 Run:
 ```bash
-npx tsx -e 'const {formatTranscript}=await import("./lib/format.ts"); const got=formatTranscript({transcript:"Agent: Hi there\nUser: Hello\nback to you", agent:"Emma", lead:"Sam"}); const want="Emma: Hi there\nSam: Hello back to you"; const empty=formatTranscript({transcript:null, agent:null, lead:null}); if(got!==want||empty!==""){console.error("FAIL\nGOT:",JSON.stringify(got),"\nWANT:",JSON.stringify(want),"\nEMPTY:",JSON.stringify(empty));process.exit(1)} console.log("PASS");'
+npx tsx -e 'import("./lib/format.ts").then((m)=>{ const {formatTranscript}=m.default??m; const got=formatTranscript({transcript:"Agent: Hi there\nUser: Hello\nback to you", agent:"Emma", lead:"Sam"}); const want="Emma: Hi there\nSam: Hello back to you"; const empty=formatTranscript({transcript:null, agent:null, lead:null}); if(got!==want||empty!==""){console.error("FAIL\nGOT:",JSON.stringify(got),"\nWANT:",JSON.stringify(want),"\nEMPTY:",JSON.stringify(empty));process.exit(1)} console.log("PASS"); }).catch((e)=>{console.error("ERR",e.message);process.exit(1)})'
 ```
 Expected: `PASS`.
 

@@ -1,5 +1,7 @@
 // Pure presentation helpers shared across views.
 
+import type { Call } from "@/lib/types";
+
 const LABEL_OVERRIDES: Record<string, string> = {
   dnc: "DNC",
   no_answer: "No answer",
@@ -122,4 +124,20 @@ export function parseTranscript(raw: string): TranscriptTurn[] {
     }
   }
   return turns.filter((t) => t.text);
+}
+
+/**
+ * Render a call's transcript as plain text for copy/paste: one `Name: line` per turn, agent turns
+ * labelled with the agent name (default "Emma") and lead turns with the lead name (default "Lead").
+ * Returns "" when there is no transcript. Reuses parseTranscript so the splitting stays in one place.
+ */
+export function formatTranscript(
+  call: Pick<Call, "transcript" | "agent" | "lead">,
+): string {
+  if (!call.transcript) return "";
+  const agentName = call.agent ?? "Emma";
+  const leadName = call.lead ?? "Lead";
+  return parseTranscript(call.transcript)
+    .map((t) => `${t.speaker === "agent" ? agentName : leadName}: ${t.text}`)
+    .join("\n");
 }
