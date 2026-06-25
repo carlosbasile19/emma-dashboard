@@ -102,7 +102,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { key: "overview", label: "Overview", href: "/dashboard", group: "Analytics" },
-  { key: "trends", label: "Trends", href: "/dashboard/trends", group: "Analytics" },
+  { key: "trends", label: "Pipeline", href: "/dashboard/trends", group: "Analytics" },
   { key: "funnel", label: "Funnel", href: "/dashboard/funnel", group: "Analytics" },
   { key: "outcomes", label: "Outcomes", href: "/dashboard/outcomes", group: "Analytics" },
   { key: "agents", label: "Agents", href: "/dashboard/agents", group: "Performance" },
@@ -117,7 +117,7 @@ export const NAV_GROUPS = ["Analytics", "Performance", "Records", "Reference"] a
 /** Per-route header titles. */
 export const SCREEN_TITLES: Record<NavKey, string> = {
   overview: "Overview",
-  trends: "Trends",
+  trends: "Pipeline",
   funnel: "Lead funnel",
   outcomes: "Outcomes",
   agents: "Agents",

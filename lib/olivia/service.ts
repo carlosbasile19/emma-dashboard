@@ -13,6 +13,7 @@ import type {
   ListResponse,
   Outcomes,
   Overview,
+  PipelinesResponse,
   Timeseries,
   WithFreshness,
 } from "@/lib/types";
@@ -115,6 +116,20 @@ export async function fetchCampaigns(opts: Opts = {}): Promise<WithFreshness<Cam
     tier: TIERS.campaigns,
     force: opts.force,
     fetcher: () => api.getCampaigns(clientId),
+  });
+}
+
+export async function fetchPipelines(
+  opts: Opts = {},
+): Promise<WithFreshness<PipelinesResponse>> {
+  const clientId = await getSessionClientId();
+  return cachedFetch({
+    clientId,
+    endpoint: "pipelines",
+    params: {},
+    tier: TIERS.pipelines,
+    force: opts.force,
+    fetcher: () => api.getPipelines(clientId),
   });
 }
 

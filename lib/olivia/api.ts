@@ -11,6 +11,7 @@ import type {
   ListResponse,
   Outcomes,
   Overview,
+  PipelinesResponse,
   Timeseries,
 } from "@/lib/types";
 
@@ -38,7 +39,7 @@ export interface PageParams {
   page?: number;
   limit?: number;
 }
-export type LeadsParams = DateParams & PageParams & { status?: string; source?: string };
+export type LeadsParams = DateParams & PageParams & { status?: string; source?: string; stage_id?: string };
 
 type Hints = Pick<OliviaFetchOptions, "next" | "signal" | "maxRetries">;
 
@@ -101,6 +102,13 @@ export function getFunnel(clientId: string, params: DateParams, h: Hints = {}) {
     params: params as QueryParams,
     ...h,
   });
+}
+
+export function getPipelines(clientId: string, h: Hints = {}) {
+  return oliviaFetch<PipelinesResponse>(
+    `${ANALYTICS}/clients/${cid(clientId)}/pipelines`,
+    { ...h },
+  );
 }
 
 export function getAgents(clientId: string, params: DateParams, h: Hints = {}) {
