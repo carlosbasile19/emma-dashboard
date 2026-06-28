@@ -76,7 +76,18 @@ export async function oliviaFetch<T>(
         await sleep(Math.min(retryAfter, 30) * 1000 + jitter);
         continue;
       }
-      throw new OliviaError(429, "rate_limited", "Olivia rate limit exceeded", retryAfter);
+      // Final 429 (no retries left): preserve the precise machine code from the body
+      // (e.g. reporting_concurrency_limit) so callers can branch on it; default to rate_limited.
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: OliviaErrorCode;
+      };
+      throw new OliviaError(
+        429,
+        body.code ?? "rate_limited",
+        body.error ?? "Olivia rate limit exceeded",
+        retryAfter,
+      );
     }
 
     if (!res.ok) {
@@ -90,4 +101,47 @@ export async function oliviaFetch<T>(
 
     return (await res.json()) as T;
   }
+}
+
+/**
+ * Raw streaming GET (Server-Sent Events). Unlike `oliviaFetch` this does NOT parse the body — it
+ * returns the live `Response` so a same-origin route can pipe `res.body` straight to the browser
+ * (the agency key stays server-side). No 429 retry/no-store JSON handling: streams are long-lived
+ * and one-shot. The caller owns teardown via `opts.signal` (abort → upstream connection closes).
+ */
+export async function oliviaStream(
+  path: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<Response> {
+  const key = process.env.OLIVIA_API_KEY;
+  if (!key) {
+    throw new OliviaError(500, "internal_error", "OLIVIA_API_KEY is not configured");
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "GET",
+      headers: { "x-api-key": key, accept: "text/event-stream" },
+      signal: opts.signal,
+      cache: "no-store",
+    });
+  } catch (e) {
+    throw new OliviaError(
+      0,
+      "network_error",
+      `Network error reaching Olivia: ${(e as Error).message}`,
+    );
+  }
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      code?: OliviaErrorCode;
+    };
+    const code = body.code ?? statusToCode(res.status);
+    throw new OliviaError(res.status, code, body.error ?? res.statusText);
+  }
+
+  return res;
 }

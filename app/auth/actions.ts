@@ -13,8 +13,11 @@ import {
   fetchCampaigns,
   fetchOverview,
   type BriefSession,
+  type ReportSession,
   endBriefing as svcEndBriefing,
+  endReporting as svcEndReporting,
   startBriefing as svcStartBriefing,
+  startReporting as svcStartReporting,
 } from "@/lib/olivia/service";
 import { buildBriefItems, type BriefItem } from "@/lib/overview";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -157,4 +160,24 @@ export async function beginBrief(window: BriefWindow, focus: string): Promise<Br
 
 export async function endBrief(briefingId: string): Promise<void> {
   await svcEndBriefing(briefingId);
+}
+
+/**
+ * Start a read-only reporting walkthrough for the session's client over the chosen window. The
+ * clientId is derived server-side from the session (never the browser), so a session can only ever
+ * report on the client whose dashboard it was launched from. Returns a live session (Retell join
+ * creds + summary) when the reporting bridge is enabled, otherwise { mode: "simulated" } so the
+ * dashboard runs its local preview.
+ */
+export async function beginReport(
+  window: BriefWindow,
+  agentId?: string,
+): Promise<ReportSession> {
+  const ctx = await getSessionContext();
+  const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
+  return svcStartReporting(period, agentId);
+}
+
+export async function endReport(reportingId: string): Promise<void> {
+  await svcEndReporting(reportingId);
 }

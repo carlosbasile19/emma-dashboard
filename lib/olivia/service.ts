@@ -1,7 +1,18 @@
 import "server-only";
 import { getSessionClientId } from "@/lib/auth";
 import * as api from "./api";
-import type { BriefRealtime, DateParams, LeadsParams, PageParams } from "./api";
+import type {
+  BriefRealtime,
+  DateParams,
+  LeadsParams,
+  PageParams,
+  ReportPeriod,
+  ReportRealtime,
+  ReportSummary,
+  ReportingResponse,
+  ReportingStatusResponse,
+} from "./api";
+import { OliviaError } from "./errors";
 import { cachedFetch, TIERS } from "./cache";
 import type {
   Agent,
@@ -278,4 +289,84 @@ export async function endBriefing(briefingId: string): Promise<void> {
   } catch {
     /* best effort */
   }
+}
+
+// ---- Reporting bridge ----
+// Same flag-gated, graceful pattern as briefing: until OLIVIA_REPORTING_ENABLED=true AND the
+// backend ships the endpoint (with the key carrying `dashboard:report`), startReporting returns
+// { mode: "simulated" } and the dashboard runs a local preview walkthrough. The clientId is ALWAYS
+// derived from the session here — the browser can never influence which client is reported on.
+export interface ReportSession {
+  mode: "live" | "simulated";
+  reportingId?: string;
+  realtime?: ReportRealtime;
+  period?: ReportingResponse["period"];
+  summary?: ReportSummary;
+  /** Surfaced when a recognizable Olivia error blocks the live session (e.g. 429/403), so the UI
+   *  can show the right message + Retry-After. Other failures fall back silently to simulated. */
+  error?: { code: string; message: string; retryAfterSeconds?: number };
+}
+
+const reportingEnabled = () => process.env.OLIVIA_REPORTING_ENABLED?.trim() === "true";
+
+export async function startReporting(
+  period: ReportPeriod,
+  agentId?: string,
+): Promise<ReportSession> {
+  if (!reportingEnabled()) return { mode: "simulated" };
+  const clientId = await getSessionClientId();
+  try {
+    const r = await api.startReporting(clientId, {
+      ...period,
+      ...(agentId ? { agent_id: agentId } : {}),
+    });
+    return {
+      mode: "live",
+      reportingId: r.reporting_id,
+      realtime: r.realtime,
+      period: r.period,
+      summary: r.summary,
+    };
+  } catch (e) {
+    if (e instanceof OliviaError) {
+      // Capacity / scope problems are actionable — surface them (still degrade to the preview so
+      // the modal stays usable). Backend-not-ready / network errors degrade silently like briefing.
+      const surface =
+        e.code === "reporting_concurrency_limit" ||
+        e.code === "rate_limited" ||
+        e.code === "forbidden_scope";
+      return {
+        mode: "simulated",
+        ...(surface
+          ? { error: { code: e.code, message: e.message, retryAfterSeconds: e.retryAfterSeconds } }
+          : {}),
+      };
+    }
+    return { mode: "simulated" };
+  }
+}
+
+export async function endReporting(reportingId: string): Promise<void> {
+  if (!reportingEnabled() || !reportingId) return;
+  try {
+    const clientId = await getSessionClientId();
+    await api.endReporting(clientId, reportingId);
+  } catch {
+    /* best effort — idempotent on the backend */
+  }
+}
+
+/** Session-scoped status (polling fallback). Throws AuthError if unauthenticated. */
+export async function reportingStatus(reportingId: string): Promise<ReportingStatusResponse> {
+  const clientId = await getSessionClientId();
+  return api.getReportingStatus(clientId, reportingId);
+}
+
+/** Session-scoped live transcript stream (raw upstream Response). Throws AuthError if unauth. */
+export async function streamReporting(
+  reportingId: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const clientId = await getSessionClientId();
+  return api.streamReporting(clientId, reportingId, signal);
 }

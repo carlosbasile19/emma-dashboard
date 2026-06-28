@@ -4,11 +4,14 @@ export type OliviaErrorCode =
   | "unauthorized" // 401
   | "forbidden_scope" // 403
   | "client_not_found" // 404
+  | "reporting_not_found" // 404 (reporting session unknown)
+  | "invalid_request" // 400
   | "invalid_date_range" // 400
   | "invalid_timezone" // 400
   | "date_range_too_large" // 400
   | "internal_error" // 500
   | "rate_limited" // 429
+  | "reporting_concurrency_limit" // 429 (too many concurrent reporting sessions)
   | "network_error" // fetch failed
   | "unknown";
 

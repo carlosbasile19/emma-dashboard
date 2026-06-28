@@ -1,5 +1,5 @@
 import "server-only";
-import { oliviaFetch, type OliviaFetchOptions, type QueryParams } from "./client";
+import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } from "./client";
 import { fullName } from "@/lib/format";
 import type {
   Agent,
@@ -269,5 +269,105 @@ export function endBriefing(clientId: string, briefingId: string, h: Hints = {})
   return oliviaFetch<{ status: string }>(
     `${ANALYTICS}/clients/${cid(clientId)}/briefings/${encodeURIComponent(briefingId)}/end`,
     { method: "POST", ...h },
+  );
+}
+
+// ---- Reporting bridge (server-to-server action; see docs/olivia-reporting-bridge.md) ----
+// Same shape as the briefing bridge — same x-api-key auth and Retell realtime join. The only
+// differences from briefings: the path word is `reporting` and the agency key must carry the
+// `dashboard:report` scope (optionally `dashboard:pii` to let Olivia speak lead names). Reporting
+// is a strictly READ-ONLY spoken walkthrough scoped server-side to this one {clientId}.
+
+/** Realtime join creds. Reporting emits the generic transport shape (url/token/room); we also
+ *  accept the briefing-style fields (access_token/call_id) so either backend revision works. */
+export interface ReportRealtime {
+  provider: string; // "retell"
+  url?: string; // "https://api.retellai.com"
+  token?: string; // Retell web-call access token — the browser joins with this
+  room?: string; // Retell call id
+  expires_at?: string;
+  // Briefing-style aliases, accepted for forward-compat:
+  access_token?: string;
+  call_id?: string;
+  sample_rate?: number;
+}
+
+export interface ReportPeriod {
+  from: string;
+  to: string;
+  tz: string;
+}
+
+export interface ReportSummary {
+  schedule_count: number;
+  loom_count: number;
+}
+
+export type ReportingStatusValue = "queued" | "connecting" | "live" | "ended" | "failed";
+
+export interface ReportTranscriptEntry {
+  role: "agent" | "user";
+  text: string;
+  at: string;
+}
+
+export interface ReportingResponse {
+  reporting_id: string;
+  client_id: string;
+  status: ReportingStatusValue;
+  period: ReportPeriod;
+  summary?: ReportSummary;
+  realtime?: ReportRealtime;
+}
+
+export interface ReportingStatusResponse {
+  status: ReportingStatusValue;
+  started_at?: string | null;
+  ended_at?: string | null;
+  transcript?: ReportTranscriptEntry[];
+}
+
+export interface StartReportingBody {
+  from?: string;
+  to?: string;
+  tz?: string;
+  /**
+   * Optional voice drill-down into ONE agent. Forward-compat: the documented body is {from,to,tz},
+   * so this is sent only when the user explicitly picks an agent — the default walkthrough body
+   * stays exactly spec-compliant. Scoped server-side to the session's client like everything else.
+   */
+  agent_id?: string;
+}
+
+export function startReporting(clientId: string, body: StartReportingBody, h: Hints = {}) {
+  return oliviaFetch<ReportingResponse>(`${ANALYTICS}/clients/${cid(clientId)}/reporting`, {
+    method: "POST",
+    body,
+    // A concurrency-limit 429 should surface to the UI immediately (with Retry-After) rather than
+    // blocking the start for 60s+ on auto-retry — the start is a user-initiated, one-shot action.
+    maxRetries: 0,
+    ...h,
+  });
+}
+
+export function getReportingStatus(clientId: string, reportingId: string, h: Hints = {}) {
+  return oliviaFetch<ReportingStatusResponse>(
+    `${ANALYTICS}/clients/${cid(clientId)}/reporting/${encodeURIComponent(reportingId)}`,
+    { ...h },
+  );
+}
+
+export function endReporting(clientId: string, reportingId: string, h: Hints = {}) {
+  return oliviaFetch<{ status: string }>(
+    `${ANALYTICS}/clients/${cid(clientId)}/reporting/${encodeURIComponent(reportingId)}/end`,
+    { method: "POST", ...h },
+  );
+}
+
+/** Live transcript SSE — returns the raw upstream Response for a same-origin route to pipe. */
+export function streamReporting(clientId: string, reportingId: string, signal?: AbortSignal) {
+  return oliviaStream(
+    `${ANALYTICS}/clients/${cid(clientId)}/reporting/${encodeURIComponent(reportingId)}/stream`,
+    { signal },
   );
 }

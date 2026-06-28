@@ -1,4 +1,5 @@
 import { BriefEmma } from "@/components/dashboard/brief/BriefEmma";
+import { ReportEmma } from "@/components/dashboard/report/ReportEmma";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -10,7 +11,7 @@ import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { STAGE_COLORS } from "@/lib/design";
 import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
-import { fetchCampaigns, fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
+import { fetchAgents, fetchCampaigns, fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
 import { buildBriefItems, buildKpiCards } from "@/lib/overview";
 import { LEAD_STATUSES } from "@/lib/types";
 
@@ -23,14 +24,16 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const ws = await getWorkspace();
   const tz = ws.timezone ?? DEFAULT_TZ;
 
-  let cur, prev, ts, campaigns;
+  let cur, prev, ts, campaigns, agentsRes;
   try {
-    [cur, prev, ts, campaigns] = await Promise.all([
+    [cur, prev, ts, campaigns, agentsRes] = await Promise.all([
       fetchOverview(rangeToPeriod(range, tz)),
       fetchOverview(prevPeriod(range, tz)),
       fetchTimeseries(rangeToPeriod(range, tz)),
       // campaigns power the brief; don't fail the whole overview if they error
       fetchCampaigns().catch(() => null),
+      // agents power the reporting drill-down selector; best-effort
+      fetchAgents(rangeToPeriod(range, tz)).catch(() => null),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.overview} />;
@@ -47,6 +50,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
 
   const cards = buildKpiCards(ov, prev.data, ts.data);
   const briefItems = buildBriefItems(ov, campaigns?.data ?? []);
+  const reportAgents = (agentsRes?.data ?? []).map((a) => ({ id: a.agent_id, name: a.name }));
   const stageMax = Math.max(1, ...stages.map((s) => s.count));
 
   return (
@@ -69,7 +73,10 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               Emma picked up, called back and followed through on every channel. Here’s the
               period at a glance.
             </div>
-            <BriefEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
+            <div className="flex flex-wrap items-center">
+              <BriefEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
+              <ReportEmma range={range} agents={reportAgents} />
+            </div>
           </div>
           <div className="flex gap-[30px] font-mono">
             <HeroStat value={pct(k.pickup_rate)} label="pickup rate" />
