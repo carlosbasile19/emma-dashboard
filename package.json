@@ -10,7 +10,8 @@
     "email:selftest": "tsx scripts/email-selftest.ts",
     "email:test-send": "tsx scripts/send-test-emails.ts",
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
-    "test:calendar": "tsx scripts/calendar-selftest.ts"
+    "test:calendar": "tsx scripts/calendar-selftest.ts",
+    "test:besttimes": "tsx scripts/best-times-selftest.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
