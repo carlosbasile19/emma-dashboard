@@ -3,10 +3,12 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
+import { ChatDrawer } from "@/components/dashboard/log/ChatDrawer";
 import { Badge } from "@/components/ui/Badge";
-import { CopyButton } from "@/components/ui/CopyButton";
-import { relTime, secToMMSS, shortId } from "@/lib/format";
-import type { Call, Conversation } from "@/lib/types";
+import { dmChannelCode, dmChannelColor } from "@/lib/dm";
+import { tint } from "@/lib/design";
+import { num, relTime, secToMMSS, shortId } from "@/lib/format";
+import type { Call, DmThread } from "@/lib/types";
 
 const CALL_COLS = "grid-cols-[0.7fr_1.4fr_1.3fr_1.1fr_1.2fr_0.7fr_1fr]";
 
@@ -16,19 +18,24 @@ export function LogView({
   callTotal,
   callPage,
   callPages,
-  conversations,
+  threads,
+  threadTotal,
+  initialThreadId,
 }: {
   tab: "calls" | "conversations";
   calls: Call[];
   callTotal: number;
   callPage: number;
   callPages: number;
-  conversations: Conversation[];
+  threads: DmThread[];
+  threadTotal: number;
+  initialThreadId: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [selected, setSelected] = useState<Call | null>(null);
+  const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId);
 
   const setParam = useCallback(
     (updates: Record<string, string | null>) => {
@@ -152,48 +159,75 @@ export function LogView({
             Tip — select any call to read its summary &amp; transcript.
           </div>
         </>
-      ) : (
-        <div className="flex flex-col gap-2.5">
-          {conversations.map((m) => {
-            const unread = m.status === "in_progress";
-            return (
-              <div
-                key={m.id}
-                className="flex items-center gap-4 rounded-[12px] border border-ink/10 bg-white px-[18px] py-[15px] shadow-sm hover:border-lavender-deep"
-              >
-                <span className="w-[46px] flex-none rounded-[7px] border border-lavender-deep bg-lavender py-1 text-center font-mono text-[10px] font-bold tracking-[0.06em] text-violet">
-                  {m.channel.toUpperCase()}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-0.5 flex items-center gap-2">
-                    <span className="text-sm font-medium">{m.lead ?? shortId(m.lead_id)}</span>
-                    {unread ? (
-                      <span className="h-[7px] w-[7px] rounded-full bg-pink" />
-                    ) : null}
-                  </div>
-                  <div className="truncate text-[13px] text-muted">{m.summary ?? "—"}</div>
-                </div>
-                {m.status ? (
-                  <div className="flex-none">
-                    <Badge kind="call" value={m.status} />
-                  </div>
-                ) : null}
-                {m.summary ? (
-                  <CopyButton compact value={m.summary} title="Copy summary" />
-                ) : null}
-                <div
-                  className="w-[90px] flex-none text-right font-mono text-[11px] text-muted"
-                  suppressHydrationWarning
-                >
-                  {relTime(m.started_at)}
-                </div>
-              </div>
-            );
-          })}
+      ) : threads.length === 0 ? (
+        <div className="rounded-[16px] border border-ink/10 bg-white px-6 py-10 text-center text-[13.5px] text-muted shadow-sm">
+          No DM threads yet — when a lead messages on Instagram, Messenger or WhatsApp, the
+          conversation lands here.
         </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2.5">
+            {threads.map((t) => {
+              const color = dmChannelColor(t.channel);
+              const name =
+                t.lead_name ?? (t.locked ? "PII locked" : shortId(t.lead_id));
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setOpenThreadId(t.id)}
+                  className="flex cursor-pointer items-center gap-4 rounded-[12px] border border-ink/10 bg-white px-[18px] py-[15px] text-left shadow-sm transition-colors hover:border-lavender-deep hover:bg-lavender/30"
+                >
+                  <span
+                    className="w-[46px] flex-none rounded-[7px] py-1 text-center font-mono text-[10px] font-bold tracking-[0.06em]"
+                    style={{ color, background: tint(color, 0.12) }}
+                  >
+                    {dmChannelCode(t.channel)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 flex items-center gap-2">
+                      <span className="text-sm font-medium">{name}</span>
+                      {t.unread > 0 ? (
+                        <span
+                          className="h-[7px] w-[7px] flex-none rounded-full bg-pink"
+                          title={`${num(t.unread)} awaiting reply`}
+                        />
+                      ) : null}
+                    </div>
+                    <div className="truncate text-[13px] text-muted">
+                      {t.last_message ?? (t.locked ? "Message preview locked" : "—")}
+                    </div>
+                  </div>
+                  {t.status === "ended" ? (
+                    <span className="flex-none font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
+                      Ended
+                    </span>
+                  ) : null}
+                  <div
+                    className="w-[90px] flex-none text-right font-mono text-[11px] text-muted"
+                    suppressHydrationWarning
+                  >
+                    {t.last_message_at ? relTime(t.last_message_at) : "—"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 font-mono text-[12.5px] text-muted">
+            {num(threadTotal)} threads · select one to read the conversation.
+          </div>
+        </>
       )}
 
       <CallDrawer call={selected} onClose={() => setSelected(null)} />
+      <ChatDrawer
+        threadId={openThreadId}
+        stub={threads.find((t) => t.id === openThreadId) ?? null}
+        onClose={() => {
+          setOpenThreadId(null);
+          // Clear a deep-linked ?thread= so closing doesn't re-open on refresh/back.
+          if (params.get("thread")) setParam({ thread: null });
+        }}
+      />
     </>
   );
 }

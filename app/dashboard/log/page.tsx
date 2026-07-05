@@ -5,11 +5,12 @@ import { FreshnessNote } from "@/components/ui/FreshnessNote";
 import { getWorkspace } from "@/lib/auth";
 import { EMPTY_COPY, ERROR_COPY } from "@/lib/copy";
 import { DEFAULT_TZ, parsePage, parseRange, rangeToPeriod, str } from "@/lib/filters";
-import { fetchCalls, fetchConversations } from "@/lib/olivia/service";
+import { fetchCalls, fetchDmThreads } from "@/lib/olivia/service";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
 const LIMIT = 25;
+const THREADS_LIMIT = 50;
 
 export default async function LogPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
@@ -19,21 +20,24 @@ export default async function LogPage({ searchParams }: { searchParams: SP }) {
   const tab = str(sp.tab, "calls") === "conversations" ? "conversations" : "calls";
   const page = parsePage(sp.page);
   const period = rangeToPeriod(range, tz);
+  // Deep link (?thread=) opens the chat drawer — used by the lead page's "Open full thread".
+  const threadParam = str(sp.thread, "");
 
-  let callsRes, convRes;
+  let callsRes, threadsRes;
   try {
-    [callsRes, convRes] = await Promise.all([
+    // DM threads are not range-scoped upstream — sorted by last_message_at desc.
+    [callsRes, threadsRes] = await Promise.all([
       fetchCalls({ ...period, page, limit: LIMIT }),
-      fetchConversations({ ...period, page: 1, limit: 50 }),
+      fetchDmThreads({ page: 1, limit: THREADS_LIMIT }),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.logs} />;
   }
 
   const calls = callsRes.data;
-  const convos = convRes.data.items;
+  const threads = threadsRes.data.items;
 
-  if (calls.total === 0 && convos.length === 0) {
+  if (calls.total === 0 && threads.length === 0) {
     return <EmptyState copy={EMPTY_COPY.logs} />;
   }
 
@@ -48,7 +52,9 @@ export default async function LogPage({ searchParams }: { searchParams: SP }) {
         callTotal={calls.total}
         callPage={Math.min(page, callPages)}
         callPages={callPages}
-        conversations={convos}
+        threads={threads}
+        threadTotal={threadsRes.data.total}
+        initialThreadId={threadParam || null}
       />
     </>
   );
