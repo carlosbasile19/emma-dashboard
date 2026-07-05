@@ -16,11 +16,15 @@ import { OliviaError } from "./errors";
 import { cachedFetch, TIERS } from "./cache";
 import type {
   Agent,
+  CalendarResponse,
   Call,
   Campaign,
   Conversation,
+  ConversationThread,
+  DmThread,
   Funnel,
   Lead,
+  LeadDetail,
   ListResponse,
   Outcomes,
   Overview,
@@ -232,6 +236,88 @@ export async function fetchConversations(
     ...res,
     data: { ...res.data, items: withLeadNames(res.data.items, dir) },
   };
+}
+
+// ---- Calendar ----
+export async function fetchCalendar(
+  params: { month: string; upcoming_limit?: number },
+  opts: Opts = {},
+): Promise<WithFreshness<CalendarResponse>> {
+  const clientId = await getSessionClientId();
+  return cachedFetch({
+    clientId,
+    endpoint: "calendar",
+    params: rec(params),
+    tier: TIERS.calendar,
+    force: opts.force,
+    fetcher: () => api.getCalendar(clientId, params),
+  });
+}
+
+// ---- Lead detail + notes ----
+export async function fetchLeadDetail(
+  leadId: string,
+  opts: Opts = {},
+): Promise<WithFreshness<LeadDetail>> {
+  const clientId = await getSessionClientId();
+  return cachedFetch({
+    clientId,
+    endpoint: "lead-detail",
+    params: { leadId },
+    tier: TIERS.leadDetail,
+    force: opts.force,
+    fetcher: () => api.getLeadDetail(clientId, leadId),
+  });
+}
+
+/**
+ * Save a lead's notes (PUT, scope dashboard:notes — a 403 OliviaError means the key is
+ * read-only for notes). Uncached write; afterwards the cached lead detail is force-refreshed
+ * best-effort so the next page load doesn't serve the pre-save payload. The caller should
+ * replace its local state with the returned { notes, updated_at } (last-write-wins).
+ */
+export async function saveLeadNotes(
+  leadId: string,
+  notes: string,
+): Promise<{ notes: string; updated_at: string }> {
+  const clientId = await getSessionClientId();
+  const result = await api.putLeadNotes(clientId, leadId, notes);
+  await fetchLeadDetail(leadId, { force: true }).catch(() => undefined);
+  return result;
+}
+
+// ---- DM threads ----
+export async function fetchDmThreads(
+  params: PageParams & { lead_id?: string } = {},
+  opts: Opts = {},
+): Promise<WithFreshness<ListResponse<DmThread>>> {
+  const clientId = await getSessionClientId();
+  return cachedFetch({
+    clientId,
+    endpoint: "dm-threads",
+    params: rec(params),
+    tier: TIERS.dmThreads,
+    force: opts.force,
+    fetcher: () => api.getDmThreads(clientId, params),
+  });
+}
+
+export async function fetchConversationThread(
+  conversationId: string,
+  limit?: number,
+  opts: Opts = {},
+): Promise<WithFreshness<ConversationThread>> {
+  const clientId = await getSessionClientId();
+  const params = limit ? { conversationId, limit } : { conversationId };
+  return cachedFetch({
+    clientId,
+    endpoint: "thread",
+    params: rec(params),
+    tier: TIERS.thread,
+    force: opts.force,
+    fetcher: () =>
+      api.getConversationThread(clientId, conversationId, limit ? { limit } : {}),
+  });
 }
 
 // ---- Briefing bridge ----

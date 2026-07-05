@@ -12,9 +12,9 @@ export type QueryParams = Record<string, QueryValue>;
 
 export interface OliviaFetchOptions {
   params?: QueryParams;
-  /** Defaults to GET. POST is used only for the (future) briefing action endpoint. */
-  method?: "GET" | "POST";
-  /** JSON request body for POST. */
+  /** Defaults to GET. POST for briefing/reporting actions; PUT for lead notes. */
+  method?: "GET" | "POST" | "PUT";
+  /** JSON request body for POST/PUT. */
   body?: unknown;
   /** Max 429 retries (honoring Retry-After). Default 2. */
   maxRetries?: number;
