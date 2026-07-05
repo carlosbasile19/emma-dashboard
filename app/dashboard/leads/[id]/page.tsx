@@ -14,7 +14,8 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const ws = await getWorkspace();
+  const wsPromise = getWorkspace(); // independent of the lead fetch — run them in parallel
+  wsPromise.catch(() => undefined); // early returns below must not leave a floating rejection
 
   let result;
   try {
@@ -40,6 +41,7 @@ export default async function LeadDetailPage({
     return <ErrorState copy={ERROR_COPY.leads} />;
   }
 
+  const ws = await wsPromise;
   const detail = result.data;
 
   // Embedded thread preview: the most recent DM stub's last few messages, fail-soft —
