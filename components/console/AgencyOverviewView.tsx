@@ -104,7 +104,7 @@ export function AgencyOverviewView({ overview }: { overview: AgencyOverview }) {
       </div>
 
       <div className="mt-3 font-mono text-[12px] text-muted">
-        Bookings = appointments booked in the period (Olivia booking outcomes), summed across the
+        Bookings = appointments booked in the period (Emma booking outcomes), summed across the
         agency.
       </div>
     </div>

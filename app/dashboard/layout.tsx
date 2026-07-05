@@ -64,7 +64,7 @@ function NoWorkspace() {
       </div>
       <h1 className="text-2xl font-bold tracking-[-0.01em]">No workspace linked yet</h1>
       <p className="max-w-[420px] text-[15px] leading-[1.55] text-muted">
-        Your account isn’t mapped to an Olivia workspace. Ask your Hey Emma administrator to
+        Your account isn’t mapped to an Emma workspace. Ask your Hey Emma administrator to
         finish provisioning, then sign in again.
       </p>
       <form action={signOut}>

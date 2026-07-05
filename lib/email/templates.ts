@@ -19,7 +19,7 @@ export function workspaceInvite(
     eyebrow: "Workspace invitation",
     heading: "You've been invited to Hey Emma",
     bodyParagraphs: [
-      `${a.inviterName} invited you to the ${a.clientName} workspace on Hey Emma — your read-only view of leads, calls, campaigns and outcomes from Olivia.`,
+      `${a.inviterName} invited you to the ${a.clientName} workspace on Hey Emma — your read-only view of leads, calls, campaigns and outcomes from Emma.`,
     ],
     cta: { label: "Accept your invitation", url: a.acceptUrl },
     notes: [`This invite is just for ${a.email} and expires in ${a.expiresInDays} days.`, MAGIC_HELP],

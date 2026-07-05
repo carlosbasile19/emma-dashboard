@@ -152,12 +152,12 @@ export function ChatDrawer({
         </div>
 
         {/* reply composer — visual per the design; sending has no serving endpoint yet,
-            and Olivia replies to leads automatically, so the control is disabled. */}
+            and Emma replies to leads automatically, so the control is disabled. */}
         <div className="border-t border-ink/10 px-[22px] py-[16px]">
           <div className="flex items-center gap-2">
             <input
               disabled
-              placeholder="Olivia replies automatically — manual replies coming soon"
+              placeholder="Emma replies automatically — manual replies coming soon"
               className="min-w-0 flex-1 cursor-not-allowed rounded-[11px] border border-ink/10 bg-warm/70 px-3.5 py-[10px] text-[13px] text-ink placeholder:text-muted/70"
             />
             <button

@@ -13,7 +13,7 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
   },
   trends: {
     title: "No pipeline to show",
-    body: "This client has no active pipeline yet. Once a pipeline and its stages are set up in Olivia, leads appear here on the board.",
+    body: "This client has no active pipeline yet. Once a pipeline and its stages are set up in Emma, leads appear here on the board.",
   },
   funnel: {
     title: "The funnel is empty",

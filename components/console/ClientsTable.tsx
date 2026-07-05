@@ -34,7 +34,7 @@ export function ClientsTable({
               <path d="M16 4v4h-4" />
               <path d="M16 8a6.5 6.5 0 1 0 1 5" />
             </svg>
-            Sync from Olivia
+            Sync from Emma
           </button>
         </form>
       </div>
