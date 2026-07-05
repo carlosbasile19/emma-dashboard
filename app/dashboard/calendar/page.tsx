@@ -45,7 +45,6 @@ export default async function CalendarPage({ searchParams }: { searchParams: SP 
         events={events}
         upcoming={upcoming}
         todayYmd={todayYmd}
-        workspaceName={ws.name}
         locked={locked ?? false}
       />
     </>

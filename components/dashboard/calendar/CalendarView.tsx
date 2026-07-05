@@ -28,14 +28,12 @@ export function CalendarView({
   events,
   upcoming,
   todayYmd,
-  workspaceName,
   locked,
 }: {
   month: string; // YYYY-MM
   events: CalendarEvent[];
   upcoming: CalendarEvent[];
   todayYmd: string; // today in the WORKSPACE tz
-  workspaceName: string;
   locked: boolean;
 }) {
   const router = useRouter();
@@ -62,18 +60,8 @@ export function CalendarView({
   return (
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.9fr_1fr]">
       <div className="min-w-0">
-        {/* header row: client filter · month nav · view toggle */}
+        {/* header row: month nav · view toggle */}
         <div className="mb-3 flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1.5">
-            {/* "All Clients" is a no-op in a single-workspace dashboard. */}
-            <span className="rounded-[8px] border border-ink/10 bg-white px-2.5 py-[5px] text-xs text-muted">
-              All clients
-            </span>
-            <span className="rounded-[8px] border border-lavender-deep bg-lavender px-2.5 py-[5px] text-xs font-medium text-violet">
-              {workspaceName}
-            </span>
-          </div>
-
           <div className="ml-auto flex items-center gap-2">
             <div className="flex items-center gap-0.5 rounded-[10px] border border-ink/10 bg-white p-[3px]">
               <button
