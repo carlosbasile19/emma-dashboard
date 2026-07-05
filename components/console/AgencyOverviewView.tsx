@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { initials as toInitials, num } from "@/lib/format";
+import { centsToMoney, initials as toInitials, num } from "@/lib/format";
 import type { AgencyOverview } from "@/lib/olivia/agency";
 
 export function AgencyOverviewView({ overview }: { overview: AgencyOverview }) {
-  const { totals, leaderboard } = overview;
+  const { totals, costTotals, leaderboard } = overview;
   const topBookings = Math.max(1, ...leaderboard.map((c) => c.bookings));
 
   return (
@@ -36,13 +36,18 @@ export function AgencyOverviewView({ overview }: { overview: AgencyOverview }) {
         </div>
       </div>
 
-      {/* KPI cards */}
-      <div className="mb-7 grid grid-cols-2 gap-3.5 md:grid-cols-5">
+      {/* KPI cards — Cost · 30d = Σ(spend + maintenance), the SERVER's aggregate. */}
+      <div className="mb-7 grid grid-cols-2 gap-3.5 md:grid-cols-6">
         <Kpi label="Clients" value={num(totals.clients)} />
-        <Kpi label="Active" value={num(totals.active)} accent />
+        <Kpi label="Active" value={num(totals.active)} />
         <Kpi label="Leads · 30d" value={num(totals.leads)} />
         <Kpi label="Calls · 30d" value={num(totals.calls)} />
         <Kpi label="Bookings · 30d" value={num(totals.bookings)} />
+        <Kpi
+          label="Cost · 30d"
+          value={costTotals ? centsToMoney(costTotals.totalCostCents) : "—"}
+          accent
+        />
       </div>
 
       {/* leaderboard */}

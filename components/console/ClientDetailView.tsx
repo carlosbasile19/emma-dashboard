@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
 import { createInvite } from "@/app/console/actions";
-import { initials as toInitials, num, pct } from "@/lib/format";
+import { centsToMoney, initials as toInitials, num, pct } from "@/lib/format";
 import type { ClientDetail } from "@/lib/olivia/agency";
+
+const SPEND_CAVEAT =
+  "Client-attributable usage (calls, SMS, AI). Agency-level items (seats, phone numbers, retainer) are excluded.";
 
 const ROLE_LABEL: Record<string, string> = {
   platform_admin: "Admin",
@@ -10,7 +13,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export function ClientDetailView({ detail }: { detail: ClientDetail }) {
-  const { client, stats, members } = detail;
+  const { client, stats, costs, members } = detail;
 
   return (
     <div className="mx-auto max-w-[1000px]">
@@ -56,11 +59,16 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
       </div>
 
       {/* KPIs */}
-      <div className="mb-6 grid grid-cols-2 gap-3.5 md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3.5 md:grid-cols-5">
         <Kpi label="Leads · 30d" value={num(stats.leads)} />
         <Kpi label="Calls · 30d" value={num(stats.calls)} />
         <Kpi label="Bookings · 30d" value={num(stats.bookings)} accent />
         <Kpi label="Pickup rate" value={pct(stats.pickupRate)} />
+        <Kpi
+          label="Cost · 30d"
+          value={costs ? centsToMoney(costs.totalCostCents) : "—"}
+          title={SPEND_CAVEAT}
+        />
       </div>
 
       <div className="grid gap-5 md:grid-cols-[1.5fr_1fr]">
@@ -126,6 +134,34 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
             <Detail label="Timezone" value={client.timezone ?? "—"} mono />
             <Detail label="Members" value={num(members.length)} />
             <Detail label="Client id" value={client.id} mono />
+            {costs ? (
+              <>
+                <div title={SPEND_CAVEAT}>
+                  <Detail
+                    label="Usage spend · 30d"
+                    value={centsToMoney(costs.spendCents)}
+                    mono
+                  />
+                </div>
+                <Detail
+                  label="Maintenance"
+                  value={
+                    costs.maintenanceCents > 0
+                      ? `${centsToMoney(costs.maintenanceCents)} / mo`
+                      : "$0 (paused)"
+                  }
+                  mono
+                />
+                <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
+                  <span className="flex-none text-[12.5px] font-semibold text-ink">
+                    Total · 30d
+                  </span>
+                  <span className="min-w-0 truncate text-right font-mono text-[13px] font-bold text-violet">
+                    {centsToMoney(costs.totalCostCents)}
+                  </span>
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -133,9 +169,19 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
   );
 }
 
-function Kpi({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Kpi({
+  label,
+  value,
+  accent,
+  title,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  title?: string;
+}) {
   return (
-    <div className="rounded-[13px] border border-ink/10 bg-white px-4 py-3.5 shadow-sm">
+    <div title={title} className="rounded-[13px] border border-ink/10 bg-white px-4 py-3.5 shadow-sm">
       <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
         {label}
       </div>
