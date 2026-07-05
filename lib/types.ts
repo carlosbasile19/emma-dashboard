@@ -350,7 +350,7 @@ export interface ConversationStub {
 }
 
 export interface LeadDetailPipeline {
-  pipeline_id: string;
+  id: string;
   name: string;
   /** Current stage id — may be null (lead sits in an archived stage: highlight nothing). */
   stage: string | null;
@@ -365,6 +365,8 @@ export interface LeadDetail {
     lead_context?: string | null; // PII-gated
     locked?: boolean;
   };
+  /** Assigned rep display info (live API extra beyond the written contract). */
+  sales_rep?: { id?: string; name?: string | null } | null;
   /** null → render the fixed status bar new→contacted→…→dnc from lead.status. */
   pipeline: LeadDetailPipeline | null;
   summary: LeadSummary;

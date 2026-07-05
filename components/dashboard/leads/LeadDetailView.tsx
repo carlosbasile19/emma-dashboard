@@ -111,7 +111,7 @@ export function LeadDetailView({
                 <Row label="Instagram" value={`@${lead.instagram_handle}`} mono />
               ) : null}
               <Row label="Client" value={workspaceName} />
-              <Row label="Assigned agent" value={lead.agent} />
+              <Row label="Assigned agent" value={detail.sales_rep?.name ?? lead.agent} />
               <div>
                 <div className="mb-1 text-[11px] text-muted">Source</div>
                 <Badge kind="source" value={lead.source} />
