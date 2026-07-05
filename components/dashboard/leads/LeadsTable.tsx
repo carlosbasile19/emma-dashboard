@@ -1,8 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
-import { LeadDrawer } from "@/components/dashboard/leads/LeadDrawer";
+import { useCallback } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { EMPTY_COPY } from "@/lib/copy";
@@ -37,7 +36,6 @@ export function LeadsTable({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [selected, setSelected] = useState<Lead | null>(null);
 
   const setParam = useCallback(
     (updates: Record<string, string | null>) => {
@@ -117,7 +115,7 @@ export function LeadsTable({
             return (
               <div
                 key={r.id}
-                onClick={() => setSelected(r)}
+                onClick={() => router.push(`/dashboard/leads/${encodeURIComponent(r.id)}`)}
                 className={`grid ${COLS} cursor-pointer items-center gap-3 border-b border-lavender px-[22px] py-3.5 hover:bg-lavender ${
                   i % 2 ? "bg-lavender/40" : "bg-white"
                 }`}
@@ -182,8 +180,6 @@ export function LeadsTable({
           </div>
         </div>
       )}
-
-      <LeadDrawer lead={selected} onClose={() => setSelected(null)} />
     </>
   );
 }
