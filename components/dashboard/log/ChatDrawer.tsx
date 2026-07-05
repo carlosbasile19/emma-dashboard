@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { loadThread } from "@/app/dashboard/log/actions";
@@ -53,6 +54,7 @@ export function ChatDrawer({
     stub?.lead_name ?? (stub?.locked ? "PII locked" : stub ? shortId(stub.lead_id) : "Thread");
   const agentLabel = state.phase === "ready" ? (state.thread.agent ?? "Emma") : "Emma";
   const locked = state.phase === "ready" ? Boolean(state.thread.locked) : Boolean(stub?.locked);
+  const leadId = stub?.lead_id ?? (state.phase === "ready" ? state.thread.lead_id : null);
 
   return createPortal(
     <div
@@ -77,9 +79,33 @@ export function ChatDrawer({
                 {dmChannelLabel(channel)} · {agentLabel}
               </span>
             </div>
-            <div className="mt-1.5 truncate text-[21px] font-bold tracking-[-0.01em]">
-              {leadName}
-            </div>
+            {leadId ? (
+              <Link
+                href={`/dashboard/leads/${encodeURIComponent(leadId)}`}
+                title="Open lead page"
+                className="group mt-1.5 flex w-max max-w-full items-center gap-1.5 text-[21px] font-bold tracking-[-0.01em] text-ink transition-colors hover:text-violet"
+              >
+                <span className="truncate">{leadName}</span>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="flex-none opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <path d="M7 13 13 7" />
+                  <path d="M7.5 7H13v5.5" />
+                </svg>
+              </Link>
+            ) : (
+              <div className="mt-1.5 truncate text-[21px] font-bold tracking-[-0.01em]">
+                {leadName}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
