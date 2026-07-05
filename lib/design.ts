@@ -53,6 +53,16 @@ export const BADGE_COLORS: Record<Exclude<BadgeKind, "source">, Record<string, s
 /** Lead-stage colors, reused by overview "leads by stage" and the funnel. */
 export const STAGE_COLORS: Record<string, string> = BADGE_COLORS.lead;
 
+/** Calendar event-chip colors — `tentative` replaces the old "scheduled" slot;
+ *  the remaining values match the booking badge scale so the two views agree. */
+export const CALENDAR_EVENT_COLORS: Record<string, string> = {
+  tentative: "#2E86F2",
+  confirmed: "#6D4AFF",
+  completed: "#2BB673",
+  cancelled: "#E5484D",
+  no_show: "#E8A33D",
+};
+
 /** Categorical chart palette (color-blind aware). */
 export const CHART_PALETTE = [
   "#6D4AFF",
@@ -84,6 +94,7 @@ export type NavKey =
   | "overview"
   | "trends"
   | "funnel"
+  | "calendar"
   | "outcomes"
   | "agents"
   | "campaigns"
@@ -103,7 +114,10 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "overview", label: "Overview", href: "/dashboard", group: "Analytics" },
   { key: "trends", label: "Pipeline", href: "/dashboard/trends", group: "Analytics" },
-  { key: "funnel", label: "Funnel", href: "/dashboard/funnel", group: "Analytics" },
+  // Funnel is replaced by Calendar in the nav; the route stays reachable (hidden) as the
+  // rollback seam, matching how campaigns/design are staged.
+  { key: "funnel", label: "Funnel", href: "/dashboard/funnel", group: "Analytics", hidden: true },
+  { key: "calendar", label: "Calendar", href: "/dashboard/calendar", group: "Analytics" },
   { key: "outcomes", label: "Outcomes", href: "/dashboard/outcomes", group: "Analytics" },
   { key: "agents", label: "Agents", href: "/dashboard/agents", group: "Performance" },
   { key: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", group: "Performance", hidden: true },
@@ -119,6 +133,7 @@ export const SCREEN_TITLES: Record<NavKey, string> = {
   overview: "Overview",
   trends: "Pipeline",
   funnel: "Lead funnel",
+  calendar: "Calendar",
   outcomes: "Outcomes",
   agents: "Agents",
   campaigns: "Campaigns",

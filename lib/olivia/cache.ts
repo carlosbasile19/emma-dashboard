@@ -28,6 +28,12 @@ export const TIERS = {
   leadDirectory: { fresh: 300, stale: 1800 },
   calls: { fresh: 30, stale: 60 },
   conversations: { fresh: 30, stale: 60 },
+  calendar: { fresh: 60, stale: 300 },
+  leadDetail: { fresh: 30, stale: 60 },
+  dmThreads: { fresh: 30, stale: 60 },
+  // Full message threads: short fresh window so an open drawer shows near-live messages.
+  thread: { fresh: 15, stale: 60 },
+  agencyCosts: { fresh: 120, stale: 600 },
   discovery: { fresh: 3600, stale: 86400 },
 } as const satisfies Record<string, Tier>;
 

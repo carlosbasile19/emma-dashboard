@@ -3,11 +3,15 @@ import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } 
 import { fullName } from "@/lib/format";
 import type {
   Agent,
+  CalendarResponse,
   Call,
   Campaign,
   Conversation,
+  ConversationThread,
+  DmThread,
   Funnel,
   Lead,
+  LeadDetail,
   ListResponse,
   Outcomes,
   Overview,
@@ -218,6 +222,133 @@ export async function getConversations(
     summary: flatText(c.summary),
   }));
   return { items, total: r.total, page: r.page, limit: r.limit };
+}
+
+// ---- Calendar (bookings month view) ----
+// `date`/`time` in the response are ALREADY client-timezone local strings — pass through
+// untouched. `upcoming` is the next N scheduled/confirmed across any month (default 5, max 25).
+export function getCalendar(
+  clientId: string,
+  params: { month: string; upcoming_limit?: number },
+  h: Hints = {},
+) {
+  return oliviaFetch<CalendarResponse>(`${ANALYTICS}/clients/${cid(clientId)}/calendar`, {
+    params: params as QueryParams,
+    ...h,
+  });
+}
+
+// ---- Lead detail (drill-down page) ----
+export async function getLeadDetail(
+  clientId: string,
+  leadId: string,
+  h: Hints = {},
+): Promise<LeadDetail> {
+  const r = await oliviaFetch<LeadDetail>(
+    `${ANALYTICS}/clients/${cid(clientId)}/leads/${encodeURIComponent(leadId)}`,
+    { ...h },
+  );
+  // Same {raw}-wrapper hardening as the calls/conversations lists.
+  return {
+    ...r,
+    lead: {
+      ...r.lead,
+      notes: flatText(r.lead?.notes),
+      lead_context: flatText(r.lead?.lead_context),
+    },
+    calls: (r.calls ?? []).map((c) => ({
+      ...c,
+      transcript: flatText(c.transcript),
+      callback_notes: flatText(c.callback_notes),
+    })),
+    bookings: r.bookings ?? [],
+    conversations: r.conversations ?? [],
+  };
+}
+
+/** Requires the `dashboard:notes` scope — a 403 means notes are read-only for this key.
+ *  ≤20 000 chars; empty string clears. Last-write-wins: replace local state with the response. */
+export function putLeadNotes(
+  clientId: string,
+  leadId: string,
+  notes: string,
+  h: Hints = {},
+) {
+  return oliviaFetch<{ notes: string; updated_at: string }>(
+    `${ANALYTICS}/clients/${cid(clientId)}/leads/${encodeURIComponent(leadId)}/notes`,
+    { method: "PUT", body: { notes }, maxRetries: 0, ...h },
+  );
+}
+
+// ---- DM threads (conversations tab) ----
+export async function getDmThreads(
+  clientId: string,
+  params: PageParams & { lead_id?: string },
+  h: Hints = {},
+): Promise<ListResponse<DmThread>> {
+  const r = await oliviaFetch<{
+    threads?: Array<Record<string, unknown>>;
+    dm_threads?: Array<Record<string, unknown>>;
+    total: number;
+    page: number;
+    limit: number;
+  }>(`${ANALYTICS}/clients/${cid(clientId)}/dm-threads`, {
+    params: params as QueryParams,
+    ...h,
+  });
+  const rows = r.threads ?? r.dm_threads ?? [];
+  const items: DmThread[] = rows.map((t) => ({
+    ...(t as unknown as DmThread),
+    last_message: flatText(t.last_message),
+  }));
+  return { items, total: r.total, page: r.page, limit: r.limit };
+}
+
+/** Full thread — messages oldest-first (latest N; default 100, max 500). When the key lacks
+ *  dashboard:pii, `messages` comes back `[]` with `locked: true`. */
+export async function getConversationThread(
+  clientId: string,
+  conversationId: string,
+  params: { limit?: number } = {},
+  h: Hints = {},
+): Promise<ConversationThread> {
+  const r = await oliviaFetch<ConversationThread>(
+    `${ANALYTICS}/clients/${cid(clientId)}/conversations/${encodeURIComponent(conversationId)}`,
+    { params: params as QueryParams, ...h },
+  );
+  return { ...r, messages: r.messages ?? [] };
+}
+
+// ---- Agency clients cost (console) ----
+// {agencyId} must be the key's own agency (else 404 agency_not_found). Money is integer cents;
+// maintenance is flat monthly ($0 for paused/archived, NOT prorated). Use the server `totals`
+// verbatim — never re-sum client-side.
+export interface AgencyClientCostRecord {
+  id: string;
+  name: string;
+  status: string;
+  timezone?: string | null;
+  spend_cents: number;
+  maintenance_cents: number;
+  total_cost_cents: number;
+}
+
+export interface AgencyClientCostsResponse {
+  agency_id: string;
+  range?: string;
+  clients: AgencyClientCostRecord[];
+  totals: { spend_cents: number; maintenance_cents: number; total_cost_cents: number };
+}
+
+export function getAgencyClientCosts(
+  agencyId: string,
+  params: { range?: string; from?: string; to?: string; tz?: string; client_id?: string },
+  h: Hints = {},
+) {
+  return oliviaFetch<AgencyClientCostsResponse>(
+    `${ANALYTICS}/agencies/${encodeURIComponent(agencyId)}/clients`,
+    { params: params as QueryParams, ...h },
+  );
 }
 
 // ---- Briefing bridge (server-to-server action; see docs/olivia-briefing-bridge.md) ----

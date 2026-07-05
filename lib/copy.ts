@@ -13,12 +13,16 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
   },
   trends: {
     title: "No pipeline to show",
-    body: "This client has no active pipeline yet. Once a pipeline and its stages are set up in Olivia, leads appear here on the board.",
+    body: "This client has no active pipeline yet. Once a pipeline and its stages are set up in Emma, leads appear here on the board.",
   },
   funnel: {
     title: "The funnel is empty",
     body: "No leads have entered a stage yet. Import a list or connect a source and Emma starts the climb.",
     cta: "Connect a source",
+  },
+  calendar: {
+    title: "Nothing on the calendar",
+    body: "No bookings this month. When Emma books an appointment, it lands here the moment it's confirmed.",
   },
   outcomes: {
     title: "No outcomes to break down",
@@ -59,6 +63,10 @@ export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
   funnel: {
     title: "Funnel failed to load",
     body: "Something tripped on our end pulling stage data. Retry in a moment.",
+  },
+  calendar: {
+    title: "The calendar didn’t load",
+    body: "We couldn’t pull this month’s bookings. Your appointments are safe — try again.",
   },
   outcomes: {
     title: "Outcomes didn’t load",

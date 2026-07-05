@@ -1,10 +1,12 @@
 import { Donut, type DonutSegment } from "@/components/charts/Donut";
+import { TrendLines } from "@/components/charts/TrendLines";
+import { BestTimesHeatmap } from "@/components/dashboard/outcomes/BestTimesHeatmap";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { ErrorState } from "@/components/ui/states/ErrorState";
 import { FreshnessNote } from "@/components/ui/FreshnessNote";
 import { getWorkspace } from "@/lib/auth";
-import { EMPTY_COPY, ERROR_COPY } from "@/lib/copy";
+import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { BADGE_COLORS, CHART_PALETTE } from "@/lib/design";
 import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
 import { fmtEnum, num } from "@/lib/format";
@@ -48,6 +50,11 @@ export default async function OutcomesPage({ searchParams }: { searchParams: SP 
     return <EmptyState copy={EMPTY_COPY.outcomes} />;
   }
 
+  const rangeLabel = RANGE_LABELS[range] ?? "Last 30 days";
+  const trend = result.data.daily_trend;
+  const bestTimes = result.data.best_times;
+  const hasBestTimesData = !!bestTimes?.some((row) => row?.some((v) => v != null));
+
   return (
     <>
       <FreshnessNote freshness={result.freshness} />
@@ -56,6 +63,43 @@ export default async function OutcomesPage({ searchParams }: { searchParams: SP 
         <OutcomeCard title="Call dispositions" noun="dispositions" segments={disp} />
         <OutcomeCard title="Booking outcomes" noun="bookings" segments={book} />
       </div>
+
+      {/* Extended metrics — rendered only when the backend supplies them, so a
+          pre-extension payload (or an older cached one) degrades to the donuts alone. */}
+      {trend && trend.length > 0 ? (
+        <Card className="mt-4 px-6 py-[22px]">
+          <div className="mb-[18px] flex items-baseline justify-between">
+            <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+              Daily trend
+            </div>
+            <span className="font-mono text-xs text-muted">{rangeLabel}</span>
+          </div>
+          <TrendLines data={trend} />
+        </Card>
+      ) : null}
+
+      {bestTimes ? (
+        <Card className="mt-4 px-6 py-[22px]">
+          <div className="mb-[18px] flex items-baseline justify-between">
+            <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+              Best times to call
+            </div>
+            <span className="font-mono text-xs text-muted">
+              {rangeLabel} · {result.data.period.tz}
+            </span>
+          </div>
+          {hasBestTimesData ? (
+            <BestTimesHeatmap
+              bestTimes={bestTimes}
+              bestTimesCalls={result.data.best_times_calls}
+            />
+          ) : (
+            <div className="rounded-[10px] bg-warm px-4 py-6 text-center text-[13px] text-muted">
+              Not enough answered calls in this window to map pickup patterns yet.
+            </div>
+          )}
+        </Card>
+      ) : null}
     </>
   );
 }

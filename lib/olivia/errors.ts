@@ -4,6 +4,9 @@ export type OliviaErrorCode =
   | "unauthorized" // 401
   | "forbidden_scope" // 403
   | "client_not_found" // 404
+  | "lead_not_found" // 404 (lead unknown for this tenant — never retry)
+  | "conversation_not_found" // 404 (thread unknown for this tenant — never retry)
+  | "agency_not_found" // 404 (agency id doesn't match the key — never retry)
   | "reporting_not_found" // 404 (reporting session unknown)
   | "invalid_request" // 400
   | "invalid_date_range" // 400

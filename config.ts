@@ -2,7 +2,7 @@
 const config = {
   appName: "Hey Emma",
   appDescription:
-    "Read-only analytics dashboard for your Olivia workspace — leads, calls, campaigns and outcomes.",
+    "Read-only analytics dashboard for your Emma workspace — leads, calls, campaigns and outcomes.",
   // Naked domain (no protocol, no trailing slash).
   domainName: "heyemma.io",
   auth: {

@@ -39,7 +39,10 @@ export function Header({
   activeClientId?: string;
 }) {
   const pathname = usePathname();
-  const isBoard = pathname.startsWith("/dashboard/trends");
+  // Views that carry their own scoping controls (board columns, calendar month nav)
+  // don't show the global range/campaign filters.
+  const isBoard =
+    pathname.startsWith("/dashboard/trends") || pathname.startsWith("/dashboard/calendar");
   const router = useRouter();
   const params = useSearchParams();
 

@@ -20,11 +20,19 @@ export interface AgencyClient {
   memberCount: number;
 }
 
+export interface ClientCosts {
+  spendCents: number; // client-attributable usage (calls, SMS, AI) — agency-level items excluded
+  maintenanceCents: number; // flat monthly, $0 for paused/archived, NOT prorated to the window
+  totalCostCents: number;
+}
+
 export interface AgencyClientStats extends AgencyClient {
   leads: number;
   calls: number;
   bookings: number; // appointments booked in the period (sum of Olivia booking_outcomes)
   pickupRate: number; // 0..1
+  /** null when the cost endpoint is unavailable (no OLIVIA_AGENCY_ID / upstream error). */
+  costs: ClientCosts | null;
 }
 
 /** The agency client roster (mirror of Olivia discovery) joined with Supabase member counts. */
@@ -155,17 +163,68 @@ function sumBookings(outcomes: Partial<Record<string, number>> | undefined): num
   return total;
 }
 
+// ---- Per-client cost (usage spend + flat monthly maintenance) ----
+
+export interface AgencyCosts {
+  perClient: Record<string, ClientCosts>; // keyed by olivia client id
+  /** The SERVER's aggregate — used verbatim, never re-summed client-side. */
+  totals: ClientCosts;
+}
+
+/**
+ * Cost · 30d per client from GET /agencies/{agencyId}/clients. The agency id comes from
+ * OLIVIA_AGENCY_ID (must be the key's own agency). Costs are additive console UI — when the
+ * env var is unset or the endpoint fails, this returns null and the views render "—".
+ */
+export async function getAgencyCosts(range = "30d"): Promise<AgencyCosts | null> {
+  await requireAdmin();
+  const agencyId = process.env.OLIVIA_AGENCY_ID?.trim();
+  if (!agencyId) return null;
+  try {
+    const res = await cachedFetch({
+      // Not a client id — a cache-key namespace for the agency-level row.
+      clientId: `agency:${agencyId}`,
+      endpoint: "agency-costs",
+      params: { range },
+      tier: TIERS.agencyCosts,
+      fetcher: () => api.getAgencyClientCosts(agencyId, { range }),
+    });
+    const perClient: Record<string, ClientCosts> = {};
+    for (const c of res.data.clients ?? []) {
+      perClient[c.id] = {
+        spendCents: c.spend_cents ?? 0,
+        maintenanceCents: c.maintenance_cents ?? 0,
+        totalCostCents: c.total_cost_cents ?? 0,
+      };
+    }
+    const t = res.data.totals;
+    return {
+      perClient,
+      totals: {
+        spendCents: t?.spend_cents ?? 0,
+        maintenanceCents: t?.maintenance_cents ?? 0,
+        totalCostCents: t?.total_cost_cents ?? 0,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface AgencyOverview {
   totals: { clients: number; active: number; leads: number; calls: number; bookings: number };
+  /** Server-side cost aggregate (Σ spend + maintenance); null when costs are unavailable. */
+  costTotals: ClientCosts | null;
   perClient: AgencyClientStats[];
   leaderboard: AgencyClientStats[]; // top by bookings, desc
 }
 
 /** Aggregate every agency client's Olivia overview into totals + a leaderboard. */
 export async function getAgencyOverview(params: DateParams): Promise<AgencyOverview> {
-  const clients = await listAgencyClients();
+  const [clients, costs] = await Promise.all([listAgencyClients(), getAgencyCosts()]);
   const perClient = await Promise.all(
     clients.map(async (c): Promise<AgencyClientStats> => {
+      const clientCosts = costs?.perClient[c.id] ?? null;
       try {
         const [ov, oc] = await Promise.all([
           clientOverview(c.id, params),
@@ -178,10 +237,11 @@ export async function getAgencyOverview(params: DateParams): Promise<AgencyOverv
           calls: k.calls_total ?? 0,
           bookings: sumBookings(oc?.data.outcomes.booking_outcomes),
           pickupRate: k.pickup_rate ?? 0,
+          costs: clientCosts,
         };
       } catch {
         // One client failing must not blank the whole console.
-        return { ...c, leads: 0, calls: 0, bookings: 0, pickupRate: 0 };
+        return { ...c, leads: 0, calls: 0, bookings: 0, pickupRate: 0, costs: clientCosts };
       }
     }),
   );
@@ -198,7 +258,7 @@ export async function getAgencyOverview(params: DateParams): Promise<AgencyOverv
   );
 
   const leaderboard = [...perClient].sort((a, b) => b.bookings - a.bookings);
-  return { totals, perClient, leaderboard };
+  return { totals, costTotals: costs?.totals ?? null, perClient, leaderboard };
 }
 
 export interface InviteRow {
@@ -301,6 +361,8 @@ export async function listAgencyTeam(): Promise<TeamMember[]> {
 export interface ClientDetail {
   client: AgencyClient;
   stats: { leads: number; calls: number; bookings: number; pickupRate: number };
+  /** Cost · 30d breakdown; null when the cost endpoint is unavailable. */
+  costs: ClientCosts | null;
   members: Array<{ userId: string; email: string | null; role: string }>;
 }
 
@@ -314,9 +376,10 @@ export async function getClientDetail(
   if (!base) return null;
   const admin = createAdminClient();
 
-  const [ov, oc] = await Promise.all([
+  const [ov, oc, costs] = await Promise.all([
     clientOverview(clientId, params),
     clientOutcomes(clientId, params).catch(() => null),
+    getAgencyCosts(),
   ]);
   const emails = await Promise.all(
     base.members.map((m) =>
@@ -335,6 +398,7 @@ export async function getClientDetail(
       bookings: sumBookings(oc?.data.outcomes.booking_outcomes),
       pickupRate: k.pickup_rate ?? 0,
     },
+    costs: costs?.perClient[clientId] ?? null,
     members: base.members.map((m, i) => ({
       userId: m.userId,
       email: emails[i] ?? null,

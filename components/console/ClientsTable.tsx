@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
 import { syncClients } from "@/app/console/actions";
-import { initials as toInitials, num, relTime } from "@/lib/format";
+import { centsToMoney, initials as toInitials, num, relTime } from "@/lib/format";
 import type { AgencyClientStats } from "@/lib/olivia/agency";
 
-const COLS = "grid-cols-[2fr_1fr_0.8fr_1fr_1fr_1.2fr]";
+const COLS = "grid-cols-[2fr_0.9fr_0.7fr_0.9fr_0.9fr_1.1fr_1.2fr]";
+
+const SPEND_CAVEAT =
+  "Client-attributable usage (calls, SMS, AI) plus flat monthly maintenance. Agency-level items (seats, phone numbers, retainer) are excluded.";
 
 export function ClientsTable({
   clients,
@@ -31,7 +34,7 @@ export function ClientsTable({
               <path d="M16 4v4h-4" />
               <path d="M16 8a6.5 6.5 0 1 0 1 5" />
             </svg>
-            Sync from Olivia
+            Sync from Emma
           </button>
         </form>
       </div>
@@ -44,7 +47,7 @@ export function ClientsTable({
         <div
           className={`grid ${COLS} gap-3 border-b border-ink/10 bg-surface-tint px-[22px] py-[13px]`}
         >
-          {["Client", "Status", "Team", "Leads · 30d", "Bookings"].map((h) => (
+          {["Client", "Status", "Team", "Leads · 30d", "Bookings", "Cost · 30d"].map((h) => (
             <div
               key={h}
               className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted"
@@ -106,6 +109,22 @@ export function ClientsTable({
               <div className="font-mono text-[13px] tabular-nums">{num(c.leads)}</div>
               <div className="font-mono text-[13px] font-semibold tabular-nums">
                 {num(c.bookings)}
+              </div>
+              <div title={SPEND_CAVEAT}>
+                {c.costs ? (
+                  <>
+                    <div className="font-mono text-[13px] font-semibold tabular-nums">
+                      {centsToMoney(c.costs.totalCostCents)}
+                    </div>
+                    <div className="font-mono text-[10.5px] text-muted">
+                      {c.costs.maintenanceCents > 0
+                        ? `+${centsToMoney(c.costs.maintenanceCents)} maint.`
+                        : "no maint."}
+                    </div>
+                  </>
+                ) : (
+                  <span className="font-mono text-[12px] text-muted">—</span>
+                )}
               </div>
               <div className="flex justify-end">
                 <form action={setActiveClient}>

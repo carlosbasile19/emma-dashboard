@@ -37,6 +37,17 @@ export function NavIcon({ name, className }: { name: NavKey; className?: string 
           <path d="M3 4h14l-5 6v5l-4 2v-7z" />
         </svg>
       );
+    case "calendar":
+      return (
+        <svg {...common}>
+          <rect x="3" y="4.5" width="14" height="12.5" rx="2" />
+          <path d="M3 8.5h14" />
+          <path d="M7 2.5v3.5" />
+          <path d="M13 2.5v3.5" />
+          <circle cx="7" cy="12" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="10.5" cy="12" r="0.9" fill="currentColor" stroke="none" />
+        </svg>
+      );
     case "outcomes":
       return (
         <svg {...common}>
