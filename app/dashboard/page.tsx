@@ -1,14 +1,12 @@
 import { BriefEmma } from "@/components/dashboard/brief/BriefEmma";
 import { ReportEmma } from "@/components/dashboard/report/ReportEmma";
 import { Sparkline } from "@/components/charts/Sparkline";
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { ErrorState } from "@/components/ui/states/ErrorState";
 import { FreshnessNote } from "@/components/ui/FreshnessNote";
 import { getWorkspace } from "@/lib/auth";
 import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
-import { STAGE_COLORS } from "@/lib/design";
 import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
 import { fetchAgents, fetchCampaigns, fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
@@ -41,8 +39,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
 
   const ov = cur.data;
   const k = ov.kpis;
-  const stages = LEAD_STATUSES.map((key) => ({ key, count: k.leads_by_stage[key] ?? 0 }));
-  const stageTotal = stages.reduce((a, s) => a + s.count, 0);
+  // Stage counts still feed the has-any-data check even though the stage card is gone.
+  const stageTotal = LEAD_STATUSES.reduce((a, key) => a + (k.leads_by_stage[key] ?? 0), 0);
 
   if (k.leads_total === 0 && k.calls_total === 0 && stageTotal === 0) {
     return <EmptyState copy={EMPTY_COPY.overview} />;
@@ -51,7 +49,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const cards = buildKpiCards(ov, prev.data, ts.data);
   const briefItems = buildBriefItems(ov, campaigns?.data ?? []);
   const reportAgents = (agentsRes?.data ?? []).map((a) => ({ id: a.agent_id, name: a.name }));
-  const stageMax = Math.max(1, ...stages.map((s) => s.count));
 
   return (
     <>
@@ -117,38 +114,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
         ))}
       </div>
 
-      {/* leads by stage */}
-      <Card className="px-6 py-[22px]">
-        <div className="mb-5 flex items-baseline justify-between">
-          <h2 className="m-0 text-lg font-medium">Leads by stage</h2>
-          <span className="font-mono text-xs text-muted">{num(stageTotal)} total</span>
-        </div>
-        <div className="flex flex-col gap-[15px]">
-          {stages.map((s) => (
-            <div key={s.key} className="flex items-center gap-4">
-              <div className="w-[108px] flex-none">
-                <Badge kind="lead" value={s.key} />
-              </div>
-              <div className="h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-lavender">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${(s.count / stageMax) * 100}%`,
-                    background: STAGE_COLORS[s.key],
-                  }}
-                />
-              </div>
-              <div className="w-[120px] flex-none text-right font-mono text-[13px] text-ink">
-                {num(s.count)}
-                <span className="text-[11px] text-muted">
-                  {" "}
-                  · {stageTotal ? Math.round((s.count / stageTotal) * 100) : 0}%
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
     </>
   );
 }
