@@ -20,6 +20,10 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
     body: "No leads have entered a stage yet. Import a list or connect a source and Emma starts the climb.",
     cta: "Connect a source",
   },
+  calendar: {
+    title: "Nothing on the calendar",
+    body: "No bookings this month. When Emma books an appointment, it lands here the moment it's confirmed.",
+  },
   outcomes: {
     title: "No outcomes to break down",
     body: "Once calls complete, every disposition and booking result fans out into these charts.",
@@ -59,6 +63,10 @@ export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
   funnel: {
     title: "Funnel failed to load",
     body: "Something tripped on our end pulling stage data. Retry in a moment.",
+  },
+  calendar: {
+    title: "The calendar didn’t load",
+    body: "We couldn’t pull this month’s bookings. Your appointments are safe — try again.",
   },
   outcomes: {
     title: "Outcomes didn’t load",

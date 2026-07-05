@@ -9,7 +9,8 @@
     "lint": "next lint",
     "email:selftest": "tsx scripts/email-selftest.ts",
     "email:test-send": "tsx scripts/send-test-emails.ts",
-    "test:pipeline": "tsx scripts/pipeline-board-selftest.ts"
+    "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
+    "test:calendar": "tsx scripts/calendar-selftest.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

@@ -3,6 +3,7 @@ export type SkeletonVariant =
   | "charts"
   | "donuts"
   | "funnel"
+  | "calendar"
   | "campaigns"
   | "table"
   | "board";
@@ -44,6 +45,19 @@ export function Skeleton({ variant }: { variant: SkeletonVariant }) {
       );
     case "funnel":
       return <Block className="h-[420px] rounded-[16px]" />;
+    case "calendar":
+      return (
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.9fr_1fr]">
+          <div>
+            <Block className="mb-3 h-[46px] rounded-[12px]" />
+            <Block className="h-[520px] rounded-[16px]" />
+          </div>
+          <div className="flex flex-col gap-4">
+            <Block className="h-[240px] rounded-[16px]" />
+            <Block className="h-[240px] rounded-[16px]" />
+          </div>
+        </div>
+      );
     case "campaigns":
       return (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
