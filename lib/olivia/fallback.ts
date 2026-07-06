@@ -39,11 +39,34 @@ function windowFreeFingerprint(params: Record<string, unknown>): string {
 }
 
 /**
- * Newest cached row usable as a stand-in for `params` when the exact window has no cache
- * yet (date windows roll daily, so an upstream outage right after rollover would otherwise
- * error even though yesterday's window is sitting in the cache). A row qualifies only if it
- * belongs to the same client + endpoint AND every non-window param matches — a different
- * tz or filter set is different data, not a fallback. `rows` must be newest-first.
+ * Distance between the requested window and a candidate row's window, or null when they
+ * are incomparable. A windowless request (e.g. campaigns) only matches windowless rows and
+ * vice versa — "no date filter" is different data, not a nearby window.
+ */
+function windowDistance(
+  want: Record<string, unknown>,
+  got: Record<string, unknown>,
+): number | null {
+  const wantHas = "from" in want || "to" in want;
+  const gotHas = "from" in got || "to" in got;
+  if (!wantHas && !gotHas) return 0;
+  if (wantHas !== gotHas) return null;
+  const wf = Date.parse(String(want.from));
+  const wt = Date.parse(String(want.to));
+  const gf = Date.parse(String(got.from));
+  const gt = Date.parse(String(got.to));
+  if ([wf, wt, gf, gt].some(Number.isNaN)) return null;
+  return Math.abs(gf - wf) + Math.abs(gt - wt);
+}
+
+/**
+ * Best cached stand-in for `params` when the exact window has no cache yet (date windows
+ * roll daily, so an upstream outage right after rollover would otherwise error even though
+ * yesterday's window is sitting in the cache). A row qualifies only if it belongs to the
+ * same client + endpoint AND every non-window param matches — a different tz or filter set
+ * is different data, not a fallback. Among qualifiers, prefer the CLOSEST window, not the
+ * newest fetch: a freshly cached far-past window (often all zeros) must not beat
+ * yesterday's adjacent one. Ties break by fetch recency (`rows` must be newest-first).
  */
 export function pickFallbackRow(
   rows: FallbackCandidate[],
@@ -54,6 +77,8 @@ export function pickFallbackRow(
 ): FallbackCandidate | null {
   const prefix = `${clientId}::${endpoint}::`;
   const want = windowFreeFingerprint(params);
+  let best: FallbackCandidate | null = null;
+  let bestDistance = Infinity;
   for (const row of rows) {
     if (!row.cache_key.startsWith(prefix)) continue;
     if ((nowMs - new Date(row.fetched_at).getTime()) / 1000 > FALLBACK_MAX_AGE_SEC) continue;
@@ -63,7 +88,13 @@ export function pickFallbackRow(
     } catch {
       continue;
     }
-    if (windowFreeFingerprint(rowParams) === want) return row;
+    if (windowFreeFingerprint(rowParams) !== want) continue;
+    const distance = windowDistance(params, rowParams);
+    if (distance === null) continue;
+    if (distance < bestDistance) {
+      best = row;
+      bestDistance = distance;
+    }
   }
-  return null;
+  return best;
 }

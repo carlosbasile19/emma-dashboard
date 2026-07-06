@@ -484,7 +484,10 @@ stale-on-error had nothing to serve despite yesterday's window sitting in `respo
 **Decision:** on upstream error or governor block, when the exact key has no row,
 `cachedFetch` now serves the newest cached row for the same client + endpoint whose
 non-window params match exactly (only `from`/`to` may differ — a different tz or filter is
-different data, never a fallback). Capped at 7 days (`FALLBACK_MAX_AGE_SEC`); exact-key
+different data, never a fallback). **Ranked by window similarity, not fetch recency** —
+first prod verification caught a just-cached far-past window (all zeros) beating
+yesterday's adjacent window and rendering a misleading empty state; distance =
+|from delta| + |to delta|, ties break newest. Capped at 7 days (`FALLBACK_MAX_AGE_SEC`); exact-key
 stale-on-error remains uncapped. Served with `stale: true`, so the existing FreshnessNote
 banner discloses it. Matching logic is pure (`lib/olivia/fallback.ts`) and covered by
 `npm run test:cache` (needs `server-only` as a real devDep + `--conditions=react-server`,

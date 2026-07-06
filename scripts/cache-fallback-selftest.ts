@@ -111,7 +111,41 @@ async function main() {
     ];
     const hit = pickFallbackRow(rows, CID, "overview", PARAMS, Date.now());
     assert.deepEqual(hit?.payload, { v: "old-window" });
-    ok("picks the newest row whose non-window params match");
+    ok("picks the row whose window is closest to the request");
+  }
+
+  {
+    // Regression (seen in prod 2026-07-06): a just-written prev-period row (distant window,
+    // zero data) must NOT beat yesterday's adjacent window merely because it's newer.
+    const rows: FallbackCandidate[] = [
+      row(CID, "overview", { ...OLD_WINDOW, from: "2026-05-08", to: "2026-06-06" }, { v: "prev-period" }, 60),
+      row(CID, "overview", OLD_WINDOW, { v: "adjacent" }, 20 * 3600),
+    ];
+    const hit = pickFallbackRow(rows, CID, "overview", PARAMS, Date.now());
+    assert.deepEqual(hit?.payload, { v: "adjacent" });
+    ok("window similarity beats fetch recency");
+  }
+
+  {
+    // Same window distance → newer fetch wins.
+    const rows: FallbackCandidate[] = [
+      row(CID, "overview", OLD_WINDOW, { v: "newer-fetch" }, 3600),
+      row(CID, "overview", OLD_WINDOW, { v: "older-fetch" }, 20 * 3600),
+    ];
+    const hit = pickFallbackRow(rows, CID, "overview", PARAMS, Date.now());
+    assert.deepEqual(hit?.payload, { v: "newer-fetch" });
+    ok("ties on window distance break by fetch recency");
+  }
+
+  {
+    // Windowless request (e.g. campaigns) only matches windowless rows, and vice versa.
+    const windowed = [row(CID, "campaigns", OLD_WINDOW, { v: "windowed" }, 3600)];
+    assert.equal(pickFallbackRow(windowed, CID, "campaigns", { tz: "Australia/Brisbane" }, Date.now()), null);
+    const windowless = [row(CID, "campaigns", { tz: "Australia/Brisbane" }, { v: "plain" }, 3600)];
+    assert.equal(pickFallbackRow(windowless, CID, "campaigns", PARAMS, Date.now()), null);
+    const match = pickFallbackRow(windowless, CID, "campaigns", { tz: "Australia/Brisbane" }, Date.now());
+    assert.deepEqual(match?.payload, { v: "plain" });
+    ok("window presence must match between request and row");
   }
 
   {
