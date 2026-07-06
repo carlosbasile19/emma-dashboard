@@ -29,10 +29,23 @@ function waveform(id: string): number[] {
   return Array.from({ length: 48 }, () => 5 + Math.round(rnd() * 21));
 }
 
-export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () => void }) {
+export function CallDrawer({
+  call,
+  onClose,
+  loading = false,
+  loadFailed = false,
+}: {
+  call: Call | null;
+  onClose: () => void;
+  /** Recording/transcript are being hydrated (lead page — the detail payload is slim). */
+  loading?: boolean;
+  /** Hydration failed — don't claim "no recording/transcript exists". */
+  loadFailed?: boolean;
+}) {
   useScrollLock(Boolean(call));
   if (!call) return null;
   const hasRecording = Boolean(call.recording_url) && (call.duration_seconds ?? 0) > 0;
+  const connected = (call.duration_seconds ?? 0) > 0;
 
   // Portal to <body>: the overlay is `position: fixed` and must resolve against the
   // viewport, but an ancestor in the dashboard shell (the `animate-fade-up` <main>) creates
@@ -51,27 +64,33 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
             <div className="font-mono text-[11px] tracking-[0.08em] text-muted">
               {shortId(call.id)} · {call.direction === "inbound" ? "Inbound" : "Outbound"}
             </div>
-            <Link
-              href={`/dashboard/leads/${encodeURIComponent(call.lead_id)}`}
-              title="Open lead page"
-              className="group mt-1.5 flex w-max max-w-full items-center gap-1.5 text-[21px] font-bold tracking-[-0.01em] text-ink transition-colors hover:text-violet"
-            >
-              <span className="truncate">{call.lead ?? shortId(call.lead_id)}</span>
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="flex-none opacity-0 transition-opacity group-hover:opacity-100"
+            {call.lead_id ? (
+              <Link
+                href={`/dashboard/leads/${encodeURIComponent(call.lead_id)}`}
+                title="Open lead page"
+                className="group mt-1.5 flex w-max max-w-full items-center gap-1.5 text-[21px] font-bold tracking-[-0.01em] text-ink transition-colors hover:text-violet"
               >
-                <path d="M7 13 13 7" />
-                <path d="M7.5 7H13v5.5" />
-              </svg>
-            </Link>
+                <span className="truncate">{call.lead ?? shortId(call.lead_id)}</span>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="flex-none opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <path d="M7 13 13 7" />
+                  <path d="M7.5 7H13v5.5" />
+                </svg>
+              </Link>
+            ) : (
+              <div className="mt-1.5 truncate text-[21px] font-bold tracking-[-0.01em] text-ink">
+                {call.lead ?? "Unknown lead"}
+              </div>
+            )}
             <div className="mt-3 flex gap-2">
               <Badge kind="call" value={call.status} />
               <Badge kind="disp" value={call.disposition} />
@@ -116,8 +135,18 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
           {hasRecording ? (
             <RecordingPlayer key={call.id} call={call} />
           ) : (
-            <div className="mb-6 rounded-[12px] border border-dashed border-lavender-deep bg-surface-tint p-4 text-center text-[13px] text-muted">
-              No recording — the call ended before it connected.
+            <div
+              className={`mb-6 rounded-[12px] border border-dashed border-lavender-deep bg-surface-tint p-4 text-center text-[13px] text-muted ${
+                loading ? "animate-pulse" : ""
+              }`}
+            >
+              {loading
+                ? "Loading recording…"
+                : loadFailed
+                  ? "The recording couldn’t be loaded — close and reopen to retry."
+                  : connected
+                    ? "No recording is available for this call."
+                    : "No recording — the call ended before it connected."}
             </div>
           )}
 
@@ -130,7 +159,7 @@ export function CallDrawer({ call, onClose }: { call: Call | null; onClose: () =
             </>
           ) : null}
 
-          <Transcript call={call} />
+          <Transcript call={call} loading={loading} loadFailed={loadFailed} />
         </div>
       </aside>
     </div>,
@@ -246,18 +275,37 @@ function RecordingPlayer({ call }: { call: Call }) {
 }
 
 // ---- Transcript (speaker-attributed conversation) ----
-function Transcript({ call }: { call: Call }) {
+function Transcript({
+  call,
+  loading = false,
+  loadFailed = false,
+}: {
+  call: Call;
+  loading?: boolean;
+  loadFailed?: boolean;
+}) {
   const turns = useMemo(
     () => (call.transcript ? parseTranscript(call.transcript) : []),
     [call.transcript],
   );
 
   if (turns.length === 0) {
+    const connected = (call.duration_seconds ?? 0) > 0;
     return (
       <>
         <Label>Transcript</Label>
-        <div className="rounded-[12px] border border-dashed border-lavender-deep bg-surface-tint p-[18px] text-center text-[13px] leading-[1.5] text-muted">
-          No transcript for this call — it ended before a conversation began.
+        <div
+          className={`rounded-[12px] border border-dashed border-lavender-deep bg-surface-tint p-[18px] text-center text-[13px] leading-[1.5] text-muted ${
+            loading ? "animate-pulse" : ""
+          }`}
+        >
+          {loading
+            ? "Loading transcript…"
+            : loadFailed
+              ? "The transcript couldn’t be loaded — close and reopen to retry."
+              : connected
+                ? "No transcript is available for this call."
+                : "No transcript for this call — it ended before a conversation began."}
         </div>
       </>
     );

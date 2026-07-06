@@ -216,6 +216,34 @@ export async function fetchCalls(
   };
 }
 
+/**
+ * Full call row (recording_url / transcript / callback_notes) for a single call. The lead-detail
+ * endpoint embeds only a slim call shape, upstream has no per-call endpoint, and /calls ignores
+ * a lead_id filter — so we page /calls over the call's UTC day (from/to are inclusive UTC days)
+ * and match by id. Day pages flow through the normal calls cache tier, so repeated opens are cheap.
+ */
+const CALL_LOOKUP_PAGE_SIZE = 100; // API max per page
+const CALL_LOOKUP_MAX_PAGES = 6; // safety cap (~600 calls/day) — beyond it we give up gracefully
+
+export async function fetchCallDetail(
+  callId: string,
+  startedAt: string,
+): Promise<Call | null> {
+  // /calls from/to are inclusive UTC days — derive the UTC day through Date so a started_at
+  // carrying a non-zero offset ("…T00:30+02:00" = previous UTC day) still hits the right window.
+  const ms = Date.parse(startedAt);
+  if (Number.isNaN(ms)) return null;
+  const day = new Date(ms).toISOString().slice(0, 10);
+  for (let page = 1; page <= CALL_LOOKUP_MAX_PAGES; page++) {
+    const res = await fetchCalls({ from: day, to: day, page, limit: CALL_LOOKUP_PAGE_SIZE });
+    const hit = res.data.items.find((c) => c.id === callId);
+    if (hit) return hit;
+    const pageSize = res.data.limit || CALL_LOOKUP_PAGE_SIZE;
+    if (res.data.items.length < pageSize || page * pageSize >= res.data.total) break;
+  }
+  return null;
+}
+
 export async function fetchConversations(
   params: DateParams & PageParams = {},
   opts: Opts = {},

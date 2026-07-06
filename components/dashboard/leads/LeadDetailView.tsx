@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { loadCall } from "@/app/dashboard/leads/[id]/actions";
 import { NotesCard } from "@/components/dashboard/leads/NotesCard";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
@@ -53,6 +54,42 @@ export function LeadDetailView({
 }) {
   const { lead, pipeline, summary, calls, conversations } = detail;
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
+  // The lead-detail payload embeds a SLIM call shape (no recording/transcript). Opening the
+  // drawer hydrates the full row via loadCall; hydrated rows are kept so re-opens are instant.
+  const [fullCalls, setFullCalls] = useState<Record<string, Call>>({});
+  const [callLoadingId, setCallLoadingId] = useState<string | null>(null);
+  const [callFailedId, setCallFailedId] = useState<string | null>(null);
+
+  const openCall = (c: Call) => {
+    const known = fullCalls[c.id];
+    if (known) {
+      setSelectedCall(known);
+      return;
+    }
+    setSelectedCall(c);
+    if (c.recording_url || c.transcript) return; // already complete — nothing to hydrate
+    setCallFailedId(null);
+    setCallLoadingId(c.id);
+    loadCall(c.id, c.started_at)
+      .then((r) => {
+        if (r.ok && r.call) {
+          const full = r.call;
+          // Keep the stamped lead identity if the call-log row couldn't resolve a name.
+          const merged: Call = {
+            ...c,
+            ...full,
+            lead: full.lead ?? c.lead,
+            lead_id: full.lead_id ?? c.lead_id,
+          };
+          setFullCalls((m) => ({ ...m, [c.id]: merged }));
+          setSelectedCall((cur) => (cur && cur.id === c.id ? merged : cur));
+        } else {
+          setCallFailedId(c.id);
+        }
+      })
+      .catch(() => setCallFailedId(c.id))
+      .finally(() => setCallLoadingId((cur) => (cur === c.id ? null : cur)));
+  };
 
   const name = fullName(lead.first_name, lead.last_name);
   const locked = lead.locked ?? !(lead.first_name || lead.last_name || lead.phone || lead.email);
@@ -203,7 +240,7 @@ export function LeadDetailView({
                 {calls.map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => setSelectedCall(c)}
+                    onClick={() => openCall(c)}
                     className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-ink/10 px-3.5 py-2.5 text-left transition-colors hover:bg-lavender"
                   >
                     <span className="font-mono text-[11px] text-muted" suppressHydrationWarning>
@@ -270,7 +307,12 @@ export function LeadDetailView({
         </div>
       </div>
 
-      <CallDrawer call={selectedCall} onClose={() => setSelectedCall(null)} />
+      <CallDrawer
+        call={selectedCall}
+        onClose={() => setSelectedCall(null)}
+        loading={selectedCall != null && callLoadingId === selectedCall.id}
+        loadFailed={selectedCall != null && callFailedId === selectedCall.id}
+      />
     </div>
   );
 }

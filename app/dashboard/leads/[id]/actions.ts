@@ -2,7 +2,8 @@
 
 import { AuthError } from "@/lib/auth";
 import { OliviaError } from "@/lib/olivia/errors";
-import { saveLeadNotes } from "@/lib/olivia/service";
+import { fetchCallDetail, saveLeadNotes } from "@/lib/olivia/service";
+import type { Call } from "@/lib/types";
 
 export interface SaveNotesResult {
   ok: boolean;
@@ -28,6 +29,34 @@ export async function saveNotes(leadId: string, notes: string): Promise<SaveNote
       return { ok: false, error: "forbidden" };
     }
     if (e instanceof AuthError) return { ok: false, error: "failed" };
+    return { ok: false, error: "failed" };
+  }
+}
+
+export interface LoadCallResult {
+  ok: boolean;
+  call?: Call;
+  /** "not_found" → the call isn't in the day's log (session-scoped); "failed" → retryable. */
+  error?: "not_found" | "failed";
+}
+
+/**
+ * Hydrate the full call row (recording/transcript) for the lead page's call drawer — the
+ * lead-detail payload embeds only a slim call shape without those fields.
+ */
+export async function loadCall(callId: string, startedAt: string): Promise<LoadCallResult> {
+  if (
+    typeof callId !== "string" ||
+    !callId ||
+    typeof startedAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}/.test(startedAt)
+  ) {
+    return { ok: false, error: "failed" };
+  }
+  try {
+    const call = await fetchCallDetail(callId, startedAt);
+    return call ? { ok: true, call } : { ok: false, error: "not_found" };
+  } catch {
     return { ok: false, error: "failed" };
   }
 }

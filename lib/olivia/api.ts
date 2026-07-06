@@ -249,6 +249,7 @@ export async function getLeadDetail(
     { ...h },
   );
   // Same {raw}-wrapper hardening as the calls/conversations lists.
+  const leadName = fullName(r.lead?.first_name, r.lead?.last_name);
   return {
     ...r,
     lead: {
@@ -256,8 +257,14 @@ export async function getLeadDetail(
       notes: flatText(r.lead?.notes),
       lead_context: flatText(r.lead?.lead_context),
     },
+    // The embedded sublist is a SLIM call shape — live API sends only {id, direction, status,
+    // disposition, started_at, duration_seconds, agent}: no lead_id, recording_url or transcript.
+    // Stamp the lead identity so drawers can render a name + working lead link; the full row
+    // (recording/transcript) comes from fetchCallDetail on demand.
     calls: (r.calls ?? []).map((c) => ({
       ...c,
+      lead_id: c.lead_id ?? leadId,
+      lead: c.lead ?? leadName,
       transcript: flatText(c.transcript),
       callback_notes: flatText(c.callback_notes),
     })),
