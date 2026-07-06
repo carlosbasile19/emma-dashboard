@@ -54,7 +54,7 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
 export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
   overview: {
     title: "We couldn’t load your overview",
-    body: "Emma’s fine — this is on us. The data service didn’t answer in time.",
+    body: "Emma’s fine — this is on us. The data service isn’t responding, and there’s no saved copy to show yet.",
   },
   trends: {
     title: "We couldn’t load the pipeline",
