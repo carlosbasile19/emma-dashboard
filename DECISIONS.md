@@ -473,3 +473,20 @@ and the browser joins with the Retell **Web** SDK (`retell-client-js-sdk`). The 
 connect snippet lives in `BriefEmma.tsx` (`ACTIVATION (briefing-bridge)`); it is intentionally **not
 shipped wired** (no unverified SDK dependency added). Activation = `OLIVIA_BRIEFING_ENABLED=true` +
 `npm i retell-client-js-sdk` + uncomment the block.
+
+## Cross-window cache fallback (Olivia outage resilience)
+
+Diagnosed 2026-07-06: every `/api/external/v1` analytics endpoint returned 500 upstream
+while discovery stayed healthy. The Overview error state only appeared because cache keys
+embed the exact `from`/`to` window — the daily rollover meant "today's" key had no row, so
+stale-on-error had nothing to serve despite yesterday's window sitting in `response_cache`.
+
+**Decision:** on upstream error or governor block, when the exact key has no row,
+`cachedFetch` now serves the newest cached row for the same client + endpoint whose
+non-window params match exactly (only `from`/`to` may differ — a different tz or filter is
+different data, never a fallback). Capped at 7 days (`FALLBACK_MAX_AGE_SEC`); exact-key
+stale-on-error remains uncapped. Served with `stale: true`, so the existing FreshnessNote
+banner discloses it. Matching logic is pure (`lib/olivia/fallback.ts`) and covered by
+`npm run test:cache` (needs `server-only` as a real devDep + `--conditions=react-server`,
+since Next aliases `server-only` only inside its own build). Overview error copy no longer
+claims a timeout — upstream 500s are the common case.

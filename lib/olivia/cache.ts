@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { OliviaError } from "./errors";
+import { pickFallbackRow, stableStringify } from "./fallback";
 import { acquireLock, consumeToken, releaseLock } from "./governor";
 import type { WithFreshness } from "@/lib/types";
 
@@ -39,17 +40,6 @@ export const TIERS = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function stableStringify(obj: Record<string, unknown>): string {
-  const clean = Object.keys(obj)
-    .sort()
-    .reduce<Record<string, unknown>>((acc, k) => {
-      const v = obj[k];
-      if (v !== undefined && v !== null && v !== "") acc[k] = v;
-      return acc;
-    }, {});
-  return JSON.stringify(clean);
-}
-
 /**
  * Cache key MUST include client_id + endpoint + every param. A cached value can never be
  * served to a different client_id (tenant isolation, not just optimization).
@@ -74,6 +64,34 @@ async function readCache(admin: Admin, key: string): Promise<CacheRow | null> {
     .eq("cache_key", key)
     .maybeSingle();
   return (data as CacheRow | null) ?? null;
+}
+
+/**
+ * Last resort when the exact key has no row: the newest cached row for the same
+ * client + endpoint whose non-window params match (see pickFallbackRow). Date windows
+ * roll daily, so on the first request after rollover an upstream outage would otherwise
+ * surface as a hard error even though yesterday's window is cached.
+ */
+async function readFallbackCache(
+  admin: Admin,
+  clientId: string,
+  endpoint: string,
+  params: Record<string, unknown>,
+): Promise<CacheRow | null> {
+  const { data } = await admin
+    .from("response_cache")
+    .select("cache_key, payload, fetched_at")
+    .eq("client_id", clientId)
+    .eq("endpoint", endpoint)
+    .order("fetched_at", { ascending: false })
+    .limit(24);
+  return pickFallbackRow(
+    (data as (CacheRow & { cache_key: string })[] | null) ?? [],
+    clientId,
+    endpoint,
+    params,
+    Date.now(),
+  );
 }
 
 async function writeCache(
@@ -101,6 +119,8 @@ export interface CachedFetchArgs<T> {
   fetcher: () => Promise<T>;
   /** Manual refresh: bypass the fresh window (still subject to the governor). */
   force?: boolean;
+  /** Test seam (selftest only): inject a fake admin client. */
+  admin?: Admin;
 }
 
 /**
@@ -110,11 +130,13 @@ export interface CachedFetchArgs<T> {
  * - fresh (age < tier.fresh): served from cache, no upstream call.
  * - stale/expired/force: one caller refreshes under a single-flight lock + a rate token;
  *   concurrent callers serve the last-known-good (stale) or await the holder's result.
- * - on upstream error / governor block: serve last-known-good; only error when no cache.
+ * - on upstream error / governor block: serve last-known-good; if the exact key has no
+ *   row yet (date windows roll daily), fall back to the newest compatible window before
+ *   erroring.
  */
 export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFreshness<T>> {
   const { clientId, endpoint, params, tier, fetcher, force } = args;
-  const admin = createAdminClient();
+  const admin = args.admin ?? createAdminClient();
   const key = cacheKey(clientId, endpoint, params);
   const startedAt = Date.now();
 
@@ -128,6 +150,20 @@ export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFres
   });
   const stale = (): WithFreshness<T> | null =>
     row ? { data: row.payload as T, freshness: { fetchedAt: rowTime, stale: true } } : null;
+  // Exact key first; else the newest compatible window (upstream outage right after a
+  // daily window rollover should degrade to yesterday's data, not a hard error).
+  const staleOrFallback = async (): Promise<WithFreshness<T> | null> => {
+    const s = stale();
+    if (s) return s;
+    // Never let a failing fallback read mask the original upstream error.
+    const fb = await readFallbackCache(admin, clientId, endpoint, params).catch(() => null);
+    return fb
+      ? {
+          data: fb.payload as T,
+          freshness: { fetchedAt: new Date(fb.fetched_at).getTime(), stale: true },
+        }
+      : null;
+  };
 
   if (row && !force && ageSec < tier.fresh) {
     return fresh(row.payload as T, rowTime);
@@ -151,7 +187,7 @@ export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFres
 
     const allowed = await consumeToken(admin);
     if (!allowed) {
-      const s = stale();
+      const s = await staleOrFallback();
       if (s) return s; // governor over budget → serve last-known-good
       throw new OliviaError(
         429,
@@ -164,7 +200,7 @@ export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFres
     const fetchedAt = await writeCache(admin, key, clientId, endpoint, data);
     return fresh(data, fetchedAt);
   } catch (e) {
-    const s = stale(); // stale-on-error
+    const s = await staleOrFallback(); // stale-on-error
     if (s) return s;
     throw e;
   } finally {

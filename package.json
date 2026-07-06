@@ -9,6 +9,7 @@
     "lint": "next lint",
     "email:selftest": "tsx scripts/email-selftest.ts",
     "email:test-send": "tsx scripts/send-test-emails.ts",
+    "test:cache": "NODE_OPTIONS=--conditions=react-server tsx scripts/cache-fallback-selftest.ts",
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
     "test:calendar": "tsx scripts/calendar-selftest.ts",
     "test:besttimes": "tsx scripts/best-times-selftest.ts"
@@ -32,6 +33,7 @@
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.3",
     "postcss": "^8.4.49",
+    "server-only": "^0.0.1",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.22.4",
     "typescript": "^5.7.2"
