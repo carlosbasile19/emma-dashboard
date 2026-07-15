@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Emma Dashboard — API Reference</title>
+<style>
+/* ============================================================
+   Emma Dashboard — API Reference (print document)
+   Styled 1:1 with the dashboard design system (app/globals.css,
+   lib/design.ts, /dashboard/design). Rendered to PDF via
+   headless Chrome. Fonts are the app's own next/font subsets.
+   ============================================================ */
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("fonts/space-grotesk-var.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/space-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/space-mono-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+:root {
+  /* Foundation tokens (globals.css @theme) */
+  --warm: #f7f5f2;
+  --ink: #1a2b2e;
+  --muted: #5c6b6d;
+  --surface: #ffffff;
+  --surface-tint: #fbfaf8;
+  --violet: #6d4aff;
+  --pink: #ff3d77;
+  --violet-light: #a48bff;
+  --lavender: #eceaf7;
+  --lavender-deep: #c9c2e8;
+  --success: #2bb673;
+  --warning: #e8a33d;
+  --danger: #e5484d;
+  --info: #2e86f2;
+  --teal: #0fb5ae;
+  --plum: #b56be0;
+  --coral: #f2724b;
+  --hairline: rgba(26, 43, 46, 0.1);
+  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+}
+
+@page { size: A4; margin: 11mm 0 13mm 0; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  background: var(--warm);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  font-family: var(--font-display);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 0 15mm;
+}
+
+/* ---------- primitives ---------- */
+
+.mono { font-family: var(--font-mono); }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(26, 43, 46, 0.06);
+  break-inside: avoid;
+}
+
+.gradient-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(100deg, #6d4aff 0%, #ff3d77 100%);
+}
+
+/* chapter scaffolding */
+.chapter { break-before: page; padding-top: 6mm; }
+.chapter-head { margin-bottom: 14px; }
+.chapter-head .eyebrow { margin-bottom: 6px; }
+.chapter-head h1 {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+}
+.chapter-head .lede {
+  margin-top: 7px;
+  max-width: 620px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+h2.sub {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 20px 0 10px;
+  break-after: avoid;
+  break-inside: avoid;
+}
+h2.sub .snum { font-family: var(--font-mono); font-size: 11px; color: var(--violet); margin-right: 6px; }
+
+p + p { margin-top: 7px; }
+
+/* ---------- chips & badges ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid;
+  padding: 2px 9px 2px 7px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.chip .dot { width: 6px; height: 6px; border-radius: 999px; flex: none; }
+
+.method {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  border-radius: 6px;
+  padding: 2.5px 7px;
+  vertical-align: 1px;
+}
+.method.get  { color: var(--success); background: rgba(43,182,115,.1);  border: 1px solid rgba(43,182,115,.25); }
+.method.post { color: var(--violet);  background: rgba(109,74,255,.08); border: 1px solid rgba(109,74,255,.25); }
+.method.put  { color: var(--warning); background: rgba(232,163,61,.12); border: 1px solid rgba(232,163,61,.3); }
+
+.srcpill {
+  display: inline-block;
+  border: 1px solid var(--lavender-deep);
+  background: var(--lavender);
+  border-radius: 6px;
+  padding: 1.5px 7px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---------- endpoint cards ---------- */
+
+.endpoint {
+  padding: 12px 15px 13px;
+  margin-bottom: 10px;
+}
+.ep-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.ep-path {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  word-break: break-all;
+}
+.ep-scopes { margin-left: auto; display: inline-flex; gap: 5px; }
+.ep-desc { margin-top: 6px; font-size: 11.5px; color: var(--ink); }
+.ep-meta { margin-top: 9px; border-top: 1px solid var(--lavender); padding-top: 8px; }
+.ep-meta .row { display: flex; gap: 10px; padding: 2.5px 0; }
+.ep-meta .k {
+  flex: none; width: 64px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.ep-meta .v { font-size: 11px; color: var(--ink); }
+.ep-meta .v code, .ep-desc code, td code, p code, li code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--lavender);
+  border-radius: 4px;
+  padding: 0.5px 4px;
+}
+
+/* ---------- code blocks ---------- */
+
+pre.code {
+  background: var(--ink);
+  color: #dce4e4;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-family: var(--font-mono);
+  font-size: 9.6px;
+  line-height: 1.6;
+  overflow: hidden;
+  break-inside: avoid;
+  margin-top: 9px;
+}
+pre.code .k { color: var(--violet-light); }   /* keys */
+pre.code .s { color: #9fd8c0; }               /* strings */
+pre.code .n { color: #f0c987; }               /* numbers/bools */
+pre.code .c { color: #7b8f93; }               /* comments */
+
+/* ---------- tables ---------- */
+
+.tablecard { overflow: hidden; margin-bottom: 10px; }
+.tablecard.breakable { break-inside: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 8.8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--lavender-deep);
+  background: var(--surface-tint);
+}
+td {
+  font-size: 10.8px;
+  padding: 6.5px 12px;
+  border-bottom: 1px solid var(--lavender);
+  vertical-align: top;
+}
+tr { break-inside: avoid; }
+tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) td { background: rgba(236, 234, 247, 0.35); }
+td.mono, th.mono { font-family: var(--font-mono); font-size: 10px; }
+td .mono { font-family: var(--font-mono); font-size: 10px; }
+
+/* ---------- cover ---------- */
+
+.cover-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--ink);
+  padding: 44px 40px 40px;
+  margin-top: 10mm;
+  box-shadow: 0 18px 44px rgba(26, 43, 46, 0.28);
+}
+.glow { position: absolute; border-radius: 999px; }
+.glow.violet {
+  right: -90px; top: -150px; width: 380px; height: 380px;
+  background: radial-gradient(circle, rgba(109, 74, 255, 0.5), transparent 62%);
+}
+.glow.pink {
+  left: 28%; bottom: -160px; width: 330px; height: 330px;
+  background: radial-gradient(circle, rgba(255, 61, 119, 0.3), transparent 64%);
+}
+.cover-hero .inner { position: relative; }
+.cover-hero .eyebrow { color: var(--violet-light); margin-bottom: 14px; }
+.cover-title {
+  color: #fff;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  max-width: 540px;
+}
+.cover-sub { margin-top: 14px; max-width: 520px; font-size: 13px; color: #b7c3c4; }
+.cover-meta { margin-top: 26px; display: flex; gap: 26px; }
+.cover-meta .m .l { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; color: #7b8f93; }
+.cover-meta .m .v { margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: #fff; }
+
+.toc { margin-top: 14px; padding: 18px 22px 16px; }
+.toc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; margin-top: 10px; }
+.toc-item { display: flex; align-items: baseline; gap: 10px; padding: 5.5px 0; border-bottom: 1px solid var(--lavender); }
+.toc-item:nth-last-child(-n+2) { border-bottom: none; }
+.toc-item .num { font-family: var(--font-mono); font-size: 10px; color: var(--violet); flex: none; width: 18px; }
+.toc-item .t { font-size: 12px; font-weight: 500; }
+.toc-item .d { margin-left: auto; font-size: 10px; color: var(--muted); text-align: right; }
+
+/* ---------- diagram ---------- */
+
+.diagram { padding: 16px 18px; margin-bottom: 10px; }
+.flow { display: flex; align-items: stretch; gap: 0; }
+.node {
+  flex: 1;
+  border: 1px solid var(--lavender-deep);
+  background: var(--surface-tint);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.node.dark { background: var(--ink); border-color: var(--ink); }
+.node .nt { font-size: 11.5px; font-weight: 700; letter-spacing: -0.01em; }
+.node.dark .nt { color: #fff; }
+.node .nd { margin-top: 3px; font-size: 9.5px; color: var(--muted); line-height: 1.45; }
+.node.dark .nd { color: #9fb0b3; }
+.node .nc { margin-top: 6px; font-family: var(--font-mono); font-size: 8.5px; color: var(--violet); }
+.node.dark .nc { color: var(--violet-light); }
+.arrow {
+  flex: none; width: 58px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.arrow .a { color: var(--violet); font-size: 15px; line-height: 1; }
+.arrow .al {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-align: center;
+}
+.subflow { margin-top: 10px; display: flex; gap: 10px; }
+
+/* lifecycle pills */
+.lifecycle { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+.lifecycle .arrowc { color: var(--muted); font-size: 11px; }
+
+/* checklist */
+ul.list { margin: 6px 0 0 0; list-style: none; }
+ul.list li { position: relative; padding: 3px 0 3px 18px; font-size: 11.5px; }
+ul.list li::before {
+  content: ""; position: absolute; left: 2px; top: 9px;
+  width: 7px; height: 7px; border-radius: 99px; background: var(--violet);
+}
+ul.list.check li::before { background: var(--success); }
+
+/* two-column helper */
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.note {
+  border-left: 3px solid var(--violet);
+  background: var(--lavender);
+  border-radius: 0 10px 10px 0;
+  padding: 9px 13px;
+  font-size: 11px;
+  margin: 10px 0;
+  break-inside: avoid;
+}
+.note.pink { border-left-color: var(--pink); }
+.note.warn { border-left-color: var(--warning); }
+.note b { font-weight: 700; }
+
+.footer-colophon {
+  margin-top: 26px;
+  padding-top: 10px;
+  border-top: 1px solid var(--lavender-deep);
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--muted);
+}
+.footer-colophon span:first-child { white-space: nowrap; }
+.footer-colophon span:last-child { text-align: right; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="cover-hero">
+  <div class="glow violet"></div>
+  <div class="glow pink"></div>
+  <div class="inner">
+    <div class="eyebrow">Emma &middot; API Reference</div>
+    <div class="cover-title">Every endpoint, scope &amp; server function of the Emma Dashboard.</div>
+    <div class="cover-sub">
+      How the dashboard talks to its upstream analytics API, how the six key scopes gate what a
+      workspace can see and do, and the server-side function layer that keeps the agency key and
+      every client&rsquo;s data isolated.
+    </div>
+    <div class="cover-meta">
+      <div class="m"><div class="l">Document</div><div class="v">API Reference v1</div></div>
+      <div class="m"><div class="l">Date</div><div class="v">July 2026</div></div>
+      <div class="m"><div class="l">Audience</div><div class="v">Engineering &middot; internal</div></div>
+      <div class="m"><div class="l">Product</div><div class="v">Emma Dashboard</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="card toc">
+  <div class="eyebrow">Contents</div>
+  <div class="toc-grid">
+    <div class="toc-item"><span class="num">01</span><span class="t">Architecture at a glance</span><span class="d">layers &amp; isolation</span></div>
+    <div class="toc-item"><span class="num">06</span><span class="t">Dashboard HTTP endpoints</span><span class="d">same-origin proxies</span></div>
+    <div class="toc-item"><span class="num">02</span><span class="t">Authentication &amp; scopes</span><span class="d">API key &middot; user roles</span></div>
+    <div class="toc-item"><span class="num">07</span><span class="t">Server function layer</span><span class="d">lib/olivia &middot; actions</span></div>
+    <div class="toc-item"><span class="num">03</span><span class="t">Conventions</span><span class="d">params &middot; errors &middot; limits</span></div>
+    <div class="toc-item"><span class="num">08</span><span class="t">Enums &amp; metric definitions</span><span class="d">exact semantics</span></div>
+    <div class="toc-item"><span class="num">04</span><span class="t">Analytics API</span><span class="d">discovery + 16 endpoints</span></div>
+    <div class="toc-item"><span class="num">09</span><span class="t">Environment &amp; security</span><span class="d">secrets &middot; checklist</span></div>
+    <div class="toc-item"><span class="num">05</span><span class="t">Voice bridges</span><span class="d">briefing &middot; reporting</span></div>
+    <div class="toc-item"><span class="num">&nbsp;</span><span class="t"></span><span class="d"></span></div>
+  </div>
+</div>
+
+<div class="note" style="margin-top:12px">
+  <b>Naming.</b> User-facing copy in the product always says <b>Emma</b>. The upstream vendor platform
+  appears in this document only through its technical identifiers (hostnames, env vars, <code>lib/olivia/</code>)
+  because those are the literal values engineering works with.
+</div>
+
+<!-- ================= 1. ARCHITECTURE ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 01</div>
+    <h1>Architecture at a glance</h1>
+    <div class="lede">
+      Emma is a read-only, multi-tenant analytics dashboard. Three layers, one rule: the browser
+      never holds a key, and every data fetch is scoped to a <code>client_id</code> derived from the
+      signed-in session &mdash; never from the browser.
+    </div>
+  </div>
+
+  <div class="card diagram">
+    <div class="flow">
+      <div class="node">
+        <div class="nt">Browser</div>
+        <div class="nd">React UI. Holds only the Supabase session cookie &mdash; no API keys, ever.</div>
+        <div class="nc">app/dashboard &middot; app/console</div>
+      </div>
+      <div class="arrow"><div class="a">&#10142;</div><div class="al">session cookie</div></div>
+      <div class="node dark">
+        <div class="nt">Emma backend (Next.js)</div>
+        <div class="nd">Server components, server actions &amp; route handlers. Resolves the tenant from the session, injects the agency key, caches responses.</div>
+        <div class="nc">lib/olivia/* &middot; lib/auth.ts &middot; app/api/*</div>
+      </div>
+      <div class="arrow"><div class="a">&#10142;</div><div class="al">x-api-key</div></div>
+      <div class="node">
+        <div class="nt">Upstream external API</div>
+        <div class="nd">Agency-scoped analytics &amp; voice-bridge API at <span class="mono" style="font-size:9px">www.lunarolivia.com</span>. GET-only analytics; scoped actions for voice.</div>
+        <div class="nc">/api/v1/external &middot; /api/external/v1</div>
+      </div>
+    </div>
+    <div class="subflow">
+      <div class="node" style="flex:1">
+        <div class="nt">Supabase</div>
+        <div class="nd">Auth (magic links), tenancy (<code>workspace_members</code>), client mirror (<code>olivia_clients</code>), invites, SWR response cache, rate-governor RPCs, daily snapshots.</div>
+        <div class="nc">lib/supabase/* &middot; RLS + service-role split</div>
+      </div>
+      <div class="node" style="flex:1">
+        <div class="nt">Resend</div>
+        <div class="nd">Transactional email: branded magic-link delivery (via the Supabase send-email webhook) and workspace/team invites.</div>
+        <div class="nc">lib/email/* &middot; /api/auth/email-hook</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">1.1</span>Isolation guarantees</h2>
+  <div class="card" style="padding:13px 16px">
+    <ul class="list">
+      <li><b>One key, one agency.</b> The dashboard holds a single agency-scoped API key. The key <i>is</i> the agency &mdash; no <code>agency_id</code> is ever passed; a foreign <code>client_id</code> returns <code>404 client_not_found</code>, never data.</li>
+      <li><b>Session-derived tenant.</b> <code>getSessionClientId()</code> (lib/auth.ts) is the single source of tenant identity. Members are locked to exactly one client; the <code>emma-active-client</code> switching cookie is honored only for platform admins, and only after validation against the agency&rsquo;s own client set.</li>
+      <li><b>Server-only key.</b> All upstream modules are <code>server-only</code>. The SSE and recording proxies exist precisely so the browser can consume cross-origin streams without ever seeing the key.</li>
+      <li><b>Tenant-namespaced cache.</b> Every cache key includes <code>client_id</code> &mdash; isolation by construction, not just an optimization.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 2. AUTH & SCOPES ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 02</div>
+    <h1>Authentication &amp; scopes</h1>
+    <div class="lede">
+      Two independent auth systems: an <b>agency API key</b> (server-to-server, upstream) and
+      <b>Supabase user sessions</b> (browser, dashboard). Scopes gate the key; roles gate the user.
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">2.1</span>The agency API key</h2>
+  <p>Every upstream request sends the key in a header. It is minted by an upstream operator (Settings &rarr; API Keys) and lives only in the <code>OLIVIA_API_KEY</code> env var on Emma&rsquo;s backend.</p>
+  <pre class="code"><span class="c"># every server-to-server request</span>
+x-api-key: oa_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</pre>
+
+  <h2 class="sub"><span class="snum">2.2</span>Key scopes</h2>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th style="width:150px">Scope</th><th>Grants</th><th style="width:190px">Without it</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="chip" style="color:#2e86f2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.25)"><span class="dot" style="background:#2e86f2"></span>clients:read</span></td>
+          <td>Discovering the agency&rsquo;s clients (&sect;4.1) &mdash; the <code>client_id</code>s every other call needs.</td>
+          <td class="mono">403 forbidden_scope</td>
+        </tr>
+        <tr>
+          <td><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></td>
+          <td>All per-client analytics endpoints (&sect;4.2&ndash;4.4): overview, timeseries, outcomes, funnel, agents, campaigns, pipelines, calendar, leads, calls, conversations, DM threads, costs.</td>
+          <td class="mono">403 forbidden_scope</td>
+        </tr>
+        <tr>
+          <td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>dashboard:pii</span></td>
+          <td>Un-redacts PII on list &amp; drill-down endpoints: names, phones, emails, Instagram handles, recording URLs, transcripts, conversation summaries and DM message bodies.</td>
+          <td>Fields are omitted entirely; conversation threads return <code>locked: true</code> with empty messages.</td>
+        </tr>
+        <tr>
+          <td><span class="chip" style="color:#e8a33d;background:rgba(232,163,61,.12);border-color:rgba(232,163,61,.3)"><span class="dot" style="background:#e8a33d"></span>dashboard:notes</span></td>
+          <td>The one analytics write: <code>PUT &hellip;/leads/{leadId}/notes</code> (&le; 20,000 chars).</td>
+          <td>Notes render read-only in the lead page.</td>
+        </tr>
+        <tr>
+          <td><span class="chip" style="color:#0fb5ae;background:rgba(15,181,174,.1);border-color:rgba(15,181,174,.25)"><span class="dot" style="background:#0fb5ae"></span>dashboard:brief</span></td>
+          <td>The briefing bridge (&sect;5.1) &mdash; starting, polling and ending live voice briefings.</td>
+          <td>&ldquo;Brief Emma&rdquo; degrades to a local simulated preview.</td>
+        </tr>
+        <tr>
+          <td><span class="chip" style="color:#b56be0;background:rgba(181,107,224,.1);border-color:rgba(181,107,224,.25)"><span class="dot" style="background:#b56be0"></span>dashboard:report</span></td>
+          <td>The reporting bridge (&sect;5.2) &mdash; voice reporting walkthrough sessions (+ SSE transcript). Add <code>dashboard:pii</code> for Emma to speak lead names.</td>
+          <td>&ldquo;Reporting walkthrough&rdquo; degrades to a local simulated preview.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note warn">
+    <b>Activation state.</b> The voice bridges are additionally flag-gated in Emma
+    (<code>OLIVIA_BRIEFING_ENABLED</code> / <code>OLIVIA_REPORTING_ENABLED</code>). Going live requires
+    both the flag <i>and</i> the corresponding scope on the production key &mdash; the scope grants are
+    the outstanding step at the time of writing.
+  </div>
+
+  <h2 class="sub"><span class="snum">2.3</span>Dashboard user auth (Supabase)</h2>
+  <div class="cols2">
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">Sign-in flow</div>
+      <ul class="list">
+        <li>Passwordless <b>magic link</b> (<code>sendMagicLink</code>, never auto-creates users) with a password fallback.</li>
+        <li>Emails are branded &amp; delivered via Resend through the signed <code>/api/auth/email-hook</code> webhook.</li>
+        <li>The link lands on <code>/auth/callback</code>, which exchanges the code (PKCE or <code>token_hash</code>) for a session and redirects to <code>/dashboard</code>.</li>
+        <li><code>middleware.ts</code> refreshes the session on every page navigation and bounces unauthenticated visitors to <code>/login</code>. Public paths: <code>/</code>, <code>/login</code>, <code>/auth</code>, <code>/invite</code>.</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">Roles</div>
+      <ul class="list">
+        <li><span class="chip" style="color:#5c6b6d;background:rgba(92,107,109,.09);border-color:rgba(92,107,109,.25)"><span class="dot" style="background:#5c6b6d"></span>member</span>&nbsp; Locked to exactly one client workspace via <code>workspace_members</code>. The client-switch cookie is ignored entirely.</li>
+        <li><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>platform_admin</span>&nbsp; May switch across all agency clients (validated cookie) and holds the <code>/console</code> agency-admin app: invites, team, roster sync, costs.</li>
+        <li><code>requireAdmin()</code> gates every console page, console action and every <code>lib/olivia/agency.ts</code> export &mdash; 403 for members.</li>
+        <li>Invited users join via single-use, 7-day tokens (<code>acceptInvite</code>) &mdash; the token is the credential; conflicting mappings are refused, never silently re-mapped.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3. CONVENTIONS ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 03</div>
+    <h1>Conventions</h1>
+    <div class="lede">Shared rules for every upstream endpoint: hosts, parameters, envelopes, errors, limits and PII redaction.</div>
+  </div>
+
+  <h2 class="sub"><span class="snum">3.1</span>Base URLs</h2>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th>Purpose</th><th>Base path</th></tr></thead>
+      <tbody>
+        <tr><td>Client discovery</td><td class="mono">https://www.lunarolivia.com/api/v1/external</td></tr>
+        <tr><td>Per-client analytics + voice bridges</td><td class="mono">https://www.lunarolivia.com/api/external/v1</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><b>Careful:</b> the segment order differs (<code>v1/external</code> vs <code>external/v1</code>) &mdash; they are different trees. The apex domain 307-redirects to <code>www</code>. Host override: <code>OLIVIA_API_BASE</code>.</div>
+
+  <h2 class="sub"><span class="snum">3.2</span>Query parameters</h2>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th style="width:110px">Param</th><th style="width:170px">Applies to</th><th style="width:130px">Default</th><th>Rules</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">from, to</td><td>analytics endpoints</td><td>last 30 days</td><td><code>YYYY-MM-DD</code>, <code>from &le; to</code>, window &le; 366 days. Inclusive UTC day bounds; day-buckets use <code>tz</code>.</td></tr>
+        <tr><td class="mono">tz</td><td>analytics endpoints</td><td>agency tz, else America/New_York</td><td>IANA name, e.g. <code>America/Chicago</code>.</td></tr>
+        <tr><td class="mono">page</td><td>list endpoints</td><td>1</td><td>integer &ge; 1.</td></tr>
+        <tr><td class="mono">limit</td><td>list endpoints</td><td>25</td><td>integer 1&ndash;100 (clamped).</td></tr>
+        <tr><td class="mono">status, source, stage_id</td><td class="mono">/leads only</td><td>&mdash;</td><td>optional exact-match filters.</td></tr>
+        <tr><td class="mono">lead_id</td><td class="mono">/dm-threads only</td><td>&mdash;</td><td>filter threads to one lead.</td></tr>
+        <tr><td class="mono">month, upcoming_limit</td><td class="mono">/calendar only</td><td>current month</td><td><code>YYYY-MM</code>; dates returned already client-tz local.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sub"><span class="snum">3.3</span>Envelopes &amp; errors</h2>
+  <p>Detail/aggregate endpoints return an object directly. List endpoints return
+  <code>{ "&lt;resource&gt;": [&hellip;], "total": N, "page": P, "limit": L }</code>. Errors always share one envelope:</p>
+  <pre class="code">{ <span class="k">"error"</span>: <span class="s">"Client not found"</span>, <span class="k">"code"</span>: <span class="s">"client_not_found"</span> }</pre>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th style="width:64px">Status</th><th style="width:280px">code</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">401</td><td class="mono">unauthorized</td><td>missing / invalid / revoked / expired key.</td></tr>
+        <tr><td class="mono">403</td><td class="mono">forbidden_scope</td><td>key lacks the required scope (&sect;2.2).</td></tr>
+        <tr><td class="mono">404</td><td class="mono">client_not_found &middot; lead_not_found &middot; conversation_not_found &middot; agency_not_found &middot; reporting_not_found</td><td>id doesn&rsquo;t exist <i>or isn&rsquo;t in this agency</i> &mdash; foreign ids are indistinguishable from missing ones.</td></tr>
+        <tr><td class="mono">400</td><td class="mono">invalid_request &middot; invalid_date_range &middot; invalid_timezone &middot; date_range_too_large</td><td>bad <code>from</code>/<code>to</code>/<code>tz</code> or body.</td></tr>
+        <tr><td class="mono">429</td><td class="mono">rate_limited &middot; reporting_concurrency_limit</td><td>back off using the <code>Retry-After</code> header.</td></tr>
+        <tr><td class="mono">500</td><td class="mono">internal_error</td><td>server error &mdash; safe to retry with backoff.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>In Emma&rsquo;s code these become a typed <code>OliviaError { status, code, message, retryAfterSeconds? }</code> (lib/olivia/errors.ts).</p>
+
+  <h2 class="sub"><span class="snum">3.4</span>Rate limits &amp; PII redaction</h2>
+  <div class="cols2">
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">Rate limits</div>
+      <ul class="list">
+        <li>Upstream: <b>120 req/min per IP</b>, <b>600 req/min per key</b>, shared bucket across analytics.</li>
+        <li>Emma self-throttles below that: a cross-instance token bucket (~500/min via the <code>consume_rate_token</code> RPC), single-flight locks per cache key, and stale-while-revalidate caching (&sect;7.3), so bursts of dashboard traffic never hit upstream 1:1.</li>
+        <li><code>oliviaFetch</code> retries 429s up to 2&times; honoring <code>Retry-After</code> (capped 30s + jitter). Voice-bridge starts use <code>maxRetries: 0</code> so concurrency 429s surface instantly.</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">PII (very important)</div>
+      <ul class="list">
+        <li>List &amp; drill-down endpoints <b>omit PII fields entirely</b> unless the key carries <code>dashboard:pii</code> &mdash; build for the redacted shape by default.</li>
+        <li>Never returned under any scope: raw provider cost, per-lead/per-call cost, internal notes-intelligence, custom fields, CRM ids, provider call ids.</li>
+        <li>Spend figures are <b>billed</b> amounts (what the agency is charged), basis <code>billed_voice</code>, integer cents.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4. ANALYTICS API ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 04</div>
+    <h1>Analytics API</h1>
+    <div class="lede">
+      One discovery endpoint plus sixteen per-client endpoints under
+      <code>/api/external/v1/clients/{clientId}/&hellip;</code>. All are GET (the single exception:
+      the notes PUT) and all require <code>dashboard:read</code> unless marked otherwise.
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">4.1</span>Discovery</h2>
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/api/v1/external/clients</span>
+      <span class="ep-scopes"><span class="chip" style="color:#2e86f2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.25)"><span class="dot" style="background:#2e86f2"></span>clients:read</span></span>
+    </div>
+    <div class="ep-desc">Lists the agency&rsquo;s clients &mdash; run once, cache, refresh periodically. Each <code>clients[].id</code> is the <code>{clientId}</code> for every endpoint below. Emma mirrors this roster into Supabase (<code>olivia_clients</code>, resync &le; every 10 min or forced from the console).</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Params</div><div class="v"><code>page</code>, <code>limit</code> (&le; 100)</div></div>
+      <div class="row"><div class="k">Returns</div><div class="v"><code>clients[] { id, name, slug, status, industry, website, timezone, created_at }</code> + <code>total, page, limit</code></div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">4.2</span>Aggregates &amp; performance</h2>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/overview</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Headline KPIs for the window &mdash; powers the hero cards and &ldquo;Brief Emma&rdquo; agenda.</div>
+    <pre class="code">{
+  <span class="k">"client_id"</span>: <span class="s">"8f3b&hellip;"</span>,
+  <span class="k">"period"</span>: { <span class="k">"from"</span>: <span class="s">"2026-05-21"</span>, <span class="k">"to"</span>: <span class="s">"2026-06-20"</span>, <span class="k">"tz"</span>: <span class="s">"America/New_York"</span> },
+  <span class="k">"kpis"</span>: {
+    <span class="k">"leads_total"</span>: <span class="n">120</span>, <span class="k">"calls_total"</span>: <span class="n">64</span>, <span class="k">"pickup_rate"</span>: <span class="n">0.52</span>,
+    <span class="k">"avg_call_duration_sec"</span>: <span class="n">138</span>, <span class="k">"bookings_rate"</span>: <span class="n">0.31</span>, <span class="k">"converted_count"</span>: <span class="n">12</span>,
+    <span class="k">"spend"</span>: { <span class="k">"total_cents"</span>: <span class="n">84210</span>, <span class="k">"currency"</span>: <span class="s">"usd"</span>, <span class="k">"basis"</span>: <span class="s">"billed_voice"</span> },
+    <span class="k">"leads_by_stage"</span>: { <span class="k">"new"</span>: <span class="n">40</span>, <span class="k">"contacted"</span>: <span class="n">30</span>, <span class="k">"qualified"</span>: <span class="n">18</span>, <span class="k">"booked"</span>: <span class="n">20</span>,
+                        <span class="k">"converted"</span>: <span class="n">12</span>, <span class="k">"lost"</span>: <span class="n">0</span>, <span class="k">"dnc"</span>: <span class="n">0</span> }
+  }
+}</pre>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/timeseries</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Daily series for trend charts &mdash; one zero-filled entry per tz-local calendar day.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Params</div><div class="v"><code>from</code>, <code>to</code>, <code>tz</code></div></div>
+      <div class="row"><div class="k">Returns</div><div class="v"><code>series[] { date, calls, picked_up, bookings, spend_cents }</code></div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/outcomes</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Distribution maps for the Outcomes donuts/bars. Keys are dynamic &mdash; only non-zero buckets appear (full enum sets in &sect;8).</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Returns</div><div class="v"><code>outcomes { call_outcomes, call_dispositions, booking_outcomes }</code> &mdash; each a <code>{ value: count }</code> map</div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/funnel</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Lead-stage counts for the window &mdash; same seven stages as <code>leads_by_stage</code>.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Returns</div><div class="v"><code>funnel { new, contacted, qualified, booked, converted, lost, dnc }</code></div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/agents</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Per-agent leaderboard &mdash; one row per active outbound setting agent.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Returns</div><div class="v"><code>agents[] { agent_id, name, client_name, total_leads, total_calls, pickup_rate, overall_booking_rate, call_to_booking_rate, avg_call_duration_sec, total_conversion }</code></div></div>
+      <div class="row"><div class="k">Caveat</div><div class="v">Lead-denominated columns (<code>total_leads</code>, <code>overall_booking_rate</code>, <code>total_conversion</code>) are client-level; only call-denominated columns are agent-scoped. <code>total_conversion</code> = <code>overall_booking_rate</code>. No cost field.</div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/campaigns</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Reactivation-campaign performance. Counts are <b>lifetime-to-date</b> &mdash; not sliced by <code>from</code>/<code>to</code>. No PII, no cost.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Returns</div><div class="v"><code>campaigns[] { id, name, status, created_at, leads_total, leads_contacted, replies, opt_outs, appointments_booked, reply_rate, opt_out_rate }</code> + <code>total</code></div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/pipelines</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Pipeline &amp; stage definitions that drive the Pipeline board (columns, ordering, stage colors). Stage ids feed <code>/leads?stage_id=&hellip;</code> for per-column pagination.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Returns</div><div class="v"><code>pipelines[]</code> with their ordered <code>stages[]</code></div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/calendar</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Booking events for the month grid plus the upcoming list. Dates/times arrive already localized to the client&rsquo;s timezone.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Params</div><div class="v"><code>month</code> (<code>YYYY-MM</code>), <code>upcoming_limit</code></div></div>
+      <div class="row"><div class="k">Returns</div><div class="v"><code>CalendarResponse</code> &mdash; events grouped for the grid + upcoming bookings</div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">4.3</span>Records &amp; drill-downs</h2>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/leads</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>+ pii</span></span>
+    </div>
+    <div class="ep-desc">Paginated lead list (the Leads table and each board column via <code>stage_id</code>).</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Params</div><div class="v"><code>from, to, page, limit</code> + filters <code>status, source, stage_id</code></div></div>
+      <div class="row"><div class="k">Base</div><div class="v"><code>leads[] { id, status, source, tags, industry, timezone, created_at, updated_at, last_call_at, last_disposition, total_calls, stage_entered_at }</code></div></div>
+      <div class="row"><div class="k">With PII</div><div class="v">adds <code>first_name, last_name, email, phone, instagram_handle</code></div></div>
+      <div class="row"><div class="k">Never</div><div class="v">per-lead cost, internal notes-intelligence, custom fields, external/CRM ids</div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/leads/{leadId}</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Single-lead detail for the lead page (profile, activity, notes). <code>404 lead_not_found</code> for foreign/missing ids.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method put">PUT</span>
+      <span class="ep-path">/clients/{clientId}/leads/{leadId}/notes</span>
+      <span class="ep-scopes"><span class="chip" style="color:#e8a33d;background:rgba(232,163,61,.12);border-color:rgba(232,163,61,.3)"><span class="dot" style="background:#e8a33d"></span>dashboard:notes</span></span>
+    </div>
+    <div class="ep-desc">The only write in the analytics tree: persists a lead&rsquo;s notes (empty string clears, max 20,000 chars). A key without the scope gets <code>403</code> and Emma renders notes read-only. Sent with <code>maxRetries: 0</code>.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Body</div><div class="v"><code>{ "notes": "&hellip;" }</code></div></div>
+      <div class="row"><div class="k">Returns</div><div class="v"><code>{ notes, updated_at }</code></div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/calls</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>+ pii</span></span>
+    </div>
+    <div class="ep-desc">Paginated call log. Only real lead calls (internal/tester calls excluded).</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Base</div><div class="v"><code>calls[] { id, lead_id, direction, status, disposition, started_at, ended_at, duration_seconds, created_at }</code></div></div>
+      <div class="row"><div class="k">With PII</div><div class="v">adds <code>from_number, to_number, recording_url, transcript, callback_notes</code></div></div>
+      <div class="row"><div class="k">Never</div><div class="v">per-call cost, provider call id</div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/conversations</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>+ pii</span></span>
+    </div>
+    <div class="ep-desc">Paginated conversation log (SMS / DM / email threads). Internal reporting &amp; tester threads excluded; message bodies are <i>not</i> here &mdash; use the thread endpoint.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Base</div><div class="v"><code>conversations[] { id, lead_id, channel, platform, started_at, ended_at, sentiment_score, opted_out_at, created_at }</code></div></div>
+      <div class="row"><div class="k">With PII</div><div class="v">adds <code>summary</code> (AI recap)</div></div>
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/conversations/{conversationId}</span>
+      <span class="ep-scopes"><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>dashboard:pii</span></span>
+    </div>
+    <div class="ep-desc">Full message-by-message thread for the chat drawer (default 100, max 500 messages). Without <code>dashboard:pii</code> the thread returns <code>locked: true</code> with <code>messages: []</code> &mdash; the drawer shows a locked state instead of bodies.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/dm-threads</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Paginated DM thread index (Instagram / WhatsApp etc. ride on <code>platform</code>). Filterable by <code>lead_id</code>; bodies live behind the thread endpoint above.</div>
+  </div>
+
+  <h2 class="sub"><span class="snum">4.4</span>Agency level</h2>
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/agencies/{agencyId}/clients</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>dashboard:read</span></span>
+    </div>
+    <div class="ep-desc">Per-client billed cost roll-up for the console&rsquo;s Costs view. <code>{agencyId}</code> must be the key&rsquo;s own agency (else <code>404 agency_not_found</code>) &mdash; Emma supplies it via <code>OLIVIA_AGENCY_ID</code>; the view is disabled when unset. Money is integer cents; server <code>totals</code> are used verbatim, never recomputed.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Params</div><div class="v"><code>range</code> (e.g. <code>30d</code>) or <code>from, to, tz</code>; optional <code>client_id</code></div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">4.5</span>Endpoint &rarr; dashboard section</h2>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th>Dashboard section</th><th>Endpoint(s)</th></tr></thead>
+      <tbody>
+        <tr><td>Overview &mdash; hero KPI cards, Brief Emma agenda</td><td class="mono">/overview (+ /campaigns)</td></tr>
+        <tr><td>Pipeline &mdash; board columns &amp; cards</td><td class="mono">/pipelines + /leads?stage_id</td></tr>
+        <tr><td>Calendar &mdash; month grid &amp; upcoming</td><td class="mono">/calendar</td></tr>
+        <tr><td>Outcomes &mdash; distributions, trends</td><td class="mono">/outcomes + /timeseries</td></tr>
+        <tr><td>Agents &mdash; leaderboard &amp; drill-down</td><td class="mono">/agents</td></tr>
+        <tr><td>Leads &mdash; table &amp; lead page</td><td class="mono">/leads &middot; /leads/{id} &middot; PUT /leads/{id}/notes</td></tr>
+        <tr><td>Calls &amp; Conversations &mdash; log, drawers, recordings</td><td class="mono">/calls &middot; /conversations &middot; /conversations/{id} &middot; /dm-threads</td></tr>
+        <tr><td>Console &mdash; roster, costs</td><td class="mono">/api/v1/external/clients &middot; /agencies/{id}/clients</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= 5. VOICE BRIDGES ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 05</div>
+    <h1>Voice bridges</h1>
+    <div class="lede">
+      The two places the API is not a plain GET: starting an ephemeral <b>voice session</b> where Emma
+      narrates a client&rsquo;s numbers over a browser call (Retell web call). Actions never mutate
+      leads, calls or analytics.
+    </div>
+  </div>
+
+  <div class="lifecycle">
+    <span class="eyebrow" style="margin-right:4px">Session lifecycle</span>
+    <span class="chip" style="color:#5c6b6d;background:rgba(92,107,109,.09);border-color:rgba(92,107,109,.25)"><span class="dot" style="background:#5c6b6d"></span>queued</span><span class="arrowc">&rarr;</span>
+    <span class="chip" style="color:#2e86f2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.25)"><span class="dot" style="background:#2e86f2"></span>connecting</span><span class="arrowc">&rarr;</span>
+    <span class="chip" style="color:#2bb673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.25)"><span class="dot" style="background:#2bb673"></span>live</span><span class="arrowc">&rarr;</span>
+    <span class="chip" style="color:#1a2b2e;background:rgba(26,43,46,.08);border-color:rgba(26,43,46,.2)"><span class="dot" style="background:#1a2b2e"></span>ended</span>
+    <span class="arrowc">/</span>
+    <span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>failed</span>
+  </div>
+
+  <h2 class="sub"><span class="snum">5.1</span>Briefing bridge <span class="chip" style="color:#0fb5ae;background:rgba(15,181,174,.1);border-color:rgba(15,181,174,.25);vertical-align:2px"><span class="dot" style="background:#0fb5ae"></span>dashboard:brief</span></h2>
+  <p>&ldquo;Brief Emma&rdquo; on the Overview: Emma voice-narrates the catch-up agenda (bookings to confirm &rarr; new leads to work &rarr; leads to chase &rarr; conversions &rarr; campaign results) for a window and focus.</p>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method post">POST</span>
+      <span class="ep-path">/clients/{clientId}/briefings</span>
+    </div>
+    <div class="ep-desc">Start a briefing. Returns the prioritized agenda plus short-lived Retell web-call credentials, bound to this <code>briefing_id</code> + <code>client_id</code>. With <code>voice: false</code>, returns the agenda only. Concurrency-capped (&le; 3 live per key) &rarr; <code>429</code> + <code>Retry-After</code>.</div>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Body</div><div class="v"><code>{ from?, to?, tz?, focus?: "all"|"bookings"|"leads"|"campaigns", voice?: bool }</code></div></div>
+    </div>
+    <pre class="code">{
+  <span class="k">"briefing_id"</span>: <span class="s">"brf_8f3b&hellip;"</span>, <span class="k">"client_id"</span>: <span class="s">"8f3b&hellip;"</span>, <span class="k">"status"</span>: <span class="s">"connecting"</span>,
+  <span class="k">"agenda"</span>: [ { <span class="k">"id"</span>: <span class="s">"bookings"</span>, <span class="k">"category"</span>: <span class="s">"bookings"</span>,
+                <span class="k">"title"</span>: <span class="s">"12 appointments to confirm"</span>, <span class="k">"priority"</span>: <span class="n">1</span> }, &hellip; ],
+  <span class="k">"realtime"</span>: { <span class="k">"provider"</span>: <span class="s">"retell"</span>, <span class="k">"access_token"</span>: <span class="s">"eyJ&hellip;"</span>, <span class="k">"call_id"</span>: <span class="s">"call_abc123"</span>, <span class="k">"expires_at"</span>: <span class="s">"&hellip;"</span> }
+}</pre>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/clients/{clientId}/briefings/{briefingId}</span>
+    </div>
+    <div class="ep-desc">Status + running transcript, with <code>current_item_id</code> tracking which agenda item Emma is speaking (drives the &ldquo;Speaking now&rdquo; highlight; poll ~2s).</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method post">POST</span>
+      <span class="ep-path">/clients/{clientId}/briefings/{briefingId}/end</span>
+    </div>
+    <div class="ep-desc">Ends the briefing and tears down the voice session &rarr; <code>{ "status": "ended" }</code>.</div>
+  </div>
+
+  <h2 class="sub"><span class="snum">5.2</span>Reporting bridge <span class="chip" style="color:#b56be0;background:rgba(181,107,224,.1);border-color:rgba(181,107,224,.25);vertical-align:2px"><span class="dot" style="background:#b56be0"></span>dashboard:report</span></h2>
+  <p>&ldquo;Reporting walkthrough&rdquo; next to Brief Emma: headline metrics, today&rsquo;s call schedule and outstanding looms, with optional voice drill-down into one agent. Strictly single-client; cross-client comparison is disabled server-side. Optional <code>dashboard:pii</code> lets Emma speak lead names.</p>
+
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th style="width:56px">Method</th><th style="width:270px">Path (under &hellip;/clients/{clientId})</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><span class="method post">POST</span></td><td class="mono">/reporting</td><td>Start a session. Body <code>{ from?, to?, tz?, agent_id? }</code> &rarr; <code>201 { reporting_id, status, period, summary { schedule_count, loom_count }, realtime }</code>. Join Retell within ~60s. Limit 3 concurrent/agency &rarr; <code>429 reporting_concurrency_limit</code> + <code>Retry-After: 30</code>.</td></tr>
+        <tr><td><span class="method get">GET</span></td><td class="mono">/reporting/{id}</td><td>Status + transcript (polling fallback ~2s): <code>{ status, started_at, ended_at, transcript[] { role, text, at } }</code>.</td></tr>
+        <tr><td><span class="method get">GET</span></td><td class="mono">/reporting/{id}/stream</td><td>SSE (preferred): named events <code>status</code> / <code>transcript</code> / <code>ended</code>. Closes on terminal status or ~110s.</td></tr>
+        <tr><td><span class="method post">POST</span></td><td class="mono">/reporting/{id}/end</td><td>Idempotent end &rarr; <code>{ "status": "ended" }</code>. Called on hang-up / unmount.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>Activation.</b> Both bridges are flag-gated in Emma: <code>OLIVIA_BRIEFING_ENABLED</code> /
+    <code>OLIVIA_REPORTING_ENABLED</code>. Until the flag is on <i>and</i> the key carries the scope,
+    the modals run a local simulated preview &mdash; same UI, no live call. The browser only ever
+    receives the short-lived <code>realtime</code> join token, never the agency key.
+  </div>
+</section>
+
+<!-- ================= 6. DASHBOARD HTTP ENDPOINTS ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 06</div>
+    <h1>Dashboard HTTP endpoints</h1>
+    <div class="lede">
+      Emma&rsquo;s own Next.js route handlers &mdash; same-origin endpoints the browser (or Supabase / Vercel
+      cron) calls. Each one self-authenticates; middleware deliberately excludes <code>/api/*</code>.
+    </div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/api/reporting/{id}</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>Supabase session</span></span>
+    </div>
+    <div class="ep-desc">Reporting-status proxy (polling fallback). The <code>client_id</code> is resolved from the session server-side, so a user can only read their own workspace&rsquo;s session. <code>Cache-Control: private, no-store</code>; upstream errors pass through (or <code>502</code>) with <code>Retry-After</code> preserved.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/api/reporting/{id}/stream</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>Supabase session</span></span>
+    </div>
+    <div class="ep-desc">Same-origin <b>SSE proxy</b> for the live reporting transcript. Opens the upstream stream server-side (browser <code>EventSource</code> can&rsquo;t send the key) and pipes <code>status</code> / <code>transcript</code> / <code>ended</code> events verbatim. Browser abort flows through <code>request.signal</code> to tear down upstream. <code>maxDuration: 120s</code>.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/api/calls/{id}/recording?src=&hellip;</span>
+      <span class="ep-scopes"><span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25)"><span class="dot" style="background:#6d4aff"></span>Supabase session</span></span>
+    </div>
+    <div class="ep-desc">Call-recording download proxy (recordings are cross-origin without CORS). <b>SSRF-guarded:</b> <code>src</code> must be https and host-allowlisted (<code>RECORDING_HOST_ALLOWLIST</code>, default = the voice provider&rsquo;s CDN). Streams as <code>attachment; filename="call-&lt;id&gt;.mp3"</code>. Errors: <code>400 bad_src</code>, <code>502 upstream_*</code>.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method post">POST</span>
+      <span class="ep-path">/api/auth/email-hook</span>
+      <span class="ep-scopes"><span class="chip" style="color:#e8a33d;background:rgba(232,163,61,.12);border-color:rgba(232,163,61,.3)"><span class="dot" style="background:#e8a33d"></span>webhook signature</span></span>
+    </div>
+    <div class="ep-desc">Supabase &ldquo;Send Email&rdquo; auth hook. Verified with <b>Standard Webhooks</b> signatures (<code>SEND_EMAIL_HOOK_SECRET</code>); invalid signature &rarr; <code>401</code>. Renders the branded magic-link template and sends via Resend; notification-only payloads (no <code>token_hash</code>) are acknowledged without sending.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/api/cron/snapshot</span>
+      <span class="ep-scopes"><span class="chip" style="color:#f2724b;background:rgba(242,114,75,.1);border-color:rgba(242,114,75,.25)"><span class="dot" style="background:#f2724b"></span>cron bearer secret</span></span>
+    </div>
+    <div class="ep-desc">Daily snapshot entrypoint (Vercel cron <code>5 0 * * *</code>). <b>Disabled by default</b> (<code>SNAPSHOTS_ENABLED</code>); when enabled it is fail-closed &mdash; <code>CRON_SECRET</code> must be set (<code>500</code> if not) and the request must carry <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> (<code>401</code> otherwise). Runs <code>runDailySnapshots()</code> across all mirrored clients.</div>
+  </div>
+
+  <div class="card endpoint">
+    <div class="ep-head">
+      <span class="method get">GET</span>
+      <span class="ep-path">/auth/callback</span>
+      <span class="ep-scopes"><span class="chip" style="color:#2bb673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.25)"><span class="dot" style="background:#2bb673"></span>magic-link token</span></span>
+    </div>
+    <div class="ep-desc">Magic-link landing: exchanges <code>?code</code> (PKCE) or <code>?token_hash&amp;type</code> for a Supabase session, then <code>302</code> to <code>next</code> (default <code>/dashboard</code>); failures bounce to <code>/login?error=link</code>.</div>
+  </div>
+</section>
+
+<!-- ================= 7. SERVER FUNCTION LAYER ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 07</div>
+    <h1>Server function layer</h1>
+    <div class="lede">
+      How a page gets its data: UI &rarr; server actions / server components &rarr;
+      <code>service.ts</code> (session-scoped, cached) &rarr; <code>api.ts</code> (typed endpoints) &rarr;
+      <code>client.ts</code> (key injection, retries). Pages never call <code>api.ts</code> directly.
+    </div>
+  </div>
+
+  <div class="card diagram">
+    <div class="flow">
+      <div class="node"><div class="nt">UI / server actions</div><div class="nd">Pages &amp; <code>"use server"</code> actions. No tenant params &mdash; ever.</div><div class="nc">app/&hellip;/actions.ts</div></div>
+      <div class="arrow"><div class="a">&#10142;</div><div class="al">fetch*()</div></div>
+      <div class="node"><div class="nt">service.ts</div><div class="nd">Session-scoped facade. Derives <code>client_id</code>, SWR cache + governor, returns <code>WithFreshness&lt;T&gt;</code>.</div><div class="nc">lib/olivia/service.ts</div></div>
+      <div class="arrow"><div class="a">&#10142;</div><div class="al">clientId + params</div></div>
+      <div class="node"><div class="nt">api.ts</div><div class="nd">Typed wrapper per upstream endpoint; normalizes shapes.</div><div class="nc">lib/olivia/api.ts</div></div>
+      <div class="arrow"><div class="a">&#10142;</div><div class="al">x-api-key</div></div>
+      <div class="node dark"><div class="nt">client.ts</div><div class="nd"><code>oliviaFetch</code> / <code>oliviaStream</code>: key injection, 429 retry w/ Retry-After, typed errors.</div><div class="nc">lib/olivia/client.ts</div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.1</span>Typed endpoint wrappers — lib/olivia/api.ts</h2>
+  <div class="card tablecard breakable">
+    <table>
+      <thead><tr><th style="width:170px">Function</th><th>Upstream endpoint</th><th style="width:120px">Scope</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">discoverClients</td><td class="mono">GET /api/v1/external/clients</td><td class="mono">clients:read</td></tr>
+        <tr><td class="mono">getOverview</td><td class="mono">GET /clients/{id}/overview</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getTimeseries</td><td class="mono">GET /clients/{id}/timeseries</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getOutcomes</td><td class="mono">GET /clients/{id}/outcomes</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getFunnel</td><td class="mono">GET /clients/{id}/funnel</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getPipelines</td><td class="mono">GET /clients/{id}/pipelines</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getAgents</td><td class="mono">GET /clients/{id}/agents</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getCampaigns</td><td class="mono">GET /clients/{id}/campaigns</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getLeads</td><td class="mono">GET /clients/{id}/leads</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getLeadDetail</td><td class="mono">GET /clients/{id}/leads/{leadId}</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getLeadDirectory</td><td class="mono">pages /leads (365d, &le;25 pages) &rarr; id&rarr;name map</td><td class="mono">read + pii</td></tr>
+        <tr><td class="mono">putLeadNotes</td><td class="mono">PUT /clients/{id}/leads/{leadId}/notes</td><td class="mono">dashboard:notes</td></tr>
+        <tr><td class="mono">getCalls</td><td class="mono">GET /clients/{id}/calls</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getConversations</td><td class="mono">GET /clients/{id}/conversations</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getConversationThread</td><td class="mono">GET /clients/{id}/conversations/{convId}</td><td class="mono">dashboard:pii</td></tr>
+        <tr><td class="mono">getDmThreads</td><td class="mono">GET /clients/{id}/dm-threads</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getCalendar</td><td class="mono">GET /clients/{id}/calendar</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">getAgencyClientCosts</td><td class="mono">GET /agencies/{agencyId}/clients</td><td class="mono">dashboard:read</td></tr>
+        <tr><td class="mono">startBriefing / endBriefing</td><td class="mono">POST /clients/{id}/briefings[/{bid}/end]</td><td class="mono">dashboard:brief</td></tr>
+        <tr><td class="mono">startReporting / getReportingStatus / endReporting</td><td class="mono">POST&#8202;/&#8202;GET /clients/{id}/reporting&hellip;</td><td class="mono">dashboard:report</td></tr>
+        <tr><td class="mono">streamReporting</td><td class="mono">GET /clients/{id}/reporting/{rid}/stream (SSE)</td><td class="mono">dashboard:report</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.2</span>Session-scoped facade — lib/olivia/service.ts</h2>
+  <div class="card" style="padding:13px 16px">
+    <p style="font-size:11.5px">The only surface pages and actions may use. Every export first calls
+    <code>getSessionClientId()</code>, then routes through the cache. Reads return
+    <code>WithFreshness&lt;T&gt;</code> (<code>{ data, fetchedAt, stale }</code>) so the UI can show a freshness hint.</p>
+    <div class="ep-meta">
+      <div class="row"><div class="k">Reads</div><div class="v"><span class="mono">fetchOverview &middot; fetchTimeseries &middot; fetchOutcomes &middot; fetchFunnel &middot; fetchAgents &middot; fetchCampaigns &middot; fetchPipelines &middot; fetchLeads &middot; fetchCalls &middot; fetchConversations &middot; fetchCalendar &middot; fetchLeadDetail &middot; fetchDmThreads &middot; fetchConversationThread</span></div></div>
+      <div class="row"><div class="k">Writes</div><div class="v"><span class="mono">saveLeadNotes</span> (uncached PUT, then force-refreshes the cached lead detail)</div></div>
+      <div class="row"><div class="k">Voice</div><div class="v"><span class="mono">startBriefing &middot; endBriefing &middot; startReporting &middot; reportingStatus &middot; streamReporting &middot; endReporting</span> &mdash; flag-gated; degrade to <code>{ mode: "simulated" }</code></div></div>
+      <div class="row"><div class="k">Joins</div><div class="v"><code>fetchCalls</code> / <code>fetchConversations</code> best-effort join lead names via the PII lead directory</div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.3</span>Cache &amp; governor — lib/olivia/cache.ts, governor.ts</h2>
+  <div class="cols2">
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">Stale-while-revalidate</div>
+      <ul class="list">
+        <li>Backed by the Supabase <code>response_cache</code> table; per-endpoint freshness tiers (overview 60s/300s &hellip; threads 15s/60s &hellip; discovery 1h/24h).</li>
+        <li>Serves fresh &rarr; stale &rarr; last-known-good, refreshing in the background; single-flight lock prevents thundering herds.</li>
+        <li>Cache keys always embed <code>client_id</code> &mdash; tenant isolation by construction.</li>
+      </ul>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:6px">Cross-instance rate governor</div>
+      <ul class="list">
+        <li>Postgres RPCs: <code>consume_rate_token</code> (token bucket ~500/min, under the upstream 600/min), <code>try_acquire_lock</code>, <code>release_lock</code>.</li>
+        <li>Fail-open on infra errors; over budget with no cache &rarr; typed <code>429 rate_limited</code> to the UI.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.4</span>Server actions — app/&hellip;/actions.ts</h2>
+  <div class="card tablecard breakable">
+    <table>
+      <thead><tr><th style="width:170px">Action</th><th style="width:112px">Auth</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">sendMagicLink(email)</td><td>public</td><td>Passwordless sign-in via OTP email; never auto-creates users (<code>otp_disabled</code> &rarr; &ldquo;no account&rdquo;).</td></tr>
+        <tr><td class="mono">passwordSignIn(email, pw)</td><td>public</td><td>Password fallback; redirects to <code>/dashboard</code>.</td></tr>
+        <tr><td class="mono">signOut()</td><td>session</td><td>Signs out, redirects to <code>/login</code>.</td></tr>
+        <tr><td class="mono">setActiveClient(clientId)</td><td>platform_admin</td><td>Switches the admin&rsquo;s active workspace (validated against <code>olivia_clients</code>; sets the httpOnly cookie).</td></tr>
+        <tr><td class="mono">fetchBriefWindow(window)</td><td>session</td><td>Recomputes the Brief Emma agenda for a date window (overview + campaigns).</td></tr>
+        <tr><td class="mono">beginBrief / endBrief</td><td>session</td><td>Start/end a briefing session (&sect;5.1) &mdash; returns live realtime creds or simulated mode.</td></tr>
+        <tr><td class="mono">beginReport / endReport</td><td>session</td><td>Start/end a reporting walkthrough (&sect;5.2), optional <code>agent_id</code> drill-down.</td></tr>
+        <tr><td class="mono">loadThread(conversationId)</td><td>session</td><td>Loads a DM/SMS thread for the chat drawer; 404s map to <code>not_found</code>, never retried.</td></tr>
+        <tr><td class="mono">saveNotes(leadId, notes)</td><td>session</td><td>Persists lead notes (&sect;4.3); <code>forbidden_scope</code> &rarr; read-only UI state.</td></tr>
+        <tr><td class="mono">loadStageLeads(stageId, page)</td><td>session</td><td>One page of pipeline-board cards for a stage column.</td></tr>
+        <tr><td class="mono">loadPipelineStages(pipelineId)</td><td>session</td><td>Lazily prefetches a pipeline&rsquo;s stage columns.</td></tr>
+        <tr><td class="mono">refreshBoard(pipelineId)</td><td>session</td><td>Force-refreshes the board past the SWR fresh window.</td></tr>
+        <tr><td class="mono">createInvite(clientId, email)</td><td>platform_admin</td><td>Single-use 7-day workspace invite (role <code>member</code>) + branded email.</td></tr>
+        <tr><td class="mono">revokeInvite(id)</td><td>platform_admin</td><td>Revokes a pending invite.</td></tr>
+        <tr><td class="mono">createTeamInvite(email)</td><td>platform_admin</td><td>Invites an agency teammate as <code>platform_admin</code>.</td></tr>
+        <tr><td class="mono">syncClients()</td><td>platform_admin</td><td>Force-resyncs the client roster from discovery.</td></tr>
+        <tr><td class="mono">acceptInvite(token)</td><td>invite token</td><td>Validates the token, provisions the Supabase user, maps membership (refusing conflicts), sends a magic link.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.5</span>Console data functions — lib/olivia/agency.ts <span class="chip" style="color:#6d4aff;background:rgba(109,74,255,.08);border-color:rgba(109,74,255,.25);vertical-align:2px"><span class="dot" style="background:#6d4aff"></span>requireAdmin()</span></h2>
+  <div class="card" style="padding:13px 16px">
+    <div class="ep-meta" style="border-top:none;padding-top:0;margin-top:0">
+      <div class="row"><div class="k">Roster</div><div class="v"><span class="mono">listAgencyClients &middot; getAgencyClient &middot; refreshAgencyClients &middot; getMirrorSyncedAt</span> &mdash; the Supabase mirror of discovery, joined with member counts</div></div>
+      <div class="row"><div class="k">Overview</div><div class="v"><span class="mono">getAgencyOverview</span> &mdash; aggregates every client&rsquo;s overview + outcomes into agency totals and a leaderboard</div></div>
+      <div class="row"><div class="k">Costs</div><div class="v"><span class="mono">getAgencyCosts</span> &mdash; per-client billed cost via &sect;4.4 (needs <code>OLIVIA_AGENCY_ID</code>; view disabled when unset)</div></div>
+      <div class="row"><div class="k">People</div><div class="v"><span class="mono">listInvites &middot; listMembers &middot; listAgencyTeam &middot; getClientDetail</span> &mdash; invites + memberships with emails resolved via Supabase admin</div></div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">7.6</span>Pure helpers (no I/O)</h2>
+  <p><span class="mono">lib/overview.ts</span> (KPI cards, Brief agenda) &middot; <span class="mono">lib/pipeline/board.ts</span> (board math) &middot; <span class="mono">lib/calendar.ts</span> (month grid) &middot; <span class="mono">lib/best-times.ts</span> (heatmap) &middot; <span class="mono">lib/dm.ts</span> (channel labels) &middot; <span class="mono">lib/recording.ts</span> (SSRF guard) &mdash; transformers over already-fetched data; they never touch the network.</p>
+</section>
+
+<!-- ================= 8. ENUMS & METRICS ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 08</div>
+    <h1>Enums &amp; metric definitions</h1>
+    <div class="lede">The exact value sets and metric semantics &mdash; rendered here in the same badge colors the dashboard uses (lib/design.ts).</div>
+  </div>
+
+  <div class="cols2">
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Lead status / funnel stages</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" style="color:#5C6B6D;background:rgba(92,107,109,.1);border-color:rgba(92,107,109,.22)"><span class="dot" style="background:#5C6B6D"></span>New</span>
+        <span class="chip" style="color:#2E86F2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.22)"><span class="dot" style="background:#2E86F2"></span>Contacted</span>
+        <span class="chip" style="color:#6D4AFF;background:rgba(109,74,255,.1);border-color:rgba(109,74,255,.22)"><span class="dot" style="background:#6D4AFF"></span>Qualified</span>
+        <span class="chip" style="color:#E8A33D;background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.22)"><span class="dot" style="background:#E8A33D"></span>Booked</span>
+        <span class="chip" style="color:#2BB673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.22)"><span class="dot" style="background:#2BB673"></span>Converted</span>
+        <span class="chip" style="color:#E5484D;background:rgba(229,72,77,.1);border-color:rgba(229,72,77,.22)"><span class="dot" style="background:#E5484D"></span>Lost</span>
+        <span class="chip" style="color:#1A2B2E;background:rgba(26,43,46,.1);border-color:rgba(26,43,46,.22)"><span class="dot" style="background:#1A2B2E"></span>DNC</span>
+      </div>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Call status</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" style="color:#5C6B6D;background:rgba(92,107,109,.1);border-color:rgba(92,107,109,.22)"><span class="dot" style="background:#5C6B6D"></span>Queued</span>
+        <span class="chip" style="color:#2E86F2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.22)"><span class="dot" style="background:#2E86F2"></span>Ringing</span>
+        <span class="chip" style="color:#6D4AFF;background:rgba(109,74,255,.1);border-color:rgba(109,74,255,.22)"><span class="dot" style="background:#6D4AFF"></span>In progress</span>
+        <span class="chip" style="color:#2BB673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.22)"><span class="dot" style="background:#2BB673"></span>Completed</span>
+        <span class="chip" style="color:#E5484D;background:rgba(229,72,77,.1);border-color:rgba(229,72,77,.22)"><span class="dot" style="background:#E5484D"></span>Failed</span>
+        <span class="chip" style="color:#E8A33D;background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.22)"><span class="dot" style="background:#E8A33D"></span>No answer</span>
+        <span class="chip" style="color:#F2724B;background:rgba(242,114,75,.1);border-color:rgba(242,114,75,.22)"><span class="dot" style="background:#F2724B"></span>Busy</span>
+      </div>
+      <p style="font-size:10px;color:var(--muted);margin-top:7px">Legacy <code>voicemail</code> folds into <code>no_answer</code>.</p>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Call disposition</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" style="color:#2BB673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.22)"><span class="dot" style="background:#2BB673"></span>Interested</span>
+        <span class="chip" style="color:#E5484D;background:rgba(229,72,77,.1);border-color:rgba(229,72,77,.22)"><span class="dot" style="background:#E5484D"></span>Not interested</span>
+        <span class="chip" style="color:#2E86F2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.22)"><span class="dot" style="background:#2E86F2"></span>Callback requested</span>
+        <span class="chip" style="color:#5C6B6D;background:rgba(92,107,109,.1);border-color:rgba(92,107,109,.22)"><span class="dot" style="background:#5C6B6D"></span>Wrong number</span>
+        <span class="chip" style="color:#6D4AFF;background:rgba(109,74,255,.1);border-color:rgba(109,74,255,.22)"><span class="dot" style="background:#6D4AFF"></span>Voicemail left</span>
+        <span class="chip" style="color:#0FB5AE;background:rgba(15,181,174,.1);border-color:rgba(15,181,174,.22)"><span class="dot" style="background:#0FB5AE"></span>Booked</span>
+        <span class="chip" style="color:#1A2B2E;background:rgba(26,43,46,.1);border-color:rgba(26,43,46,.22)"><span class="dot" style="background:#1A2B2E"></span>DNC</span>
+        <span class="chip" style="color:#5C6B6D;background:rgba(92,107,109,.1);border-color:rgba(92,107,109,.22)"><span class="dot" style="background:#5C6B6D"></span>No disposition</span>
+      </div>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Booking status</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" style="color:#2E86F2;background:rgba(46,134,242,.1);border-color:rgba(46,134,242,.22)"><span class="dot" style="background:#2E86F2"></span>Scheduled</span>
+        <span class="chip" style="color:#6D4AFF;background:rgba(109,74,255,.1);border-color:rgba(109,74,255,.22)"><span class="dot" style="background:#6D4AFF"></span>Confirmed</span>
+        <span class="chip" style="color:#2BB673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.22)"><span class="dot" style="background:#2BB673"></span>Completed</span>
+        <span class="chip" style="color:#E5484D;background:rgba(229,72,77,.1);border-color:rgba(229,72,77,.22)"><span class="dot" style="background:#E5484D"></span>Cancelled</span>
+        <span class="chip" style="color:#E8A33D;background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.22)"><span class="dot" style="background:#E8A33D"></span>No show</span>
+      </div>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Campaign status</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" style="color:#5C6B6D;background:rgba(92,107,109,.1);border-color:rgba(92,107,109,.22)"><span class="dot" style="background:#5C6B6D"></span>Draft</span>
+        <span class="chip" style="color:#2BB673;background:rgba(43,182,115,.1);border-color:rgba(43,182,115,.22)"><span class="dot" style="background:#2BB673"></span>Active</span>
+        <span class="chip" style="color:#E8A33D;background:rgba(232,163,61,.1);border-color:rgba(232,163,61,.22)"><span class="dot" style="background:#E8A33D"></span>Paused</span>
+        <span class="chip" style="color:#6D4AFF;background:rgba(109,74,255,.1);border-color:rgba(109,74,255,.22)"><span class="dot" style="background:#6D4AFF"></span>Completed</span>
+        <span class="chip" style="color:#1A2B2E;background:rgba(26,43,46,.1);border-color:rgba(26,43,46,.22)"><span class="dot" style="background:#1A2B2E"></span>Archived</span>
+      </div>
+    </div>
+    <div class="card" style="padding:13px 16px">
+      <div class="eyebrow" style="margin-bottom:8px">Lead source &middot; conversation channel</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        <span class="srcpill">csv_import</span><span class="srcpill">crm_sync</span><span class="srcpill">manual</span><span class="srcpill">api</span><span class="srcpill">webhook</span><span class="srcpill">sms_unknown</span><span class="srcpill">direct_booking</span><span class="srcpill">reactivation_campaign</span><span class="srcpill">cliniko_sync</span><span class="srcpill">hubspot_sync</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px">
+        <span class="srcpill">voice</span><span class="srcpill">sms</span><span class="srcpill">email</span><span class="srcpill">chat</span><span class="srcpill">imessage</span><span class="srcpill" style="color:var(--violet)">platform: instagram &middot; whatsapp &middot; &hellip;</span>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sub"><span class="snum">8.1</span>Metric definitions (don&rsquo;t guess — exact semantics)</h2>
+  <div class="card tablecard">
+    <table>
+      <thead><tr><th style="width:170px">Metric</th><th>Definition</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">bookings_rate</td><td>The &ldquo;conversion&rdquo; KPI: distinct in-window leads with a non-cancelled booking <b>or</b> <code>status = 'booked'</code> &divide; total in-window leads. Excludes the manual won-deal <code>converted</code> status.</td></tr>
+        <tr><td class="mono">converted_count</td><td>Leads in the <code>converted</code> stage (manual &ldquo;won deal&rdquo;) &mdash; deliberately shown separately from bookings.</td></tr>
+        <tr><td class="mono">calls_total</td><td>Distinct leads with a <i>real conversation</i> (completed call &gt; 10s, or in progress) &mdash; <b>not</b> raw call rows. Raw per-day counts live in <code>/timeseries</code> and <code>/outcomes</code>.</td></tr>
+        <tr><td class="mono">pickup_rate</td><td>Outbound only, lead-level: leads that ever picked up &divide; leads attempted (inbound excluded).</td></tr>
+        <tr><td class="mono">avg_call_duration_sec</td><td>Mean duration over completed conversations only.</td></tr>
+        <tr><td class="mono">spend.total_cents</td><td><b>Billed</b> voice spend for the window (<code>basis: "billed_voice"</code>) &mdash; what the agency is charged, never the provider&rsquo;s raw cost. No per-category LLM/SMS split; TTS is bundled into voice.</td></tr>
+        <tr><td class="mono">campaign counts</td><td>Lifetime-to-date (never period-sliced).</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= 9. ENVIRONMENT & SECURITY ================= -->
+<section class="chapter">
+  <div class="chapter-head">
+    <div class="eyebrow">Section 09</div>
+    <h1>Environment &amp; security</h1>
+    <div class="lede">Every credential and flag the API surface depends on &mdash; names and purpose only; values live in Vercel env / a secret store.</div>
+  </div>
+
+  <div class="card tablecard breakable">
+    <table>
+      <thead><tr><th style="width:215px">Variable</th><th style="width:70px">Kind</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">OLIVIA_API_KEY</td><td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>secret</span></td><td>The agency API key (&sect;2.1). Server-only; sent as <code>x-api-key</code> on every upstream call.</td></tr>
+        <tr><td class="mono">OLIVIA_API_BASE</td><td>config</td><td>Upstream host override (default <code>https://www.lunarolivia.com</code>).</td></tr>
+        <tr><td class="mono">OLIVIA_AGENCY_ID</td><td>config</td><td>Agency id for the costs endpoint (&sect;4.4); costs view disabled when unset.</td></tr>
+        <tr><td class="mono">OLIVIA_BRIEFING_ENABLED</td><td>flag</td><td>Enables the live briefing bridge (else simulated preview).</td></tr>
+        <tr><td class="mono">OLIVIA_REPORTING_ENABLED</td><td>flag</td><td>Enables the live reporting bridge (else simulated preview).</td></tr>
+        <tr><td class="mono">NEXT_PUBLIC_SUPABASE_URL &middot; _ANON_KEY</td><td>public</td><td>Supabase project + anon key (RLS-enforced user client).</td></tr>
+        <tr><td class="mono">SUPABASE_SERVICE_ROLE_KEY</td><td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>secret</span></td><td>Service-role client (bypasses RLS): provisioning, governor RPCs, cache, snapshots. Server-only.</td></tr>
+        <tr><td class="mono">SEND_EMAIL_HOOK_SECRET</td><td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>secret</span></td><td>Standard Webhooks signing secret for <code>/api/auth/email-hook</code>.</td></tr>
+        <tr><td class="mono">CRON_SECRET</td><td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>secret</span></td><td>Bearer secret for <code>/api/cron/snapshot</code> (fail-closed when snapshots are enabled).</td></tr>
+        <tr><td class="mono">SNAPSHOTS_ENABLED</td><td>flag</td><td>Activates the daily snapshot cron (Phase 8; off by default).</td></tr>
+        <tr><td class="mono">RESEND_API_KEY</td><td><span class="chip" style="color:#e5484d;background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.25)"><span class="dot" style="background:#e5484d"></span>secret</span></td><td>Resend key for transactional email.</td></tr>
+        <tr><td class="mono">EMAIL_REPLY_TO</td><td>config</td><td>Reply-to for outbound email.</td></tr>
+        <tr><td class="mono">RECORDING_HOST_ALLOWLIST</td><td>config</td><td>Comma-separated allowlist for the recording proxy&rsquo;s SSRF guard (default: the voice provider&rsquo;s CDN host).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sub"><span class="snum">9.1</span>Security checklist</h2>
+  <div class="card" style="padding:13px 16px">
+    <ul class="list check">
+      <li>The agency key lives in a backend secret store and never reaches the browser &mdash; all upstream calls are server-side; anything the frontend needs is proxied same-origin.</li>
+      <li>Request <code>dashboard:pii</code> only where the product genuinely needs names/contacts/transcripts; the UI is built for the redacted shape by default.</li>
+      <li>Every <code>client_id</code> comes from the session. A wrong or foreign id returns <code>404 client_not_found</code> &mdash; never data.</li>
+      <li>Handle <code>401</code> (key rotated/revoked), <code>403</code> (missing scope), <code>429</code> (back off with <code>Retry-After</code>), <code>400</code> (fix params) &mdash; all typed as <code>OliviaError</code>.</li>
+      <li>Voice-bridge tokens are short-lived, single-session, and bound to one <code>briefing_id</code>/<code>reporting_id</code> + <code>client_id</code>; ending a session tears down the call.</li>
+      <li>Webhooks and crons authenticate independently: Standard Webhooks signatures for the email hook, a fail-closed bearer secret for the snapshot cron, an SSRF host-allowlist for the recording proxy.</li>
+    </ul>
+  </div>
+
+  <div class="footer-colophon">
+    <span>EMMA &middot; API REFERENCE &middot; V1 &middot; JULY 2026</span>
+    <span>SOURCES: docs/olivia-external-api.md &middot; docs/olivia-*-bridge.md &middot; lib/olivia/* &middot; app/api/* &middot; lib/auth.ts</span>
+  </div>
+</section>
+
+</body>
+</html>
