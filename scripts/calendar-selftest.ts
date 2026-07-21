@@ -79,5 +79,41 @@ function ev(p: Partial<CalendarEvent>): CalendarEvent {
   assert.equal(eventTitle({ title: "  " }), "Booking");
   assert.equal(eventTitle({}), "Booking");
 
+  // eventTitle — upstream sends "Name — Service - Name"; drop the duplicated trailing name
+  assert.equal(
+    eventTitle({ title: "Ralph Louie Santos — Guidance Call - Ralph Louie Santos" }),
+    "Ralph Louie Santos — Guidance Call",
+  );
+  assert.equal(
+    eventTitle({
+      title:
+        "Oshadhee Narmada Madhubhashani Menike Senanayake Senanayakelage — Guidance Call - Oshadhee Narmada Madhubhashani Menike Senanayake Senanayakelage",
+    }),
+    "Oshadhee Narmada Madhubhashani Menike Senanayake Senanayakelage — Guidance Call",
+  );
+  // en-dash before the duplicated name still counts as a separator
+  assert.equal(
+    eventTitle({ title: "Tania Mlangeni — Guidance Call – Tania Mlangeni" }),
+    "Tania Mlangeni — Guidance Call",
+  );
+  // duplicate name match is case-insensitive; the leading form wins
+  assert.equal(
+    eventTitle({ title: "Wallis Stabler — Guidance Call - WALLIS STABLER" }),
+    "Wallis Stabler — Guidance Call",
+  );
+  // degenerate "Name — Name" collapses to just the name
+  assert.equal(eventTitle({ title: "Ralph Louie Santos — Ralph Louie Santos" }), "Ralph Louie Santos");
+  // no duplication → untouched
+  assert.equal(
+    eventTitle({ title: "Guidance Call - Ralph Louie Santos" }),
+    "Guidance Call - Ralph Louie Santos",
+  );
+  assert.equal(eventTitle({ title: "Follow-up — Whitening consult" }), "Follow-up — Whitening consult");
+  // name reappears WITHOUT a separator → not the dupe pattern, leave alone
+  assert.equal(
+    eventTitle({ title: "Ralph Louie Santos — Call with Ralph Louie Santos" }),
+    "Ralph Louie Santos — Call with Ralph Louie Santos",
+  );
+
   console.log("calendar-selftest: all assertions passed");
 })();

@@ -117,7 +117,26 @@ export function groupEventsByDay(events: CalendarEvent[]): Map<string, CalendarE
   return byDay;
 }
 
-/** Display title — locked events arrive without one; fall back to a service label. */
+/**
+ * Display title — locked events arrive without one; fall back to a service label.
+ * Upstream composes titles as "Name — Service - Name" (the lead name twice); collapse
+ * that to "Name — Service". Only the exact pattern is touched: the tail must equal the
+ * leading name (case-insensitive) and be preceded by a dash-like separator.
+ */
 export function eventTitle(e: Pick<CalendarEvent, "title">): string {
-  return e.title?.trim() ? e.title : "Booking";
+  const raw = e.title?.trim();
+  if (!raw) return "Booking";
+
+  const sep = " — ";
+  const i = raw.indexOf(sep);
+  if (i <= 0) return raw;
+  const name = raw.slice(0, i).trim();
+  const rest = raw.slice(i + sep.length).trim();
+  if (!rest.toLowerCase().endsWith(name.toLowerCase())) return raw;
+
+  const beforeDupe = rest.slice(0, rest.length - name.length).trimEnd();
+  if (beforeDupe === "") return name; // "Name — Name"
+  if (!/[-–—·|:]$/.test(beforeDupe)) return raw; // tail only *contains* the name — not the pattern
+  const service = beforeDupe.replace(/[\s\-–—·|:]+$/, "");
+  return service ? `${name}${sep}${service}` : name;
 }
