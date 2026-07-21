@@ -192,8 +192,9 @@ export function CalendarView({
         </Card>
       </div>
 
-      {/* right rail */}
-      <div className="flex flex-col gap-4">
+      {/* right rail — min-w-0 so long nowrap booking titles can't inflate the grid item's
+          auto minimum and crush the 1.9fr month column (same reason as min-w-0 on the left) */}
+      <div className="min-w-0 flex flex-col gap-4">
         <Card className="px-5 py-[18px]">
           <div className="mb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
             Selected day
