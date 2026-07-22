@@ -60,7 +60,7 @@ export function buildNutshell(k: OverviewKpis, p?: OverviewKpis): string[] {
     );
     const bookingPct = k.bookings_rate > 0 && k.bookings_rate < 0.005 ? "under 1%" : `${Math.round(k.bookings_rate * 100)}%`;
     lines.push(
-      `${bookingPct} of those calls turned into bookings${pointsTrend(k.bookings_rate, p?.bookings_rate)}, and ${k.converted_count === 0 ? "none have" : `${num(k.converted_count)} lead${k.converted_count === 1 ? " has" : "s have"}`} gone all the way to converted.`,
+      `${bookingPct} of those calls turned into bookings${pointsTrend(k.bookings_rate, p?.bookings_rate)}.`,
     );
   }
 
