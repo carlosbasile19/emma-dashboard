@@ -14,6 +14,7 @@ import { buildNutshell } from "@/lib/narrate";
 import {
   fetchCampaigns,
   fetchLeads,
+  fetchOutcomes,
   fetchOverview,
   type BriefSession,
   type ReportSession,
@@ -139,15 +140,21 @@ export async function fetchBriefWindow(
 ): Promise<{ items: BriefItem[]; label: string }> {
   const ctx = await getSessionContext();
   const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
-  const [ov, campaigns, leads] = await Promise.all([
+  const [ov, campaigns, leads, outcomes] = await Promise.all([
     fetchOverview(period),
-    // Campaigns and leads enrich the brief but shouldn't sink the whole window if they error —
-    // without leads the per-lead motivation/hesitation lines simply drop off.
+    // Campaigns, leads and outcomes enrich the brief but shouldn't sink the whole window if they
+    // error — without them the detail lines / outcome-based booking count simply drop off.
     fetchCampaigns().catch(() => null),
     fetchLeads({ from: period.from, to: period.to, tz: period.tz, limit: 100 }).catch(() => null),
+    fetchOutcomes(period).catch(() => null),
   ]);
   return {
-    items: buildBriefItems(ov.data, campaigns?.data ?? [], leads?.data.items ?? []),
+    items: buildBriefItems(
+      ov.data,
+      campaigns?.data ?? [],
+      leads?.data.items ?? [],
+      outcomes?.data.outcomes.booking_outcomes,
+    ),
     label: briefWindowLabel(window),
   };
 }

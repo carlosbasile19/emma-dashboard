@@ -14,6 +14,7 @@ import {
   fetchAgents,
   fetchCampaigns,
   fetchLeads,
+  fetchOutcomes,
   fetchOverview,
   fetchTimeseries,
 } from "@/lib/olivia/service";
@@ -29,9 +30,9 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const ws = await getWorkspace();
   const tz = ws.timezone ?? DEFAULT_TZ;
 
-  let cur, prev, ts, campaigns, agentsRes, leadsRes;
+  let cur, prev, ts, campaigns, agentsRes, leadsRes, outcomesRes;
   try {
-    [cur, prev, ts, campaigns, agentsRes, leadsRes] = await Promise.all([
+    [cur, prev, ts, campaigns, agentsRes, leadsRes, outcomesRes] = await Promise.all([
       fetchOverview(rangeToPeriod(range, tz)),
       fetchOverview(prevPeriod(range, tz)),
       fetchTimeseries(rangeToPeriod(range, tz)),
@@ -41,6 +42,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
       fetchAgents(rangeToPeriod(range, tz)).catch(() => null),
       // leads power the brief's per-lead motivation/hesitation lines; best-effort
       fetchLeads({ ...rangeToPeriod(range, tz), limit: 100 }).catch(() => null),
+      // booking outcomes power the brief's bookings count (stages don't always advance); best-effort
+      fetchOutcomes(rangeToPeriod(range, tz)).catch(() => null),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.overview} />;
@@ -56,7 +59,12 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   }
 
   const cards = buildKpiCards(ov, prev.data, ts.data);
-  const briefItems = buildBriefItems(ov, campaigns?.data ?? [], leadsRes?.data.items ?? []);
+  const briefItems = buildBriefItems(
+    ov,
+    campaigns?.data ?? [],
+    leadsRes?.data.items ?? [],
+    outcomesRes?.data.outcomes.booking_outcomes,
+  );
   const reportAgents = (agentsRes?.data ?? []).map((a) => ({ id: a.agent_id, name: a.name }));
   // Seed the reporting preview with the dashboard range's nutshell; the modal refreshes it
   // per-window when a report starts.

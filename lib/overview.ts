@@ -5,11 +5,18 @@ import { CHART_PALETTE } from "@/lib/design";
 import { centsToMoney, num, secToMMSS } from "@/lib/format";
 import {
   describeBooked,
+  describeBookingMix,
   describeChase,
   describeConverted,
   describeNew,
 } from "@/lib/narrate";
-import type { Campaign, Lead, Overview, Timeseries } from "@/lib/types";
+import type {
+  BookingStatus,
+  Campaign,
+  Lead,
+  Overview,
+  Timeseries,
+} from "@/lib/types";
 
 export interface KpiCardModel {
   key: string;
@@ -157,11 +164,15 @@ export interface BriefItem {
  * Builds the "to brief" list from real workspace data for the active period. `leads` is the
  * window-scoped lead list (best-effort, first page) — when present it powers the per-lead
  * motivation/hesitation detail lines; the stage counts stay authoritative for the titles.
+ * `bookingOutcomes` is the window's /outcomes booking split (best-effort): some workspaces
+ * never advance a lead's stage after booking, so `leads_by_stage.booked` sits at 0 while real
+ * appointments exist — scheduled + confirmed outcomes are the truthful count there.
  */
 export function buildBriefItems(
   ov: Overview,
   campaigns: Campaign[],
   leads: Lead[] = [],
+  bookingOutcomes?: Partial<Record<BookingStatus, number>>,
 ): BriefItem[] {
   const k = ov.kpis;
   const s = k.leads_by_stage;
@@ -169,15 +180,24 @@ export function buildBriefItems(
   const withDetail = (item: BriefItem, detail: string[]): BriefItem =>
     detail.length > 0 ? { ...item, detail } : item;
 
-  const booked = s.booked ?? 0;
+  // Appointments on the books = upcoming outcomes (scheduled/confirmed; completed/cancelled/
+  // no_show are past bookings). Never undercount a workspace whose stages DO advance.
+  const scheduled = bookingOutcomes?.scheduled ?? 0;
+  const confirmed = bookingOutcomes?.confirmed ?? 0;
+  const booked = Math.max(scheduled + confirmed, s.booked ?? 0);
   if (booked > 0) {
     items.push(
       withDetail(
         {
           id: "bookings",
           category: "bookings",
-          title: `${num(booked)} appointment${booked === 1 ? "" : "s"} to confirm`,
-          sub: booked === 1 ? "One lead has locked in a visit." : "These leads have locked in a visit.",
+          title: `${num(booked)} appointment${booked === 1 ? "" : "s"} on the books`,
+          sub:
+            scheduled + confirmed > 0
+              ? describeBookingMix(scheduled, confirmed)
+              : booked === 1
+                ? "One lead has locked in a visit."
+                : "These leads have locked in a visit.",
           tag: "Bookings",
           color: "#E8A33D",
         },

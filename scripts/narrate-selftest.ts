@@ -154,6 +154,28 @@ const lead = (over: Partial<Lead>): Lead => ({
     "Maria Silva and 2 more sounded genuinely interested on the last call — worth striking while it's warm.",
   );
 
+  // Stage never advanced but the lead was called: disposition wins over stage.
+  const stuckInNew = describeChase([
+    lead({ status: "new", first_name: "Pia", last_name: "Moss", last_disposition: "interested" }),
+  ]);
+  assert.equal(
+    stuckInNew[0],
+    "Pia Moss sounded genuinely interested on the last call — worth striking while it's warm.",
+  );
+  // ...and a called lead no longer counts as "new" for the untouched-leads line.
+  assert.deepEqual(
+    describeNew([
+      lead({ status: "new", first_name: "Pia", last_name: "Moss", last_disposition: "interested" }),
+      lead({ status: "new", first_name: "Ana", last_name: "Ruiz" }),
+    ]),
+    ["Ana Ruiz just landed — Emma makes first contact next."],
+  );
+  // Terminal stages stay out of the chase lines even with a warm disposition.
+  assert.deepEqual(
+    describeChase([lead({ status: "converted", first_name: "Ivy", last_name: "Chen", last_disposition: "interested" })]),
+    [],
+  );
+
   // Cap + redacted together: hidden names and redacted leads fold into ONE trailing count.
   const capped = describeChase([
     lead({ first_name: "Ana", last_name: "Ruiz", last_disposition: "interested" }),

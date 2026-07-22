@@ -71,6 +71,22 @@ export function buildNutshell(k: OverviewKpis, p?: OverviewKpis): string[] {
   return lines;
 }
 
+/**
+ * Sub line for the brief's bookings row from the window's booking outcomes: how many
+ * appointments are locked in vs still awaiting the lead's confirmation.
+ */
+export function describeBookingMix(scheduled: number, confirmed: number): string {
+  if (confirmed > 0 && scheduled > 0) {
+    return `${num(confirmed)} confirmed, ${num(scheduled)} still waiting on a yes.`;
+  }
+  if (confirmed > 0) {
+    return confirmed === 1
+      ? "It's confirmed and on the calendar."
+      : `All ${num(confirmed)} are confirmed and on the calendar.`;
+  }
+  return "Still waiting on a yes — Emma is nudging them.";
+}
+
 // ---- Per-lead motivation / hesitation lines (Brief Emma) ----
 // The /leads list never carries lead-intelligence text, so the honest per-lead signal is the
 // last call disposition: interested/booked → motivated; callback_requested → hesitating on
@@ -96,19 +112,23 @@ function who(leads: Lead[], max = 3): string {
 
 const byNewest = (a: Lead, b: Lead) => (a.created_at < b.created_at ? 1 : -1);
 
-/** Detail lines for the "new leads" brief row. */
+/** Detail lines for the "new leads" brief row — leads genuinely untouched (no call outcome yet). */
 export function describeNew(leads: Lead[]): string[] {
-  const fresh = leads.filter((l) => l.status === "new").sort(byNewest);
+  const fresh = leads.filter((l) => l.status === "new" && !l.last_disposition).sort(byNewest);
   if (fresh.length === 0) return [];
   return [`${capitalize(who(fresh))} just landed — Emma makes first contact next.`];
 }
 
 /**
  * Detail lines for the "leads to chase" brief row: who's motivated, and the identified reasons
- * the rest are hesitating (callback timing, voicemail, an outright objection).
+ * the rest are hesitating (callback timing, voicemail, an outright objection). Candidacy is by
+ * call disposition, not stage — some workspaces never advance lead stage, so a called lead can
+ * sit in "new" forever. Terminal stages (booked/converted/lost/dnc) are excluded: those leads
+ * are covered by their own rows or must not be contacted.
  */
 export function describeChase(leads: Lead[]): string[] {
-  const chase = leads.filter((l) => l.status === "contacted" || l.status === "qualified");
+  const terminal = new Set<Lead["status"]>(["booked", "converted", "lost", "dnc"]);
+  const chase = leads.filter((l) => !terminal.has(l.status));
   const bucket = (d: Lead["last_disposition"]) => chase.filter((l) => l.last_disposition === d);
 
   const lines: string[] = [];

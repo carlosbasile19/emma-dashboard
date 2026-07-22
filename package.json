@@ -11,6 +11,7 @@
     "email:test-send": "tsx scripts/send-test-emails.ts",
     "test:cache": "NODE_OPTIONS=--conditions=react-server tsx scripts/cache-fallback-selftest.ts",
     "test:narrate": "tsx scripts/narrate-selftest.ts",
+    "test:brief": "tsx scripts/brief-items-selftest.ts",
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
     "test:calendar": "tsx scripts/calendar-selftest.ts",
     "test:besttimes": "tsx scripts/best-times-selftest.ts"
