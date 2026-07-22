@@ -84,7 +84,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               {rangeLabel} · {ws.name}
             </div>
             <div className="text-[34px] font-bold leading-[1.1] tracking-[-0.02em] text-white text-balance">
-              {num(k.converted_count)} leads converted — while you ran the practice.
+              {num(k.calls_total)} call{k.calls_total === 1 ? "" : "s"} handled — while you
+              ran the practice.
             </div>
             <div className="mt-3.5 max-w-[480px] text-[15px] leading-[1.5] text-[#B7C3C4]">
               Emma picked up, called back and followed through on every channel. Here’s the

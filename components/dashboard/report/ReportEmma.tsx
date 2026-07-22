@@ -30,7 +30,7 @@ const daysAgoYMD = (n: number) => new Date(Date.now() - n * 86_400_000).toISOStr
 
 // What Emma walks through — shown as a static preview on the form.
 const COVERS = [
-  { title: "Headline metrics", sub: "The window in a nutshell — who picked up, who booked, who converted.", color: "#6D4AFF" },
+  { title: "Headline metrics", sub: "The window in a nutshell — who picked up and who booked.", color: "#6D4AFF" },
   { title: "Today's schedule", sub: "The calls Emma has on the books for today.", color: "#2E86F2" },
   { title: "Outstanding looms", sub: "Open items still waiting on a follow-up.", color: "#E8A33D" },
 ];

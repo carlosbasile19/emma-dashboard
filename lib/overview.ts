@@ -71,10 +71,6 @@ export function buildKpiCards(
     const sign = diff > 0 ? "+" : diff < 0 ? "-" : "";
     durDelta = { text: `${sign}${secToMMSS(Math.abs(diff))}`, good: diff <= 0 };
   }
-  const convDelta = p
-    ? { text: `${k.converted_count - p.converted_count >= 0 ? "+" : ""}${k.converted_count - p.converted_count}`, up: k.converted_count >= p.converted_count }
-    : undefined;
-
   return [
     {
       key: "leads",
@@ -123,15 +119,6 @@ export function buildKpiCards(
       delta: booking?.text,
       deltaColor: booking ? (booking.up ? GREEN : RED) : undefined,
       spark: ts?.series.map((s) => s.bookings),
-    },
-    {
-      key: "converted",
-      label: "Converted",
-      value: num(k.converted_count),
-      unit: "",
-      color: CHART_PALETTE[5],
-      delta: convDelta?.text,
-      deltaColor: convDelta ? (convDelta.up ? GREEN : RED) : undefined,
     },
     {
       key: "spend",
