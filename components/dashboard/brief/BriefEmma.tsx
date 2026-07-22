@@ -609,6 +609,15 @@ function BriefRow({ item, speaking }: { item: BriefItem; speaking?: boolean }) {
       <div className="min-w-0 flex-1">
         <div className="text-[13.5px] font-medium leading-[1.35]">{item.title}</div>
         <div className="mt-0.5 text-xs text-muted">{item.sub}</div>
+        {item.detail?.length ? (
+          <ul className="mt-1.5 flex flex-col gap-1 border-l-2 border-lavender-deep pl-2.5">
+            {item.detail.map((line) => (
+              <li key={line} className="text-xs leading-[1.45] text-muted">
+                {line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {speaking ? (
           <div className="mt-2 inline-flex items-center gap-1.5 font-mono text-[10.5px] text-violet">
             <span className="flex items-center gap-[1.5px]">

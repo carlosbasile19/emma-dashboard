@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RetellWebClient } from "retell-client-js-sdk";
-import { beginReport, endReport } from "@/app/auth/actions";
+import { beginReport, endReport, fetchReportNutshell } from "@/app/auth/actions";
 import {
   type BriefWindow,
   type BriefWindowKind,
@@ -28,21 +28,31 @@ const WINDOW_TABS: Array<{ v: BriefWindowKind; l: string }> = [
 const todayYMD = () => new Date().toISOString().slice(0, 10);
 const daysAgoYMD = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 
-// What Olivia walks through — shown as a static preview on the form and used to script the local
-// preview transcript when the live bridge is off.
+// What Emma walks through — shown as a static preview on the form.
 const COVERS = [
-  { title: "Headline metrics", sub: "Pickup, bookings and conversions for the window.", color: "#6D4AFF" },
+  { title: "Headline metrics", sub: "The window in a nutshell — who picked up, who booked, who converted.", color: "#6D4AFF" },
   { title: "Today's schedule", sub: "The calls Emma has on the books for today.", color: "#2E86F2" },
   { title: "Outstanding looms", sub: "Open items still waiting on a follow-up.", color: "#E8A33D" },
 ];
 
-const PREVIEW_SCRIPT: string[] = [
-  "Here's your reporting walkthrough — read-only, just the numbers.",
-  "Starting with the headline metrics: pickup, bookings and conversions for this window.",
-  "Then today's call schedule — what's on the books for today.",
-  "And any outstanding looms still waiting on a follow-up.",
-  "Want me to drill into a specific agent? Once the live bridge is on, just ask.",
-];
+/**
+ * Local preview transcript (live bridge off): open conversationally, speak the window's real
+ * numbers as nutshell lines, then close. `lines` comes from fetchReportNutshell for the chosen
+ * window (falling back to the server-rendered dashboard-range nutshell, then to an apology).
+ */
+function previewScript(lines: string[], agentName: string | null): string[] {
+  return [
+    "Here's your reporting walkthrough — read-only, and in a nutshell.",
+    ...(agentName
+      ? [`Drilling into ${agentName} needs the live bridge, so for now this is the whole workspace at a glance.`]
+      : []),
+    ...(lines.length > 0
+      ? lines
+      : ["I couldn't pull this window's numbers just now — try the report again in a moment."]),
+    "That's the nutshell. Today's schedule and outstanding looms join the walkthrough once the live bridge is on.",
+    "Want me to drill into a specific agent? Once the live bridge is on, just ask.",
+  ];
+}
 
 function errMessage(e: { code: string; retryAfterSeconds?: number }): string {
   if (e.code === "reporting_concurrency_limit" || e.code === "rate_limited") {
@@ -86,9 +96,12 @@ const Wave = ({ count, h, w }: { count: number; h: number; w: number }) => (
 export function ReportEmma({
   range,
   agents = [],
+  nutshell = [],
 }: {
   range: string;
   agents?: Array<{ id: string; name: string }>;
+  /** Server-computed nutshell lines for the dashboard range — the preview's instant fallback. */
+  nutshell?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("form");
@@ -233,6 +246,18 @@ export function ReportEmma({
 
     const superseded = () => myRun !== runIdRef.current;
 
+    // Fetched alongside beginReport so a preview can speak the numbers for the *chosen* window.
+    // Falls back to the server-rendered dashboard-range nutshell if the action fails.
+    const nutshellPromise = fetchReportNutshell(resolvedWindow())
+      .then((r) => r.lines)
+      .catch(() => nutshell);
+    const previewWithNutshell = () => {
+      void nutshellPromise.then((lines) => {
+        if (superseded()) return;
+        runPreview(lines);
+      });
+    };
+
     beginReport(resolvedWindow(), agentId || undefined)
       .then(async (s) => {
         // Modal closed (or a new attempt started) while beginReport was in flight: don't write any
@@ -251,7 +276,7 @@ export function ReportEmma({
         const accessToken = rt?.token ?? rt?.access_token;
 
         if (s.mode !== "live" || !s.reportingId) {
-          runPreview();
+          previewWithNutshell();
           return;
         }
 
@@ -312,19 +337,21 @@ export function ReportEmma({
       })
       .catch(() => {
         if (superseded()) return;
-        runPreview();
+        previewWithNutshell();
       });
   }
 
-  // Local preview walkthrough (bridge off / start failed): a short scripted transcript on a timer.
-  function runPreview() {
+  // Local preview walkthrough (bridge off / start failed): a short scripted transcript on a timer,
+  // built around the chosen window's nutshell lines.
+  function runPreview(lines: string[]) {
+    const script = previewScript(lines, agentName);
     setMode("sim");
     setSimEntries([]);
     connectTimer.current = setTimeout(() => {
       setStep("live");
       let i = 0;
       const push = () => {
-        const line = PREVIEW_SCRIPT[i];
+        const line = script[i];
         i += 1;
         if (line) {
           setSimEntries((prev) => [
@@ -332,7 +359,7 @@ export function ReportEmma({
             { role: "agent", text: line, at: new Date().toISOString() },
           ]);
         }
-        if (i >= PREVIEW_SCRIPT.length && simTimer.current) {
+        if (i >= script.length && simTimer.current) {
           clearInterval(simTimer.current);
           simTimer.current = null;
         }

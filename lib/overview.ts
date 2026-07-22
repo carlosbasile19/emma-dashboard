@@ -3,7 +3,13 @@
 
 import { CHART_PALETTE } from "@/lib/design";
 import { centsToMoney, num, secToMMSS } from "@/lib/format";
-import type { Campaign, Overview, Timeseries } from "@/lib/types";
+import {
+  describeBooked,
+  describeChase,
+  describeConverted,
+  describeNew,
+} from "@/lib/narrate";
+import type { Campaign, Lead, Overview, Timeseries } from "@/lib/types";
 
 export interface KpiCardModel {
   key: string;
@@ -143,60 +149,92 @@ export interface BriefItem {
   sub: string;
   tag: string;
   color: string;
+  /** Conversational context lines — who's motivated, who's hesitating and why. */
+  detail?: string[];
 }
 
-/** Builds the "to brief" list from real workspace data for the active period. */
-export function buildBriefItems(ov: Overview, campaigns: Campaign[]): BriefItem[] {
+/**
+ * Builds the "to brief" list from real workspace data for the active period. `leads` is the
+ * window-scoped lead list (best-effort, first page) — when present it powers the per-lead
+ * motivation/hesitation detail lines; the stage counts stay authoritative for the titles.
+ */
+export function buildBriefItems(
+  ov: Overview,
+  campaigns: Campaign[],
+  leads: Lead[] = [],
+): BriefItem[] {
   const k = ov.kpis;
   const s = k.leads_by_stage;
   const items: BriefItem[] = [];
+  const withDetail = (item: BriefItem, detail: string[]): BriefItem =>
+    detail.length > 0 ? { ...item, detail } : item;
 
   const booked = s.booked ?? 0;
   if (booked > 0) {
-    items.push({
-      id: "bookings",
-      category: "bookings",
-      title: `${num(booked)} appointment${booked === 1 ? "" : "s"} to confirm`,
-      sub: "Booked leads awaiting their visit.",
-      tag: "Bookings",
-      color: "#E8A33D",
-    });
+    items.push(
+      withDetail(
+        {
+          id: "bookings",
+          category: "bookings",
+          title: `${num(booked)} appointment${booked === 1 ? "" : "s"} to confirm`,
+          sub: booked === 1 ? "One lead has locked in a visit." : "These leads have locked in a visit.",
+          tag: "Bookings",
+          color: "#E8A33D",
+        },
+        describeBooked(leads),
+      ),
+    );
   }
 
   const fresh = s.new ?? 0;
   if (fresh > 0) {
-    items.push({
-      id: "new",
-      category: "leads",
-      title: `${num(fresh)} new lead${fresh === 1 ? "" : "s"} to work`,
-      sub: "Fresh leads waiting for first contact.",
-      tag: "New",
-      color: "#2E86F2",
-    });
+    items.push(
+      withDetail(
+        {
+          id: "new",
+          category: "leads",
+          title: `${num(fresh)} new lead${fresh === 1 ? "" : "s"} to work`,
+          sub: fresh === 1 ? "Nobody's spoken to this one yet." : "Nobody's spoken to these yet.",
+          tag: "New",
+          color: "#2E86F2",
+        },
+        describeNew(leads),
+      ),
+    );
   }
 
   const chase = (s.contacted ?? 0) + (s.qualified ?? 0);
   if (chase > 0) {
-    items.push({
-      id: "chase",
-      category: "leads",
-      title: `${num(chase)} lead${chase === 1 ? "" : "s"} to chase`,
-      sub: "In contact or qualified — Emma is still following up.",
-      tag: "Leads",
-      color: "#6D4AFF",
-    });
+    items.push(
+      withDetail(
+        {
+          id: "chase",
+          category: "leads",
+          title: `${num(chase)} lead${chase === 1 ? "" : "s"} to chase`,
+          sub: "Emma's already talking to them and keeping each thread going.",
+          tag: "Leads",
+          color: "#6D4AFF",
+        },
+        describeChase(leads),
+      ),
+    );
   }
 
   const converted = k.converted_count ?? 0;
   if (converted > 0) {
-    items.push({
-      id: "converted",
-      category: "leads",
-      title: `${num(converted)} lead${converted === 1 ? "" : "s"} converted`,
-      sub: "Won this period — worth a quick review.",
-      tag: "Converted",
-      color: "#2BB673",
-    });
+    items.push(
+      withDetail(
+        {
+          id: "converted",
+          category: "leads",
+          title: `${num(converted)} lead${converted === 1 ? "" : "s"} converted`,
+          sub: converted === 1 ? "A win this period." : "Wins this period.",
+          tag: "Converted",
+          color: "#2BB673",
+        },
+        describeConverted(leads),
+      ),
+    );
   }
 
   for (const c of campaigns.filter((c) => c.status === "active").slice(0, 3)) {
@@ -204,7 +242,7 @@ export function buildBriefItems(ov: Overview, campaigns: Campaign[]): BriefItem[
       id: `cmp-${c.id}`,
       category: "campaigns",
       title: c.name,
-      sub: `${num(c.replies)} replies · ${num(c.appointments_booked)} booked`,
+      sub: `Pulled ${num(c.replies)} repl${c.replies === 1 ? "y" : "ies"} so far and turned ${c.appointments_booked === 0 ? "none" : num(c.appointments_booked)} into booked appointment${c.appointments_booked === 1 ? "" : "s"}.`,
       tag: "Campaign",
       color: "#2E86F2",
     });

@@ -23,6 +23,19 @@ export function rangeToPeriod(range: RangePreset, tz: string, now: Date = new Da
   return { from: ymdUTC(from), to: ymdUTC(to), tz: tz || DEFAULT_TZ };
 }
 
+/**
+ * The previous equal-length period for an arbitrary { from, to } span (for nutshell deltas on
+ * brief windows, incl. "week" and custom). Ends the day before `from`.
+ */
+export function prevOfPeriod(p: Period): Period {
+  const span = Date.parse(p.to) - Date.parse(p.from) + DAY;
+  return {
+    from: ymdUTC(new Date(Date.parse(p.from) - span)),
+    to: ymdUTC(new Date(Date.parse(p.from) - DAY)),
+    tz: p.tz,
+  };
+}
+
 /** The previous equal-length period (for KPI deltas). */
 export function prevPeriod(range: RangePreset, tz: string, now: Date = new Date()) {
   const days = Math.min(366, rangeDays(range));

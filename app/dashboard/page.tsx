@@ -9,7 +9,14 @@ import { getWorkspace } from "@/lib/auth";
 import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
-import { fetchAgents, fetchCampaigns, fetchOverview, fetchTimeseries } from "@/lib/olivia/service";
+import { buildNutshell } from "@/lib/narrate";
+import {
+  fetchAgents,
+  fetchCampaigns,
+  fetchLeads,
+  fetchOverview,
+  fetchTimeseries,
+} from "@/lib/olivia/service";
 import { buildBriefItems, buildKpiCards } from "@/lib/overview";
 import { LEAD_STATUSES } from "@/lib/types";
 
@@ -22,9 +29,9 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const ws = await getWorkspace();
   const tz = ws.timezone ?? DEFAULT_TZ;
 
-  let cur, prev, ts, campaigns, agentsRes;
+  let cur, prev, ts, campaigns, agentsRes, leadsRes;
   try {
-    [cur, prev, ts, campaigns, agentsRes] = await Promise.all([
+    [cur, prev, ts, campaigns, agentsRes, leadsRes] = await Promise.all([
       fetchOverview(rangeToPeriod(range, tz)),
       fetchOverview(prevPeriod(range, tz)),
       fetchTimeseries(rangeToPeriod(range, tz)),
@@ -32,6 +39,8 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
       fetchCampaigns().catch(() => null),
       // agents power the reporting drill-down selector; best-effort
       fetchAgents(rangeToPeriod(range, tz)).catch(() => null),
+      // leads power the brief's per-lead motivation/hesitation lines; best-effort
+      fetchLeads({ ...rangeToPeriod(range, tz), limit: 100 }).catch(() => null),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.overview} />;
@@ -47,8 +56,11 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   }
 
   const cards = buildKpiCards(ov, prev.data, ts.data);
-  const briefItems = buildBriefItems(ov, campaigns?.data ?? []);
+  const briefItems = buildBriefItems(ov, campaigns?.data ?? [], leadsRes?.data.items ?? []);
   const reportAgents = (agentsRes?.data ?? []).map((a) => ({ id: a.agent_id, name: a.name }));
+  // Seed the reporting preview with the dashboard range's nutshell; the modal refreshes it
+  // per-window when a report starts.
+  const reportNutshell = buildNutshell(k, prev.data.kpis);
 
   return (
     <>
@@ -72,7 +84,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
             </div>
             <div className="flex flex-wrap items-center">
               <BriefEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
-              <ReportEmma range={range} agents={reportAgents} />
+              <ReportEmma range={range} agents={reportAgents} nutshell={reportNutshell} />
             </div>
           </div>
           <div className="flex gap-[30px] font-mono">

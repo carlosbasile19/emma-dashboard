@@ -8,9 +8,12 @@ import {
   briefWindowLabel,
   briefWindowToPeriod,
   DEFAULT_TZ,
+  prevOfPeriod,
 } from "@/lib/filters";
+import { buildNutshell } from "@/lib/narrate";
 import {
   fetchCampaigns,
+  fetchLeads,
   fetchOverview,
   type BriefSession,
   type ReportSession,
@@ -136,13 +139,35 @@ export async function fetchBriefWindow(
 ): Promise<{ items: BriefItem[]; label: string }> {
   const ctx = await getSessionContext();
   const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
-  const [ov, campaigns] = await Promise.all([
+  const [ov, campaigns, leads] = await Promise.all([
     fetchOverview(period),
-    // Campaigns power the brief but shouldn't sink the whole window if they error.
+    // Campaigns and leads enrich the brief but shouldn't sink the whole window if they error —
+    // without leads the per-lead motivation/hesitation lines simply drop off.
     fetchCampaigns().catch(() => null),
+    fetchLeads({ from: period.from, to: period.to, tz: period.tz, limit: 100 }).catch(() => null),
   ]);
   return {
-    items: buildBriefItems(ov.data, campaigns?.data ?? []),
+    items: buildBriefItems(ov.data, campaigns?.data ?? [], leads?.data.items ?? []),
+    label: briefWindowLabel(window),
+  };
+}
+
+/**
+ * The window's headline metrics as conversational "nutshell" lines for the reporting preview.
+ * Fetches the window's overview plus the previous equal-length period (best-effort) so the
+ * lines can mention trend. Cached like every overview fetch, so re-running a report is cheap.
+ */
+export async function fetchReportNutshell(
+  window: BriefWindow,
+): Promise<{ lines: string[]; label: string }> {
+  const ctx = await getSessionContext();
+  const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
+  const [ov, prev] = await Promise.all([
+    fetchOverview(period),
+    fetchOverview(prevOfPeriod(period)).catch(() => null),
+  ]);
+  return {
+    lines: buildNutshell(ov.data.kpis, prev?.data.kpis),
     label: briefWindowLabel(window),
   };
 }
