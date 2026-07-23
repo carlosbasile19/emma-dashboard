@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { passwordSignIn, sendMagicLink } from "@/app/auth/actions";
 
 const INPUT =
@@ -15,19 +15,46 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [noAccount, setNoAccount] = useState(false);
+  const [rateLimited, setRateLimited] = useState(false);
+  // Seconds until another magic link may be requested. Matches GoTrue's per-email resend
+  // interval so the button can't fire again before the server would accept it (the cause of
+  // the 429 "you can only request this after N seconds" errors).
+  const [cooldown, setCooldown] = useState(0);
   const [pending, startTransition] = useTransition();
 
-  function sendLink(e: FormEvent) {
-    e.preventDefault();
+  // Tick the cooldown down once a second; self-terminates at 0, no interval to leak.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
+
+  // Single send path for both the initial submit and "Resend". Guards on the cooldown so a
+  // rapid re-click is a no-op instead of another throttled request.
+  function doSend() {
+    if (pending || cooldown > 0) return;
     setError(null);
     setNoAccount(false);
+    setRateLimited(false);
     startTransition(async () => {
       const res = await sendMagicLink(email);
       if (res.error) {
         setError(res.error);
         setNoAccount(res.code === "no_account");
-      } else setView("sent");
+        if (res.code === "rate_limited") {
+          setRateLimited(true);
+          setCooldown(res.retryAfter ?? 60);
+        }
+      } else {
+        setView("sent");
+        setCooldown(60);
+      }
     });
+  }
+
+  function sendLink(e: FormEvent) {
+    e.preventDefault();
+    doSend();
   }
 
   function signInPassword(e: FormEvent) {
@@ -46,6 +73,7 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
     setView("form");
     setError(null);
     setNoAccount(false);
+    setRateLimited(false);
   }
 
   const ErrorBox = error ? (
@@ -55,7 +83,11 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
       </div>
       <div>
         <div className="text-[13.5px] font-medium text-[#B8323A]">
-          {noAccount ? "Account not found." : "We couldn’t sign you in."}
+          {noAccount
+            ? "Account not found."
+            : rateLimited
+              ? "Link already sent."
+              : "We couldn’t sign you in."}
         </div>
         <div className="mt-0.5 text-[13px] text-muted">{error}</div>
       </div>
@@ -107,13 +139,15 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
             <input id="email" name="email" type="email" required autoComplete="email"
               placeholder="you@yourpractice.com" value={email} onChange={(e) => setEmail(e.target.value)}
               className={`${INPUT} mb-[18px]`} />
-            <button type="submit" disabled={pending}
+            <button type="submit" disabled={pending || cooldown > 0}
               className="flex h-12 w-full items-center justify-center gap-2.5 rounded-[12px] bg-violet text-[15px] font-medium text-white shadow-[0_6px_18px_rgba(109,74,255,0.32)] transition hover:bg-[#5d3df0] disabled:opacity-80">
               {pending ? (
                 <>
                   <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   <span>Sending link…</span>
                 </>
+              ) : cooldown > 0 ? (
+                <span>Try again in {cooldown}s</span>
               ) : (
                 <span>Email me a magic link</span>
               )}
@@ -140,15 +174,16 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
           </div>
           <div className="mt-4 text-center text-[13px] text-muted">
             Didn’t get it?{" "}
-            <button onClick={() => startTransition(async () => { await sendMagicLink(email); })} disabled={pending}
-              className="cursor-pointer font-medium text-violet disabled:opacity-60">
-              Resend
+            <button onClick={doSend} disabled={pending || cooldown > 0}
+              className="cursor-pointer font-medium text-violet disabled:cursor-default disabled:opacity-60">
+              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend"}
             </button>{" "}
             ·{" "}
             <button onClick={() => switchMode("magic")} className="cursor-pointer font-medium text-violet">
               Use a different email
             </button>
           </div>
+          {error && <div className="mt-3 text-center text-[12.5px] text-muted">{error}</div>}
         </div>
       )}
 
