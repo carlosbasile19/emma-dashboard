@@ -40,14 +40,18 @@ async function requestOrigin(): Promise<string> {
 
 /**
  * Passwordless sign-in: email a one-click magic link. shouldCreateUser is false so only
- * provisioned users can sign in — we never auto-create accounts. When the email has no
- * account, GoTrue rejects the request with HTTP 422 / code "otp_disabled" ("Signups not
- * allowed for otp"); we surface that as an explicit "contact your administrator" message
- * rather than the generic send-failure copy.
+ * provisioned users can sign in — we never auto-create accounts. Two GoTrue failures get
+ * their own copy instead of the generic send-failure line:
+ *   - no account (HTTP 422 / code "otp_disabled", "Signups not allowed for otp") → point the
+ *     user at their administrator.
+ *   - rate limited (HTTP 429, "you can only request this after N seconds") → this fires when a
+ *     link was *just* requested; the address is fine, they only need to wait. We return the
+ *     server's remaining interval as retryAfter so the form can count down and keep the resend
+ *     button disabled until GoTrue would accept another request (prevents the 429 recurring).
  */
 export async function sendMagicLink(
   email: string,
-): Promise<{ error: string | null; code?: "no_account" }> {
+): Promise<{ error: string | null; code?: "no_account" | "rate_limited"; retryAfter?: number }> {
   const e = email.trim().toLowerCase();
   if (!e) return { error: "Enter your email address." };
 
@@ -65,6 +69,15 @@ export async function sendMagicLink(
         error:
           "There’s no Hey Emma account for that email yet. Please contact your administrator to request access.",
         code: "no_account",
+      };
+    }
+    if (error.status === 429) {
+      const m = /after (\d+)\s*seconds?/i.exec(error.message ?? "");
+      return {
+        error:
+          "A magic link is already on its way — check your inbox (and spam). You can request another in a moment.",
+        code: "rate_limited",
+        retryAfter: m ? Number(m[1]) : 60,
       };
     }
     return { error: "We couldn’t send that link. Check the email address, then try again." };
