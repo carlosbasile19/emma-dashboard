@@ -5,7 +5,7 @@ import { FreshnessNote } from "@/components/ui/FreshnessNote";
 import { getWorkspace } from "@/lib/auth";
 import { EMPTY_COPY, ERROR_COPY } from "@/lib/copy";
 import { DEFAULT_TZ, parsePage, parseRange, rangeToPeriod, str } from "@/lib/filters";
-import { fetchCalls, fetchDmThreads } from "@/lib/olivia/service";
+import { fetchCalls, fetchThreadRows } from "@/lib/olivia/service";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
@@ -25,17 +25,18 @@ export default async function LogPage({ searchParams }: { searchParams: SP }) {
 
   let callsRes, threadsRes;
   try {
-    // DM threads are not range-scoped upstream — sorted by last_message_at desc.
+    // Threads (SMS + DM) are ranked by last activity, not range-scoped — a months-old
+    // conversation that got a reply today belongs at the top of the list.
     [callsRes, threadsRes] = await Promise.all([
       fetchCalls({ ...period, page, limit: LIMIT }),
-      fetchDmThreads({ page: 1, limit: THREADS_LIMIT }),
+      fetchThreadRows({ limit: THREADS_LIMIT }),
     ]);
   } catch {
     return <ErrorState copy={ERROR_COPY.logs} />;
   }
 
   const calls = callsRes.data;
-  const threads = threadsRes.data.items;
+  const threads = threadsRes.data.rows;
 
   if (calls.total === 0 && threads.length === 0) {
     return <EmptyState copy={EMPTY_COPY.logs} />;
@@ -54,6 +55,7 @@ export default async function LogPage({ searchParams }: { searchParams: SP }) {
         callPages={callPages}
         threads={threads}
         threadTotal={threadsRes.data.total}
+        threadsPartial={threadsRes.data.truncated}
         initialThreadId={threadParam || null}
       />
     </>

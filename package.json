@@ -14,6 +14,7 @@
     "test:brief": "tsx scripts/brief-items-selftest.ts",
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
     "test:calendar": "tsx scripts/calendar-selftest.ts",
+    "test:threads": "tsx scripts/threads-selftest.ts",
     "test:besttimes": "tsx scripts/best-times-selftest.ts"
   },
   "dependencies": {

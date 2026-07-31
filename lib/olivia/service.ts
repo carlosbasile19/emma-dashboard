@@ -3,6 +3,7 @@ import { getSessionClientId } from "@/lib/auth";
 import * as api from "./api";
 import type {
   BriefRealtime,
+  ConversationsParams,
   DateParams,
   LeadsParams,
   PageParams,
@@ -14,6 +15,7 @@ import type {
 } from "./api";
 import { OliviaError } from "./errors";
 import { cachedFetch, TIERS } from "./cache";
+import { mergeThreadRows } from "@/lib/threads";
 import type {
   Agent,
   CalendarResponse,
@@ -29,6 +31,7 @@ import type {
   Outcomes,
   Overview,
   PipelinesResponse,
+  ThreadRow,
   Timeseries,
   WithFreshness,
 } from "@/lib/types";
@@ -46,6 +49,11 @@ interface Opts {
 }
 
 const rec = (o: object) => o as Record<string, unknown>;
+
+/** UTC `YYYY-MM-DD`, offset by `msFromNow`. Used for the widest-window thread sweep. */
+function ymdUTC(msFromNow = 0): string {
+  return new Date(Date.now() + msFromNow).toISOString().slice(0, 10);
+}
 
 export async function fetchOverview(
   params: DateParams = {},
@@ -244,8 +252,10 @@ export async function fetchCallDetail(
   return null;
 }
 
+/** `channel` filters on the API enum; `lead_id` returns that lead's whole history
+ *  (the from/to window is not applied when it is set). */
 export async function fetchConversations(
-  params: DateParams & PageParams = {},
+  params: ConversationsParams = {},
   opts: Opts = {},
 ): Promise<WithFreshness<ListResponse<Conversation>>> {
   const clientId = await getSessionClientId();
@@ -333,19 +343,81 @@ export async function fetchDmThreads(
 export async function fetchConversationThread(
   conversationId: string,
   limit?: number,
-  opts: Opts = {},
+  opts: Opts & { before?: string } = {},
 ): Promise<WithFreshness<ConversationThread>> {
   const clientId = await getSessionClientId();
-  const params = limit ? { conversationId, limit } : { conversationId };
+  const sub = {
+    ...(limit ? { limit } : {}),
+    ...(opts.before ? { before: opts.before } : {}),
+  };
   return cachedFetch({
     clientId,
     endpoint: "thread",
-    params: rec(params),
+    params: rec({ conversationId, ...sub }),
     tier: TIERS.thread,
     force: opts.force,
-    fetcher: () =>
-      api.getConversationThread(clientId, conversationId, limit ? { limit } : {}),
+    fetcher: () => api.getConversationThread(clientId, conversationId, sub),
   });
+}
+
+/**
+ * Every channel that carries message rows. `voice` is deliberately absent: voice conversations
+ * hold no messages (transcripts live on `calls[].transcript`).
+ *
+ * These are queried PER CHANNEL rather than filtered client-side from one unfiltered page,
+ * because voice dominates the log — a real client shows 7 205 voice conversations against 111
+ * SMS, so an unfiltered page of 50 would contain almost no SMS at all. Fetching each channel
+ * explicitly is what makes SMS visible; it is also what stops a future channel from being
+ * silently swallowed the way SMS was.
+ */
+const MESSAGE_CHANNELS = ["sms", "chat", "email", "imessage"] as const;
+
+/**
+ * Conversations-tab rows: `/dm-threads` (DM networks — carries lead_name, preview text and
+ * bot_active) merged with `/conversations` per message-bearing channel (carries the activity
+ * counters, and the ONLY place SMS appears). Merged on conversation id, DM fields winning where
+ * both describe the same thread, sorted by last activity.
+ *
+ * Deliberately NOT scoped to the page's date filter: threads are ranked by last activity, and a
+ * months-old conversation that got a reply this morning must not fall out of the list. We ask
+ * for the widest window the API allows (≤366 days) and cap the merged result.
+ */
+export async function fetchThreadRows(
+  params: { limit?: number } = {},
+  opts: Opts = {},
+): Promise<WithFreshness<{ rows: ThreadRow[]; total: number; truncated: boolean }>> {
+  const limit = params.limit ?? 50;
+  const from = ymdUTC(-365 * 24 * 60 * 60 * 1000);
+  const to = ymdUTC();
+
+  const [dmRes, ...convRes] = await Promise.all([
+    fetchDmThreads({ page: 1, limit }, opts).catch(() => null),
+    ...MESSAGE_CHANNELS.map((channel) =>
+      fetchConversations({ from, to, page: 1, limit, channel }, opts).catch(() => null),
+    ),
+  ]);
+  const legs = [dmRes, ...convRes];
+  // Partial failure is survivable — one dead channel must not blank the whole tab.
+  if (legs.every((r) => r === null)) {
+    throw new OliviaError(0, "network_error", "All thread sources failed");
+  }
+
+  const merged = mergeThreadRows(
+    dmRes?.data.items ?? [],
+    convRes.flatMap((r) => r?.data.items ?? []),
+  );
+  // Any leg that came back full, or a merge that overflows the cap, means there is more
+  // behind the list — say so rather than implying the view is complete.
+  const truncated =
+    merged.length > limit || legs.some((r) => r !== null && r.data.items.length >= limit);
+  // Freshness of the weakest leg — the list is only as current as its stalest source.
+  const alive = legs.filter((r): r is NonNullable<typeof r> => r !== null);
+  const freshness = alive.reduce((oldest, r) =>
+    r.freshness.fetchedAt < oldest.freshness.fetchedAt ? r : oldest,
+  ).freshness;
+
+  const rows = merged.slice(0, limit);
+  return { data: { rows, total: rows.length, truncated }, freshness };
 }
 
 // ---- Briefing bridge ----

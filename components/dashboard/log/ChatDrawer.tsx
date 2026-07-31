@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { loadThread } from "@/app/dashboard/log/actions";
-import { dmChannelCode, dmChannelColor, dmChannelLabel } from "@/lib/dm";
+import { agentLabel, channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { tint } from "@/lib/design";
-import { relTime, shortId } from "@/lib/format";
-import type { ConversationThread, DmThread } from "@/lib/types";
+import { num, relTime, shortId } from "@/lib/format";
+import type { ConversationThread, ThreadRow } from "@/lib/types";
 import { useScrollLock } from "@/lib/useScrollLock";
 
 type LoadState =
@@ -26,16 +26,18 @@ export function ChatDrawer({
   onClose,
 }: {
   threadId: string | null;
-  stub: DmThread | null;
+  stub: ThreadRow | null;
   onClose: () => void;
 }) {
   useScrollLock(Boolean(threadId));
   const [state, setState] = useState<LoadState>({ phase: "loading" });
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   useEffect(() => {
     if (!threadId) return;
     let cancelled = false;
     setState({ phase: "loading" });
+    setLoadingOlder(false);
     loadThread(threadId).then((r) => {
       if (cancelled) return;
       if (r.ok && r.thread) setState({ phase: "ready", thread: r.thread });
@@ -46,15 +48,44 @@ export function ChatDrawer({
     };
   }, [threadId]);
 
+  /** Page backwards with the `before` cursor — the oldest timestamp we currently hold. */
+  const loadOlder = useCallback(async () => {
+    if (!threadId || state.phase !== "ready" || loadingOlder) return;
+    const oldest = state.thread.messages[0]?.timestamp;
+    if (!oldest) return;
+    setLoadingOlder(true);
+    const r = await loadThread(threadId, oldest);
+    setLoadingOlder(false);
+    if (!r.ok || !r.thread) return;
+    setState((prev) => {
+      if (prev.phase !== "ready") return prev;
+      // `before` should be exclusive, but dedupe anyway — a boundary repeat would
+      // otherwise render the same message twice.
+      const held = new Set(prev.thread.messages.map((m) => m.id ?? m.timestamp + m.text));
+      const older = r.thread!.messages.filter(
+        (m) => !held.has(m.id ?? m.timestamp + m.text),
+      );
+      return {
+        phase: "ready",
+        thread: {
+          ...prev.thread,
+          has_more: r.thread!.has_more,
+          messages: [...older, ...prev.thread.messages],
+        },
+      };
+    });
+  }, [threadId, state, loadingOlder]);
+
   if (!threadId) return null;
 
   const channel = state.phase === "ready" ? state.thread.channel : (stub?.channel ?? "dm");
-  const color = dmChannelColor(channel);
+  const color = channelColor(channel);
   const leadName =
     stub?.lead_name ?? (stub?.locked ? "PII locked" : stub ? shortId(stub.lead_id) : "Thread");
-  const agentLabel = state.phase === "ready" ? (state.thread.agent ?? "Emma") : "Emma";
+  const agentName = state.phase === "ready" ? agentLabel(state.thread.agent) : "Emma";
   const locked = state.phase === "ready" ? Boolean(state.thread.locked) : Boolean(stub?.locked);
   const leadId = stub?.lead_id ?? (state.phase === "ready" ? state.thread.lead_id : null);
+  const optedOutAt = stub?.opted_out_at ?? null;
 
   return createPortal(
     <div
@@ -73,11 +104,19 @@ export function ChatDrawer({
                 className="inline-flex flex-none items-center rounded-[6px] px-[7px] py-[3px] font-mono text-[10px] font-bold tracking-[0.05em]"
                 style={{ color, background: tint(color, 0.12) }}
               >
-                {dmChannelCode(channel)}
+                {channelCode(channel)}
               </span>
-              <span className="font-mono text-[11px] tracking-[0.08em] text-muted">
-                {dmChannelLabel(channel)} · {agentLabel}
+              <span className="truncate font-mono text-[11px] tracking-[0.08em] text-muted">
+                {channelLabel(channel)} · {agentName}
               </span>
+              {optedOutAt ? (
+                <span
+                  className="flex-none rounded-[5px] bg-ink/5 px-1.5 py-[1px] font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted"
+                  title={`Lead opted out ${relTime(optedOutAt)} — history is kept, Emma stops sending`}
+                >
+                  Opted out
+                </span>
+              ) : null}
             </div>
             {leadId ? (
               <Link
@@ -148,18 +187,30 @@ export function ChatDrawer({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
+              {state.thread.has_more ? (
+                <button
+                  onClick={loadOlder}
+                  disabled={loadingOlder}
+                  className="mx-auto mb-1 cursor-pointer rounded-[9px] border border-ink/10 bg-white px-3.5 py-[7px] font-display text-[12.5px] text-muted transition-colors hover:bg-lavender disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loadingOlder ? "Loading…" : "Load older messages"}
+                </button>
+              ) : null}
               {state.thread.messages.map((m, i) => {
                 const isAgent = m.from === "agent";
+                const failed = m.status === "failed";
                 return (
                   <div
-                    key={i}
+                    key={m.id ?? `${m.timestamp}-${i}`}
                     className={`flex max-w-[85%] flex-col ${isAgent ? "items-end self-end" : "items-start self-start"}`}
                   >
                     <div
                       className={`rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-[1.5] ${
-                        isAgent
-                          ? "bg-gradient-brand rounded-br-[4px] text-white"
-                          : "rounded-bl-[4px] border border-ink/10 bg-white text-ink"
+                        failed
+                          ? "rounded-br-[4px] border border-dashed border-[#E5484D]/50 bg-[#E5484D]/5 text-ink"
+                          : isAgent
+                            ? "bg-gradient-brand rounded-br-[4px] text-white"
+                            : "rounded-bl-[4px] border border-ink/10 bg-white text-ink"
                       }`}
                     >
                       {m.text}
@@ -168,7 +219,10 @@ export function ChatDrawer({
                       className="mt-1 px-0.5 font-mono text-[10px] text-muted"
                       suppressHydrationWarning
                     >
-                      {isAgent ? agentLabel : leadName} · {relTime(m.timestamp)}
+                      {isAgent ? agentName : leadName} · {relTime(m.timestamp)}
+                      {failed ? (
+                        <span className="text-[#E5484D]"> · not delivered</span>
+                      ) : null}
                     </span>
                   </div>
                 );
@@ -180,6 +234,15 @@ export function ChatDrawer({
         {/* reply composer — visual per the design; sending has no serving endpoint yet,
             and Emma replies to leads automatically, so the control is disabled. */}
         <div className="border-t border-ink/10 px-[22px] py-[16px]">
+          {state.phase === "ready" && !locked && state.thread.messages.length > 0 ? (
+            <div className="mb-2 font-mono text-[10.5px] text-muted">
+              {state.thread.has_more
+                ? `Showing latest ${num(state.thread.messages.length)} messages`
+                : `${num(state.thread.messages.length)} message${
+                    state.thread.messages.length === 1 ? "" : "s"
+                  } · full history`}
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
             <input
               disabled

@@ -5,10 +5,10 @@ import { useCallback, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { ChatDrawer } from "@/components/dashboard/log/ChatDrawer";
 import { Badge } from "@/components/ui/Badge";
-import { dmChannelCode, dmChannelColor } from "@/lib/dm";
+import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { tint } from "@/lib/design";
 import { num, relTime, secToMMSS, shortId } from "@/lib/format";
-import type { Call, DmThread } from "@/lib/types";
+import type { Call, ThreadRow } from "@/lib/types";
 
 const CALL_COLS = "grid-cols-[0.7fr_1.4fr_1.3fr_1.1fr_1.2fr_0.7fr_1fr]";
 
@@ -20,6 +20,7 @@ export function LogView({
   callPages,
   threads,
   threadTotal,
+  threadsPartial,
   initialThreadId,
 }: {
   tab: "calls" | "conversations";
@@ -27,8 +28,10 @@ export function LogView({
   callTotal: number;
   callPage: number;
   callPages: number;
-  threads: DmThread[];
+  threads: ThreadRow[];
   threadTotal: number;
+  /** The merged list hit its fetch cap — say so rather than implying it is complete. */
+  threadsPartial: boolean;
   initialThreadId: string | null;
 }) {
   const router = useRouter();
@@ -161,16 +164,25 @@ export function LogView({
         </>
       ) : threads.length === 0 ? (
         <div className="rounded-[16px] border border-ink/10 bg-white px-6 py-10 text-center text-[13.5px] text-muted shadow-sm">
-          No DM threads yet — when a lead messages on Instagram, Messenger or WhatsApp, the
-          conversation lands here.
+          No conversations yet — when a lead texts Emma or messages on Instagram, Messenger or
+          WhatsApp, the thread lands here.
         </div>
       ) : (
         <>
           <div className="flex flex-col gap-2.5">
             {threads.map((t) => {
-              const color = dmChannelColor(t.channel);
+              const color = channelColor(t.channel);
               const name =
                 t.lead_name ?? (t.locked ? "PII locked" : shortId(t.lead_id));
+              // No preview text is not the same as an empty thread: the counters are
+              // un-gated, so fall back to them before showing a dash.
+              const preview =
+                t.last_message ??
+                (t.locked
+                  ? "Message preview locked"
+                  : t.message_count
+                    ? `${num(t.message_count)} message${t.message_count === 1 ? "" : "s"}`
+                    : "—");
               return (
                 <button
                   key={t.id}
@@ -180,8 +192,9 @@ export function LogView({
                   <span
                     className="w-[46px] flex-none rounded-[7px] py-1 text-center font-mono text-[10px] font-bold tracking-[0.06em]"
                     style={{ color, background: tint(color, 0.12) }}
+                    title={channelLabel(t.channel)}
                   >
-                    {dmChannelCode(t.channel)}
+                    {channelCode(t.channel)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-2">
@@ -192,10 +205,16 @@ export function LogView({
                           title={`${num(t.unread)} awaiting reply`}
                         />
                       ) : null}
+                      {t.opted_out_at ? (
+                        <span
+                          className="flex-none rounded-[5px] bg-ink/5 px-1.5 py-[1px] font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted"
+                          title={`Opted out ${relTime(t.opted_out_at)}`}
+                        >
+                          Opted out
+                        </span>
+                      ) : null}
                     </div>
-                    <div className="truncate text-[13px] text-muted">
-                      {t.last_message ?? (t.locked ? "Message preview locked" : "—")}
-                    </div>
+                    <div className="truncate text-[13px] text-muted">{preview}</div>
                   </div>
                   {t.status === "ended" ? (
                     <span className="flex-none font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
@@ -213,7 +232,8 @@ export function LogView({
             })}
           </div>
           <div className="mt-3 font-mono text-[12.5px] text-muted">
-            {num(threadTotal)} threads · select one to read the conversation.
+            {threadsPartial ? `Latest ${num(threadTotal)} threads` : `${num(threadTotal)} threads`} ·
+            select one to read the conversation.
           </div>
         </>
       )}

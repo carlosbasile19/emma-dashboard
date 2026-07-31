@@ -261,18 +261,31 @@ export interface Call {
 }
 
 // ---- Conversations (PII-gated) ----
+/** Message delivery state. `read` only ever appears on DM platforms. */
+export type MessageStatus = "sent" | "delivered" | "read" | "failed";
+export type MessageDirection = "inbound" | "outbound";
+
 export interface Conversation {
   id: string;
   lead_id: string;
   channel: ConversationChannel;
+  /** `"sms"` for SMS — only `voice` sends null. Never use null to detect SMS. */
   platform?: string | null;
   started_at: string;
   ended_at?: string | null;
   sentiment_score?: number | null;
   opted_out_at?: string | null;
   created_at: string;
+  // Activity counters — un-gated (structural, not PII).
+  message_count?: number | null;
+  unread?: number | null;
+  last_message_at?: string | null;
+  last_message_direction?: MessageDirection | null;
   // PII
   summary?: string | null;
+  /** Preview text. NOT part of the shipped list contract (only the lead-detail stub
+   *  promises it) — read opportunistically, always tolerate absence. */
+  last_message?: string | null;
   // Display helpers
   lead?: string | null;
   agent?: string | null;
@@ -341,12 +354,26 @@ export interface LeadBooking {
   service?: string | null;
 }
 
-/** DM-thread stub on the lead page — links into the conversations view. */
+/**
+ * Conversation stub on the lead page — links into the conversations view. Covers every
+ * message-bearing channel (sms, chat/DM, email, imessage); `voice` is excluded upstream
+ * because voice conversations carry no message rows (transcripts live on `calls[].transcript`).
+ * A lead may hold MORE THAN ONE stub per channel — threads split when one is closed or a
+ * campaign-scoped send opens its own. Never assume a single thread per lead.
+ */
 export interface ConversationStub {
   id: string;
   channel: string;
   platform?: string | null;
+  status?: "active" | "ended" | null;
+  /** Un-gated counters — present without `dashboard:pii`. */
+  message_count?: number | null;
+  unread?: number | null;
   last_message_at?: string | null;
+  last_message_direction?: MessageDirection | null;
+  /** PII-gated preview, 160 chars. */
+  last_message?: string | null;
+  opted_out_at?: string | null;
 }
 
 export interface LeadDetailPipeline {
@@ -396,8 +423,13 @@ export interface DmThread {
 }
 
 export interface ThreadMessage {
+  /** Stable id — absent on older rows, so never key a list on it alone. */
+  id?: string | null;
   from: "agent" | "lead";
+  direction?: MessageDirection | null;
   text: string;
+  /** null for channels that report no delivery state. Failed sends ARE returned. */
+  status?: MessageStatus | null;
   timestamp: string;
 }
 
@@ -406,11 +438,41 @@ export interface ConversationThread {
   lead_id: string;
   channel: string;
   platform?: string | null;
-  /** Display label for the agent bubble header. */
+  /** Display label for the agent bubble header — an internal routing name; run it
+   *  through `agentLabel()` before showing it. */
   agent?: string | null;
   locked?: boolean;
+  /**
+   * Messages matching the CURRENT request — with `before` this is the remaining-older
+   * count, not the thread size. Drive paging off `has_more`, not arithmetic on `total`.
+   * Both are OMITTED when `locked` (thread size is unknown, which is not zero).
+   */
+  total?: number | null;
+  has_more?: boolean | null;
   /** Oldest-first (latest N; default 100, max 500). Empty + locked when PII-gated. */
   messages: ThreadMessage[];
+}
+
+/**
+ * Unified conversations-tab row. The list merges two upstream surfaces — `/dm-threads`
+ * (DM networks; carries lead_name + preview text) and `/conversations` (every channel,
+ * carries the activity counters) — into one shape sorted by last activity.
+ */
+export interface ThreadRow {
+  id: string;
+  lead_id: string;
+  lead_name?: string | null;
+  channel: string;
+  platform?: string | null;
+  status: "active" | "ended";
+  bot_active?: boolean;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  last_message_direction?: MessageDirection | null;
+  message_count?: number | null;
+  unread: number;
+  opted_out_at?: string | null;
+  locked?: boolean;
 }
 
 // ---- List envelope (per the guide §5) ----

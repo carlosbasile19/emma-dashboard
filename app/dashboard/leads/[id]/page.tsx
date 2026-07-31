@@ -44,11 +44,10 @@ export default async function LeadDetailPage({
   const ws = await wsPromise;
   const detail = result.data;
 
-  // Embedded thread preview: the most recent DM stub's last few messages, fail-soft —
-  // a preview hiccup must never take down the lead page.
-  const latestStub = [...(detail.conversations ?? [])].sort((a, b) =>
-    (b.last_message_at ?? "").localeCompare(a.last_message_at ?? ""),
-  )[0];
+  // Embedded thread preview: the most recent conversation's last few messages (SMS included),
+  // fail-soft — a preview hiccup must never take down the lead page. Already sorted
+  // newest-first upstream; [0] is the live thread.
+  const latestStub = (detail.conversations ?? [])[0];
   let preview: ConversationThread | null = null;
   if (latestStub) {
     preview = await fetchConversationThread(latestStub.id, 6)

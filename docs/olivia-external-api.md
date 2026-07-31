@@ -357,7 +357,80 @@ Without `dashboard:pii`:
 ```
 
 With `dashboard:pii`, each conversation also includes: `summary` (AI recap). Internal reporting/tester
-threads are excluded. Message-by-message bodies are **not** in this endpoint.
+threads are excluded. Message-by-message bodies are **not** in this endpoint — read them from
+§6.10 `/conversations/{conversationId}`.
+
+**Filters** (added 2026-07-31): `channel` (exact match on the enum; anything else → 400
+`invalid_request`) and `lead_id` (uuid, else 400). **When `lead_id` is set the `from`/`to` window is
+not applied** — you get that lead's whole history, not a 30-day slice.
+
+Rows also carry un-gated activity counters: `message_count`, `unread`, `last_message_at`,
+`last_message_direction`. `last_message` preview text is **not** promised on list rows (only on the
+lead-detail stub) — read it opportunistically.
+
+> **`platform` for SMS is the string `"sms"`, not `null`.** Only `voice` sends `platform: null`.
+> Never detect SMS by testing `platform === null`. Voice conversations carry **zero** message rows
+> (transcripts live on `/calls[].transcript`), so exclude `channel: "voice"` from any thread list.
+
+### 6.10 `/conversations/{conversationId}` — full message thread (PII-gated)
+
+`GET /clients/{clientId}/conversations/{conversationId}?limit&before`
+
+Works for **every channel including SMS** — `/dm-threads` is the DM-only surface, this is not.
+`limit` default 100, max 500; messages return **oldest-first**. `before` is an ISO-8601 cursor —
+pass the oldest `timestamp` you hold to page backwards (unparseable → 400 `invalid_request`).
+
+```json
+{
+  "id": "0391db8a-…", "lead_id": "36ae9456-…",
+  "channel": "sms", "platform": "sms",
+  "agent": "007. Emma Re-activation Nurse/Midwife (SMS)",
+  "locked": false, "total": 20, "has_more": false,
+  "messages": [
+    { "id": "be01f908-…", "from": "lead", "direction": "inbound",
+      "text": "yes, tuesday works", "status": "delivered",
+      "timestamp": "2026-07-30T02:15:16Z" }
+  ]
+}
+```
+
+- `status` ∈ `sent | delivered | read | failed | null`. **Failed sends are stored and returned.**
+- `total` counts messages matching the *current* filters — with `before` it is the remaining-older
+  count, **not** the thread size. Drive paging off `has_more`.
+- `system` rows are excluded server-side, so `total` and `messages[]` count the same population.
+- `agent` is an internal routing name — run it through `agentLabel()` before display.
+- Without `dashboard:pii`: `locked: true`, `messages: []`, and **`total`/`has_more` are omitted**
+  (absent = unknown, which is *not* zero). Never a 403.
+
+**Per-lead entry point.** `/clients/{clientId}/leads/{leadId}` (a live-API endpoint beyond this
+written guide) returns a `conversations[]` stub array — the way to reach a lead's threads without
+scanning the log:
+
+```json
+"conversations": [{
+  "id": "0391db8a-…", "channel": "sms", "platform": "sms", "status": "active",
+  "message_count": 20, "unread": 0,
+  "last_message_at": "2026-07-30T02:34:10Z", "last_message_direction": "outbound",
+  "last_message": "Got it — let me check on that…", "opted_out_at": null
+}]
+```
+
+Covers every message-bearing channel (sms, chat/DM, email, imessage); `voice`, tester and non-lead
+threads are excluded. `last_message` is PII-gated (160 chars); the counters are **not**, so they
+render without `dashboard:pii`. A lead may hold **more than one** thread per channel — threads split
+when one is closed or a campaign-scoped send opens its own. Group by `lead_id`; never assume one.
+
+### 6.11 `/messages` — flat message export (PII-gated)
+
+`GET /clients/{clientId}/messages?from&to&page&limit&channel&lead_id`
+
+Same validation as §6.9 (`lead_id` likewise drops the date window). `limit` default 25, **max 500**.
+Ordered oldest-first so a running sweep doesn't shift pages already held. Rows:
+`{ id, conversation_id, lead_id, channel, direction, text, status, timestamp }`.
+Without `dashboard:pii`, `text` is **omitted entirely** (not null) and `locked: true`.
+
+> Not currently used by this dashboard — we render live per-thread rather than maintaining a local
+> message store, so there is nothing to backfill. Reach for it if that ever changes.
 
 ---
 
@@ -466,6 +539,8 @@ async function loadWorkspaces(from: string, to: string) {
 | Reactivation campaign cards | `/campaigns` |
 | Leads table (drill-down) | `/leads` (paginate) |
 | Call log / conversation log | `/calls`, `/conversations` (paginate) |
+| SMS & DM message threads (per lead) | lead-detail `conversations[]` → `/conversations/{conversationId}` |
+| Conversations tab (all channels) | `/conversations` + `/dm-threads`, merged on conversation id |
 
 ---
 

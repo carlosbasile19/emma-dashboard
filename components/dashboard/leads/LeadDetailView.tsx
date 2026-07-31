@@ -7,7 +7,7 @@ import { NotesCard } from "@/components/dashboard/leads/NotesCard";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import { dmChannelCode, dmChannelColor, dmChannelLabel } from "@/lib/dm";
+import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { STAGE_COLORS, tint } from "@/lib/design";
 import { resolveStageColor } from "@/lib/pipeline/board";
 import {
@@ -53,6 +53,9 @@ export function LeadDetailView({
   pastBookings: LeadBooking[];
 }) {
   const { lead, pipeline, summary, calls, conversations } = detail;
+  // Counters are un-gated, so this total renders even when message text is PII-locked.
+  // A lead can hold several threads (one closed, one campaign-scoped) — sum, don't assume one.
+  const totalMessages = conversations.reduce((n, c) => n + (c.message_count ?? 0), 0);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
   // The lead-detail payload embeds a SLIM call shape (no recording/transcript). Opening the
   // drawer hydrates the full row via loadCall; hydrated rows are kept so re-opens are instant.
@@ -166,9 +169,17 @@ export function LeadDetailView({
           </Card>
 
           <Card className="px-6 py-[22px]">
-            <SectionLabel>Conversation · DMs</SectionLabel>
+            <div className="mb-3 flex items-baseline justify-between">
+              <SectionLabel className="mb-0">Conversations</SectionLabel>
+              {totalMessages > 0 ? (
+                <span className="font-mono text-xs text-muted">
+                  {num(totalMessages)} message{totalMessages === 1 ? "" : "s"}
+                  {conversations.length > 1 ? ` · ${conversations.length} threads` : ""}
+                </span>
+              ) : null}
+            </div>
             {conversations.length === 0 ? (
-              <InlineEmpty>No DM threads with this lead yet.</InlineEmpty>
+              <InlineEmpty>No text or DM conversations with this lead yet.</InlineEmpty>
             ) : (
               <>
                 {threadPreview ? (
@@ -184,12 +195,15 @@ export function LeadDetailView({
                       <div className="flex flex-col gap-2">
                         {threadPreview.messages.slice(-3).map((m, i) => (
                           <div
-                            key={i}
+                            key={m.id ?? `${m.timestamp}-${i}`}
                             className={`max-w-[85%] rounded-[12px] px-3 py-2 text-[13px] leading-[1.45] ${
-                              m.from === "agent"
-                                ? "bg-gradient-brand self-end rounded-br-[4px] text-white"
-                                : "self-start rounded-bl-[4px] border border-ink/10 bg-white text-ink"
+                              m.status === "failed"
+                                ? "self-end rounded-br-[4px] border border-dashed border-[#E5484D]/50 bg-[#E5484D]/5 text-ink"
+                                : m.from === "agent"
+                                  ? "bg-gradient-brand self-end rounded-br-[4px] text-white"
+                                  : "self-start rounded-bl-[4px] border border-ink/10 bg-white text-ink"
                             }`}
+                            title={m.status === "failed" ? "Not delivered" : undefined}
                           >
                             {m.text}
                           </div>
@@ -206,15 +220,49 @@ export function LeadDetailView({
                       className="flex items-center gap-3 rounded-[10px] border border-ink/10 px-3.5 py-2.5 transition-colors hover:bg-lavender"
                     >
                       <ChannelBadge channel={c.channel} />
-                      <span className="flex-1 text-[13px] font-medium">
-                        {dmChannelLabel(c.channel)} thread
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="text-[13px] font-medium">
+                            {channelLabel(c.channel)} thread
+                          </span>
+                          {c.message_count ? (
+                            <span className="font-mono text-[11px] text-muted">
+                              {num(c.message_count)} msg
+                            </span>
+                          ) : null}
+                          {c.unread ? (
+                            <span
+                              className="h-[7px] w-[7px] flex-none rounded-full bg-pink"
+                              title={`${num(c.unread)} awaiting reply`}
+                            />
+                          ) : null}
+                          {c.opted_out_at ? (
+                            <span className="rounded-[5px] bg-ink/5 px-1.5 py-[1px] font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+                              Opted out
+                            </span>
+                          ) : null}
+                          {c.status === "ended" ? (
+                            <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+                              Ended
+                            </span>
+                          ) : null}
+                        </span>
+                        {c.last_message ? (
+                          <span className="mt-0.5 block truncate text-[12.5px] text-muted">
+                            {c.last_message_direction === "outbound" ? "Emma: " : ""}
+                            {c.last_message}
+                          </span>
+                        ) : null}
                       </span>
                       {c.last_message_at ? (
-                        <span className="font-mono text-[11px] text-muted" suppressHydrationWarning>
+                        <span
+                          className="flex-none font-mono text-[11px] text-muted"
+                          suppressHydrationWarning
+                        >
                           {relTime(c.last_message_at)}
                         </span>
                       ) : null}
-                      <span className="text-[12.5px] font-medium text-violet">
+                      <span className="flex-none text-[12.5px] font-medium text-violet">
                         Open full thread →
                       </span>
                     </Link>
@@ -415,13 +463,13 @@ function BookingGroup({
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
-  const color = dmChannelColor(channel);
+  const color = channelColor(channel);
   return (
     <span
       className="inline-flex flex-none items-center rounded-[6px] px-[7px] py-[3px] font-mono text-[10px] font-bold tracking-[0.05em]"
       style={{ color, background: tint(color, 0.12) }}
     >
-      {dmChannelCode(channel)}
+      {channelCode(channel)}
     </span>
   );
 }
