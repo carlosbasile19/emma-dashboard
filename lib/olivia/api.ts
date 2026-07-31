@@ -1,6 +1,7 @@
 import "server-only";
 import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } from "./client";
 import { fullName } from "@/lib/format";
+import { byRecencyDesc } from "@/lib/threads";
 import type {
   Agent,
   CalendarResponse,
@@ -16,6 +17,7 @@ import type {
   Outcomes,
   Overview,
   PipelinesResponse,
+  ThreadMessage,
   Timeseries,
 } from "@/lib/types";
 
@@ -206,9 +208,13 @@ export async function getLeadDirectory(
   return dir;
 }
 
+/** `lead_id` returns the lead's WHOLE history — the from/to window is not applied when set. */
+export type ConversationsParams = DateParams &
+  PageParams & { channel?: string; lead_id?: string };
+
 export async function getConversations(
   clientId: string,
-  params: DateParams & PageParams,
+  params: ConversationsParams,
   h: Hints = {},
 ): Promise<ListResponse<Conversation>> {
   const r = await oliviaFetch<{
@@ -220,6 +226,7 @@ export async function getConversations(
   const items: Conversation[] = (r.conversations ?? []).map((c) => ({
     ...(c as unknown as Conversation),
     summary: flatText(c.summary),
+    last_message: flatText(c.last_message),
   }));
   return { items, total: r.total, page: r.page, limit: r.limit };
 }
@@ -269,7 +276,12 @@ export async function getLeadDetail(
       callback_notes: flatText(c.callback_notes),
     })),
     bookings: r.bookings ?? [],
-    conversations: r.conversations ?? [],
+    // Every message-bearing channel (sms, chat/DM, email, imessage); voice is excluded
+    // upstream. Newest activity first so the page can preview the live thread without
+    // depending on upstream ordering.
+    conversations: (r.conversations ?? [])
+      .map((c) => ({ ...c, last_message: flatText((c as { last_message?: unknown }).last_message) }))
+      .sort((a, b) => byRecencyDesc(a.last_message_at, b.last_message_at)),
   };
 }
 
@@ -311,19 +323,33 @@ export async function getDmThreads(
   return { items, total: r.total, page: r.page, limit: r.limit };
 }
 
-/** Full thread — messages oldest-first (latest N; default 100, max 500). When the key lacks
- *  dashboard:pii, `messages` comes back `[]` with `locked: true`. */
+/**
+ * Full thread for ANY channel including SMS — `/dm-threads` is the DM-only surface, this is not.
+ * Messages come back oldest-first (latest N; default 100, max 500). `before` is an ISO-8601
+ * cursor: pass the oldest timestamp you hold to page backwards (unparseable → 400
+ * invalid_request). When the key lacks dashboard:pii, `messages` is `[]` with `locked: true`
+ * and `total`/`has_more` are OMITTED — absent means unknown, not zero, so they stay undefined
+ * here rather than being defaulted.
+ */
 export async function getConversationThread(
   clientId: string,
   conversationId: string,
-  params: { limit?: number } = {},
+  params: { limit?: number; before?: string } = {},
   h: Hints = {},
 ): Promise<ConversationThread> {
-  const r = await oliviaFetch<ConversationThread>(
+  const r = await oliviaFetch<ConversationThread & { messages?: Array<Record<string, unknown>> }>(
     `${ANALYTICS}/clients/${cid(clientId)}/conversations/${encodeURIComponent(conversationId)}`,
     { params: params as QueryParams, ...h },
   );
-  return { ...r, messages: r.messages ?? [] };
+  const messages = (r.messages ?? []).map((m) => ({
+    ...(m as unknown as ThreadMessage),
+    text: flatText(m.text) ?? "",
+    // `from` is the shipped field; derive it from `direction` if a future revision drops it.
+    from:
+      (m.from as "agent" | "lead" | undefined) ??
+      (m.direction === "inbound" ? "lead" : "agent"),
+  }));
+  return { ...r, messages };
 }
 
 // ---- Agency clients cost (console) ----
