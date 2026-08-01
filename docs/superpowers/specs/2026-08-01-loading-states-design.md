@@ -155,14 +155,23 @@ itself. Any change that flips one of these files to `"use client"` is a mistake 
 
 ### Console skeletons
 
-Six `loading.tsx` files. The console views share one shape — heading + subtitle, then a hero or
-stat band, then rows — so this is **three** new `SkeletonVariant`s, not six:
+Six `loading.tsx` files over **five** new `SkeletonVariant`s:
 
-| Variant | Routes |
-|---|---|
-| `console` | `/console`, `/console/team`, `/console/invites`, `/console/clients/[id]` |
-| `console-table` | `/console/clients` |
-| `console-usage` | `/console/usage` (period picker + tiles + two tables) |
+| Variant | Routes | Shape |
+|---|---|---|
+| `console` | `/console` | 1100px, hero, stat grid, rows |
+| `console-detail` | `/console/clients/[id]` | 1000px, back-link, hero, stats, cards |
+| `console-plain` | `/console/team`, `/console/invites` | 1000px, **no hero**, stat/form band, rows |
+| `console-table` | `/console/clients` | 1000px, head + sync button, table rows |
+| `console-usage` | `/console/usage` | period picker + range form, tiles, two tables |
+
+**This started as three variants and was wrong.** The first draft assumed the console views shared
+one shape — heading, then a hero, then rows — and reused a single `console` variant across four
+routes. They don't share it: `TeamView.tsx:20` and `InvitesView.tsx:23` have **no hero**, and three
+of the four are `max-w-[1000px]` against the variant's `1100px`. That skeleton would have dropped
+~208px vertically and reflowed 100px sideways the instant real content landed — the precise defect
+this whole feature exists to remove. Caught in review, confirmed against the view files, split by
+ruling. A skeleton that lies about the shape of what's coming is worse than no skeleton.
 
 ## Deliberate behavior changes
 

@@ -826,7 +826,15 @@ Closes the biggest hole: six routes that currently render nothing until their da
 
 **Interfaces:**
 - Consumes: `PendingNavProvider`, `PendingContent`, `RouteProgress` (Task 2).
-- Produces: `SkeletonVariant` gains `"console" | "console-table" | "console-usage"`.
+- Produces: `SkeletonVariant` gains `"console" | "console-detail" | "console-plain" | "console-table" | "console-usage"`.
+
+> **AMENDED DURING EXECUTION.** Step 1 below originally specified a single `console` variant
+> shared by `/console`, `/console/team`, `/console/invites`, and `/console/clients/[id]`. Review
+> caught that those views do not share a shape — `TeamView.tsx:20` and `InvitesView.tsx:23` have
+> no hero, and three of the four are `max-w-[1000px]` not `1100px` — so the shared skeleton would
+> have caused a ~208px vertical jump and a 100px horizontal reflow. Split by human ruling into
+> `console` (1100px + hero, `/console` only), `console-detail` (1000px + back-link + hero,
+> `clients/[id]`), and `console-plain` (1000px, no hero, `team` + `invites`). Shipped in c0d2b1b.
 
 - [ ] **Step 1: Add the three variants**
 
@@ -1476,7 +1484,8 @@ Checked against the spec:
 - `SlowNotice` outside the inert wrapper → enforced in Task 2 Step 4 and verified in Final Verification
 - Header filters → Task 3 · LeadsTable search/filters/paging/row-click → Task 4
 - Sidebar `useLinkStatus` dots, both sidebars → Task 5
-- Six console `loading.tsx` + three Skeleton variants + console provider → Task 6
+- Six console `loading.tsx` + Skeleton variants + console provider → Task 6 (amended during
+  execution from three variants to five — see the note in Task 6)
 - Twelve server-action forms via `useFormStatus` → Task 7 (ten via `SubmitButton`, the two
   icon-only sign-outs with a tooltip, `WorkspaceSwitcher` via a `useFormStatus` child because it
   has no submit button)
