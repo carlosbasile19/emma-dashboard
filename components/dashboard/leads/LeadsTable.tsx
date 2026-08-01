@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
+import { useNavigate } from "@/components/ui/states/PendingNav";
 import { Badge } from "@/components/ui/Badge";
 import { EMPTY_COPY, LEADS_SEARCH_EMPTY } from "@/lib/copy";
 import { fmtEnum, fullName, num, relTime } from "@/lib/format";
@@ -41,6 +42,7 @@ export function LeadsTable({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const navigate = useNavigate();
 
   // The query string of the last URL *this component* asked for, or null once the server has
   // caught up. `window.location` is NOT a safe base to compose onto: Next only rewrites it
@@ -74,9 +76,9 @@ export function LeadsTable({
       }
       const qs = next.toString();
       pendingSearchRef.current = qs ? `?${qs}` : "";
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      navigate(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
     },
-    [pathname, router],
+    [navigate, pathname, router],
   );
 
   const setQuery = useCallback((v: string) => setParam({ q: v, page: null }), [setParam]);
@@ -170,7 +172,9 @@ export function LeadsTable({
             return (
               <div
                 key={r.id}
-                onClick={() => router.push(`/dashboard/leads/${encodeURIComponent(r.id)}`)}
+                onClick={() =>
+                  navigate(() => router.push(`/dashboard/leads/${encodeURIComponent(r.id)}`))
+                }
                 className={`grid ${COLS} cursor-pointer items-center gap-3 border-b border-lavender px-[22px] py-3.5 hover:bg-lavender ${
                   i % 2 ? "bg-lavender/40" : "bg-white"
                 }`}
