@@ -162,6 +162,11 @@ the agency opened, cells are that client's spend for that month in that client's
 Row totals give client lifetime; column totals give the agency's month. Cells before a client's
 `opened_at` are blank. This is the true-up.
 
+The fetched span is **independent of the selected period**: it always runs from the earliest
+workspace opening through at least today (`reportSpan`). Tying it to the period hid later months
+— viewing July dropped the August column while the lifetime total still counted it, so a row's
+visible cells disagreed with its own total. A month-to-date period keeps its future-dated end.
+
 Each block has its own **Export CSV** control carrying the same period.
 
 ## Components
