@@ -124,9 +124,12 @@ or on the client's local days? That determines whether your figure and ours can 
 
 - **000. Emma Test Funnel** — `01b1fb8e-2b65-4330-8f0d-ed631afa03bf`
 
-This workspace is **our internal test funnel, not a paying client**, and should carry **no
-maintenance fee**. Its usage spend (~$10.85 for July 2026) is genuine and fine to report — it's
-only the flat $300 that's wrong.
+This workspace exists **solely for reporting purposes** — it is not a client account and never
+has been, and there is no maintenance being performed on it to bill for. It should carry **no
+maintenance fee**.
+
+Its usage spend (~$10.85 for July 2026) is genuine and fine to keep reporting — it's only the
+flat $300 that's wrong.
 
 Currently it reports as roughly:
 
@@ -136,8 +139,10 @@ maintenance_cents: 30000    ($300.00)  ← should be 0
 total_cost_cents:  31085    ($310.85)
 ```
 
-Please set this workspace's maintenance rate to zero (or flag it as internal/non-billable, if
-that's the cleaner mechanism on your side).
+Please set this workspace's maintenance rate to zero. If Olivia has a workspace type or flag for
+non-billable / internal-reporting accounts, that's the better fix — it would stop the same charge
+reappearing if the plan is ever recalculated, and would apply to any future reporting workspace
+we create.
 
 **Please also confirm** whether this $300 has been included in what we've actually been billed to
 date, and for how many months — if so we'll need it credited.
