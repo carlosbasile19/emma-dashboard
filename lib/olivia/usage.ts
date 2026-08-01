@@ -5,13 +5,16 @@ import {
   monthsBetween,
   monthTotals,
   padWindow,
+  reportSpan,
   seriesMatchesWindow,
   sumRange,
   yearChunks,
   type DailySpend,
   type MonthKey,
-  type UsageCell,
+  type UsageRow,
 } from "@/lib/usage";
+
+export type { UsageRow };
 import * as api from "./api";
 import { listAgencyClients, type AgencyClient } from "./agency";
 import { cachedFetch, TIERS } from "./cache";
@@ -166,26 +169,28 @@ export function openedMonth(client: AgencyClient): MonthKey | null {
 }
 
 /**
- * The full report: every agency client's daily spend from the earliest workspace opening through
- * `to`, so both the selected period and the whole history matrix are served from one fetch per
- * client rather than one per client per month.
+ * The full report: every agency client's daily spend across the whole reportable span, so both
+ * the selected period and the entire history matrix are served from one fetch per client rather
+ * than one per client per month.
  *
- * `to` bounds the fetch; `from` only widens it (a custom range reaching further back than the
- * default history start must still be covered).
+ * The span always reaches back to the earliest workspace opening and forward to at least today
+ * (see `reportSpan`) — independent of which period is selected, so the matrix's columns always
+ * reconcile with its lifetime totals.
  */
-export async function getUsageReport(from: string, to: string): Promise<UsageReport> {
+export async function getUsageReport(
+  period: { from: string; to: string },
+  today: string,
+): Promise<UsageReport> {
   await requireAdmin();
   const clients = await listAgencyClients();
 
-  // History starts at the earliest opening we know of; unknown openings fall back to the
-  // requested window so those clients are still covered.
   const openings = clients.map((c) => c.openedAt?.slice(0, 10)).filter((d): d is string => !!d);
-  const historyStart = [from, ...openings].sort()[0] ?? from;
+  const span = reportSpan(period, openings, today);
 
   const results = await Promise.all(
     clients.map(async (client): Promise<ClientUsage> => {
       const tz = billingTz(client);
-      return { client, tz, series: await getUsageSeries(client.id, tz, historyStart, to) };
+      return { client, tz, series: await getUsageSeries(client.id, tz, span.from, span.to) };
     }),
   );
 
@@ -194,24 +199,13 @@ export async function getUsageReport(from: string, to: string): Promise<UsageRep
     failed: results.filter((r) => r.series === null).map((r) => r.client.name),
     basis: SOURCE_BASIS,
     currency: SOURCE_CURRENCY,
-    months: monthsBetween(historyStart, to),
+    months: monthsBetween(span.from, span.to),
   };
 }
 
 /** One client's spend for a window, or `null` when their data could not be loaded. */
 export function periodTotal(usage: ClientUsage, from: string, to: string): number | null {
   return usage.series ? sumRange(usage.series.daily, from, to) : null;
-}
-
-/** One rendered line: the selected period plus that client's whole month history. */
-export interface UsageRow {
-  id: string;
-  name: string;
-  tz: string;
-  periodCents: number | null;
-  monthCells: UsageCell[];
-  /** Lifetime across the loaded history; null when the client failed to load. */
-  lifetimeCents: number | null;
 }
 
 /** Shared by the page and the CSV export so a downloaded file always matches the screen. */

@@ -313,6 +313,23 @@ export function resolveUsagePeriod(
   return asMonth(lastCompleteMonth(today));
 }
 
+/**
+ * The span to fetch so BOTH blocks are correct from one pass.
+ *
+ * It reaches back to the earliest workspace opening (or further, if a custom range asks for it)
+ * and forward to at least today. That forward bound matters: tying the span to the selected
+ * period drops later months from the history matrix, which made a row's visible columns
+ * disagree with its own lifetime total. A month-to-date period keeps its future-dated end.
+ */
+export function reportSpan(
+  period: DateWindow,
+  openings: string[],
+  today: string,
+): DateWindow {
+  const from = [period.from, ...openings].sort()[0] ?? period.from;
+  return { from, to: period.to > today ? period.to : today };
+}
+
 // ---- CSV ----
 // This file lands in a spreadsheet that drives invoicing, so encoding is defensive:
 // a client name is user-controlled data and must never be evaluated as a formula.
@@ -372,6 +389,75 @@ export interface UsageCsvRow {
  * An unloadable client still gets a row (so nobody assumes they were simply absent) but with an
  * empty amount. Writing 0.00 there would be a number someone bills against.
  */
+/** One rendered line of the report: the selected period plus that client's month history. */
+export interface UsageRow {
+  id: string;
+  name: string;
+  tz: string;
+  periodCents: number | null;
+  monthCells: UsageCell[];
+  /** Lifetime across the loaded history; null when the client failed to load. */
+  lifetimeCents: number | null;
+}
+
+interface CsvMeta {
+  currency: string;
+  basis: string;
+}
+
+/** "This period" export: one row per client, including clients whose data failed to load. */
+export function periodCsvRows(
+  rows: UsageRow[],
+  period: UsagePeriod,
+  meta: CsvMeta,
+): UsageCsvRow[] {
+  return rows.map((r) => ({
+    clientName: r.name,
+    clientId: r.id,
+    period: `${period.from}..${period.to}`,
+    from: period.from,
+    to: period.to,
+    tz: r.tz,
+    currency: meta.currency,
+    basis: meta.basis,
+    cents: r.periodCents,
+  }));
+}
+
+/**
+ * "All history" export: one row per client per month, each carrying that month's own bounds.
+ *
+ * Months before a workspace opened produce NO row — an empty row would imply a billable period
+ * that did not exist. Unavailable months DO produce a row with an empty amount, so a gap is
+ * visible in the file rather than silently absent.
+ */
+export function historyCsvRows(
+  rows: UsageRow[],
+  months: MonthKey[],
+  meta: CsvMeta,
+): UsageCsvRow[] {
+  return rows.flatMap((r) =>
+    months.flatMap((month, i): UsageCsvRow[] => {
+      const cell = r.monthCells[i];
+      if (!cell || cell.kind === "before-open") return [];
+      const { from, to } = monthBounds(month);
+      return [
+        {
+          clientName: r.name,
+          clientId: r.id,
+          period: month,
+          from,
+          to,
+          tz: r.tz,
+          currency: meta.currency,
+          basis: meta.basis,
+          cents: cell.kind === "value" ? cell.cents : null,
+        },
+      ];
+    }),
+  );
+}
+
 export function usageCsv(rows: UsageCsvRow[]): string {
   return toCsv(
     [...USAGE_CSV_HEADERS],

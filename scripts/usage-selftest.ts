@@ -4,6 +4,8 @@ import {
   cell,
   centsToMoneyExact,
   centsToUsd,
+  historyCsvRows,
+  periodCsvRows,
   csvRow,
   lastCompleteMonth,
   monthBounds,
@@ -12,6 +14,7 @@ import {
   monthsBetween,
   monthTotals,
   padWindow,
+  reportSpan,
   resolveUsagePeriod,
   shiftDay,
   seriesMatchesWindow,
@@ -298,6 +301,102 @@ const SERIES: DailySpend[] = [
     month: "2026-08",
     label: "Aug 2026",
   });
+
+  // ---- reportSpan: history must always reach the current month ----
+  // Tying the fetch span to the selected period drops later months from the matrix: viewing
+  // July hid August, so SOLVI's row read $161.54 + $677.91 against a $931.25 lifetime. Columns
+  // that don't reconcile with their own row total are unusable for a true-up.
+  const OPENINGS = ["2026-06-11", "2026-06-04", "2026-07-20"];
+  assert.deepEqual(
+    reportSpan({ from: "2026-07-01", to: "2026-07-31" }, OPENINGS, "2026-08-01"),
+    { from: "2026-06-04", to: "2026-08-01" },
+  );
+  // Selecting the CURRENT month keeps its future-dated end (month-to-date is intentional).
+  assert.deepEqual(
+    reportSpan({ from: "2026-08-01", to: "2026-08-31" }, OPENINGS, "2026-08-01"),
+    { from: "2026-06-04", to: "2026-08-31" },
+  );
+  // A custom range reaching back before any opening widens the span rather than being clipped.
+  assert.deepEqual(
+    reportSpan({ from: "2026-01-15", to: "2026-02-15" }, OPENINGS, "2026-08-01"),
+    { from: "2026-01-15", to: "2026-08-01" },
+  );
+  // No known openings: fall back to the requested window, still through today.
+  assert.deepEqual(reportSpan({ from: "2026-07-01", to: "2026-07-31" }, [], "2026-08-01"), {
+    from: "2026-07-01",
+    to: "2026-08-01",
+  });
+
+  // ---- periodCsvRows / historyCsvRows: what the export route actually writes ----
+  const META = { currency: "usd", basis: "billed_voice" };
+  const VIEW_MONTHS = ["2026-06", "2026-07", "2026-08"];
+  const VIEW_ROWS = [
+    {
+      id: "solvi",
+      name: "001. SOLVI",
+      tz: "Australia/Brisbane",
+      periodCents: 67791,
+      lifetimeCents: 93125,
+      monthCells: [
+        { kind: "value", cents: 16154 },
+        { kind: "value", cents: 67791 },
+        { kind: "value", cents: 9180 },
+      ],
+    },
+    {
+      id: "fbc",
+      name: "002. Freedom Boat Club",
+      tz: "Australia/Sydney",
+      periodCents: 3928,
+      lifetimeCents: 4414,
+      // Opened in July — June predates the workspace.
+      monthCells: [
+        { kind: "before-open" },
+        { kind: "value", cents: 3928 },
+        { kind: "value", cents: 486 },
+      ],
+    },
+    {
+      id: "broken",
+      name: "003. Unreachable",
+      tz: "UTC",
+      periodCents: null,
+      lifetimeCents: null,
+      monthCells: [{ kind: "unavailable" }, { kind: "unavailable" }, { kind: "unavailable" }],
+    },
+  ] as const;
+
+  const periodRows = periodCsvRows(
+    VIEW_ROWS as never,
+    { from: "2026-07-01", to: "2026-07-31", month: "2026-07", label: "Jul 2026" },
+    META,
+  );
+  assert.equal(periodRows.length, 3); // one per client, including the unreachable one
+  assert.equal(periodRows[0]?.period, "2026-07-01..2026-07-31");
+  assert.equal(periodRows[2]?.cents, null); // unreachable exports blank, not 0
+
+  const historyRows = historyCsvRows(VIEW_ROWS as never, VIEW_MONTHS, META);
+  // 3 SOLVI + 2 FBC (June is before it opened, so no row at all) + 3 unreachable = 8
+  assert.equal(historyRows.length, 8);
+  assert.ok(
+    !historyRows.some((r) => r.clientId === "fbc" && r.period === "2026-06"),
+    "a month before the workspace opened must produce NO row — an empty one implies a billable period",
+  );
+  // Each history row carries that month's real bounds, not the selected period's.
+  const july = historyRows.find((r) => r.clientId === "solvi" && r.period === "2026-07");
+  assert.deepEqual(
+    { from: july?.from, to: july?.to, cents: july?.cents },
+    { from: "2026-07-01", to: "2026-07-31", cents: 67791 },
+  );
+  const june = historyRows.find((r) => r.clientId === "solvi" && r.period === "2026-06");
+  assert.equal(june?.to, "2026-06-30"); // 30 days, not 31
+  // Unreachable months still get rows, so their absence is visible rather than silent.
+  assert.equal(historyRows.filter((r) => r.clientId === "broken").length, 3);
+  assert.ok(historyRows.filter((r) => r.clientId === "broken").every((r) => r.cents === null));
+  // And the rendered file never shows a zero for them.
+  const historyCsvText = usageCsv(historyRows);
+  assert.ok(historyCsvText.includes("003. Unreachable,broken,2026-07,2026-07-01,2026-07-31,UTC,usd,billed_voice,\r\n")
+    || historyCsvText.endsWith("003. Unreachable,broken,2026-08,2026-08-01,2026-08-31,UTC,usd,billed_voice,"));
 
   // ---- usageCsv: an unavailable client must export blank, never 0.00 ----
   const csv = usageCsv([

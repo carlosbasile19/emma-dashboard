@@ -1,11 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { buildUsageRows, getUsageReport } from "@/lib/olivia/usage";
-import {
-  monthBounds,
-  resolveUsagePeriod,
-  usageCsv,
-  type UsageCsvRow,
-} from "@/lib/usage";
+import { historyCsvRows, periodCsvRows, resolveUsagePeriod, usageCsv } from "@/lib/usage";
 
 /**
  * CSV export for the usage report. Admin-only, same data as the screen.
@@ -28,43 +23,13 @@ export async function GET(request: Request) {
   const period = resolveUsagePeriod({ month: p("month"), from: p("from"), to: p("to") }, today);
   const history = p("view") === "history";
 
-  const report = await getUsageReport(period.from, period.to);
+  const report = await getUsageReport(period, today);
   const rows = buildUsageRows(report, period);
 
-  const csvRows: UsageCsvRow[] = history
-    ? rows.flatMap((r) =>
-        report.months.flatMap((month, i): UsageCsvRow[] => {
-          const cell = r.monthCells[i];
-          // A month before the workspace opened produces no row at all — an empty row would
-          // imply a billable period that did not exist.
-          if (!cell || cell.kind === "before-open") return [];
-          const { from, to } = monthBounds(month);
-          return [
-            {
-              clientName: r.name,
-              clientId: r.id,
-              period: month,
-              from,
-              to,
-              tz: r.tz,
-              currency: report.currency,
-              basis: report.basis,
-              cents: cell.kind === "value" ? cell.cents : null,
-            },
-          ];
-        }),
-      )
-    : rows.map((r) => ({
-        clientName: r.name,
-        clientId: r.id,
-        period: `${period.from}..${period.to}`,
-        from: period.from,
-        to: period.to,
-        tz: r.tz,
-        currency: report.currency,
-        basis: report.basis,
-        cents: r.periodCents,
-      }));
+  const meta = { currency: report.currency, basis: report.basis };
+  const csvRows = history
+    ? historyCsvRows(rows, report.months, meta)
+    : periodCsvRows(rows, period, meta);
 
   const slug = history ? `history-to-${period.to}` : `${period.from}_${period.to}`;
   return new Response(usageCsv(csvRows), {

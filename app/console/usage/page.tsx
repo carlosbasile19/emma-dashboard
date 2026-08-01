@@ -25,9 +25,9 @@ export default async function UsagePage({
     today,
   );
 
-  // One fetch per client covers both blocks: the report spans the whole history, and the
-  // selected period is summed out of the same daily rows.
-  const report = await getUsageReport(period.from, period.to);
+  // One fetch per client covers both blocks: the report spans the whole history (always through
+  // today, whatever period is selected), and the period is summed out of the same daily rows.
+  const report = await getUsageReport(period, today);
   const rows = buildUsageRows(report, period);
 
   const currentMonth: MonthKey = today.slice(0, 7);
