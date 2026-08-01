@@ -3,6 +3,10 @@ import { Suspense, type ReactNode } from "react";
 import { signOut } from "@/app/auth/actions";
 import { Header, type CampaignOption } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { PendingContent } from "@/components/ui/states/PendingContent";
+import { PendingNavProvider } from "@/components/ui/states/PendingNav";
+import { RouteProgress } from "@/components/ui/states/RouteProgress";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { AuthError, getWorkspace } from "@/lib/auth";
 import { fetchCampaigns } from "@/lib/olivia/service";
 
@@ -33,22 +37,37 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <div className="flex min-h-screen">
       <Sidebar workspace={ws} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Suspense
-          fallback={
-            <div className="sticky top-0 z-20 h-[57px] border-b border-ink/10 bg-warm/85 backdrop-blur-[10px]" />
-          }
-        >
-          <Header
-            workspaceName={ws.name}
-            campaignOptions={campaignOptions}
-            isAdmin={ws.isAdmin}
-            clients={ws.clients}
-            activeClientId={ws.clientId}
-          />
-        </Suspense>
-        <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">{children}</main>
-      </div>
+      {/* The provider must enclose BOTH the Header (which starts the wait) and <main> (which
+          reflects it). Sidebar stays outside — its links change route segment, so they're
+          covered by loading.tsx and a local useLinkStatus dot instead. */}
+      <PendingNavProvider>
+        <RouteProgress />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Suspense
+            fallback={
+              <div className="sticky top-0 z-20 h-[57px] border-b border-ink/10 bg-warm/85 backdrop-blur-[10px]" />
+            }
+          >
+            <Header
+              workspaceName={ws.name}
+              campaignOptions={campaignOptions}
+              isAdmin={ws.isAdmin}
+              clients={ws.clients}
+              activeClientId={ws.clientId}
+            />
+          </Suspense>
+          {/* Header sits outside PendingContent, so its range/campaign controls stay live and you
+              can always change your mind mid-load. That is NOT true of a page's own in-page
+              filter controls (the leads search/selects, the log tab switcher, the calendar month
+              nav) — those render as part of `{children}`, so they ARE dimmed and `inert` during a
+              load like everything else in <main>. PendingContent restores focus to whatever was
+              focused inside it once the wait clears (see the focusin listener there), which is
+              what keeps typing in the leads search usable across a multi-second commit. */}
+          <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">
+            <PendingContent>{children}</PendingContent>
+          </main>
+        </div>
+      </PendingNavProvider>
     </div>
   );
 }
@@ -68,9 +87,12 @@ function NoWorkspace() {
         finish provisioning, then sign in again.
       </p>
       <form action={signOut}>
-        <button className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-5 py-[11px] text-sm font-medium text-ink hover:bg-lavender">
+        <SubmitButton
+          pendingLabel="Signing out…"
+          className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-5 py-[11px] text-sm font-medium text-ink hover:bg-lavender"
+        >
           Sign out
-        </button>
+        </SubmitButton>
       </form>
     </main>
   );

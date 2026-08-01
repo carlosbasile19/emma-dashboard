@@ -162,3 +162,36 @@ body {
   border-radius: 99px;
   border: 3px solid var(--color-warm);
 }
+
+/* Indeterminate sweep for the top pending bar (see components/ui/states/RouteProgress.tsx) */
+@keyframes route-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+.route-progress-sweep {
+  animation: route-progress-sweep 1.1s ease-in-out infinite;
+}
+
+/*
+ * Feedback must never depend on animation. With motion reduced, the bar becomes a static filled
+ * strip and skeletons become flat blocks — both still clearly "not the real thing", just still.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .route-progress-sweep {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+  .shimmer {
+    animation: none;
+  }
+  /* NavPendingDot uses Tailwind's animate-pulse; feedback must never depend on animation, and
+     the dot stays visible (just static) either way — this is the point, not a compromise. */
+  .animate-pulse {
+    animation: none;
+  }
+}

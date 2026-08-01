@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
+import { useNavigate } from "@/components/ui/states/PendingNav";
 import { NAV_ITEMS, SCREEN_TITLES, type NavKey } from "@/lib/design";
 import type { WorkspaceClient } from "@/lib/types";
 
@@ -45,6 +46,7 @@ export function Header({
     pathname.startsWith("/dashboard/trends") || pathname.startsWith("/dashboard/calendar");
   const router = useRouter();
   const params = useSearchParams();
+  const navigate = useNavigate();
 
   const range = params.get("range") ?? "30d";
   const campaign = params.get("campaign") ?? "all";
@@ -60,9 +62,9 @@ export function Header({
       // Page changes reset on a new filter selection.
       next.delete("page");
       const qs = next.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      navigate(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
     },
-    [params, pathname, router],
+    [navigate, params, pathname, router],
   );
 
   return (

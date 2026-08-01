@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { ChatDrawer } from "@/components/dashboard/log/ChatDrawer";
 import { Badge } from "@/components/ui/Badge";
+import { useNavigate } from "@/components/ui/states/PendingNav";
 import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { tint } from "@/lib/design";
 import { num, relTime, secToMMSS, shortId } from "@/lib/format";
@@ -37,6 +38,7 @@ export function LogView({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<Call | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId);
 
@@ -48,9 +50,9 @@ export function LogView({
         else next.set(k, v);
       }
       const qs = next.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      navigate(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
     },
-    [params, pathname, router],
+    [navigate, params, pathname, router],
   );
 
   return (

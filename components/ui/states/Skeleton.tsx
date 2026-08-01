@@ -6,10 +6,26 @@ export type SkeletonVariant =
   | "calendar"
   | "campaigns"
   | "table"
-  | "board";
+  | "board"
+  | "console"
+  | "console-detail"
+  | "console-plain"
+  | "console-table"
+  | "console-usage";
 
 function Block({ className }: { className?: string }) {
   return <div className={`shimmer rounded-[8px] ${className ?? ""}`} />;
+}
+
+// Every console view opens with a 26-34px heading and a muted subtitle, so all five console
+// variants share this head rather than repeating it.
+function ConsoleHead() {
+  return (
+    <>
+      <Block className="mb-2.5 h-[30px] w-[260px] rounded-[10px]" />
+      <Block className="mb-6 h-[16px] w-[420px] max-w-full rounded-[8px]" />
+    </>
+  );
 }
 
 // Per-view loading skeletons (design `SHARED: SKELETON`).
@@ -91,6 +107,93 @@ export function Skeleton({ variant }: { variant: SkeletonVariant }) {
               ))}
             </div>
           ))}
+        </div>
+      );
+    case "console":
+      return (
+        <div className="mx-auto max-w-[1100px]">
+          <ConsoleHead />
+          <Block className="mb-7 h-[180px] rounded-[18px]" />
+          <div className="mb-7 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Block key={i} className="h-[86px] rounded-[13px]" />
+            ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Block key={i} className="h-[74px] rounded-[14px]" />
+            ))}
+          </div>
+        </div>
+      );
+    case "console-detail":
+      return (
+        <div className="mx-auto max-w-[1000px]">
+          <Block className="mb-4 h-[16px] w-[90px] rounded-[6px]" />
+          <ConsoleHead />
+          <Block className="mb-7 h-[180px] rounded-[18px]" />
+          <div className="mb-7 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Block key={i} className="h-[86px] rounded-[13px]" />
+            ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Block key={i} className="h-[74px] rounded-[14px]" />
+            ))}
+          </div>
+        </div>
+      );
+    case "console-plain":
+      return (
+        <div className="mx-auto max-w-[1000px]">
+          <ConsoleHead />
+          <div className="mb-7 grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Block key={i} className="h-[86px] rounded-[13px]" />
+            ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Block key={i} className="h-[74px] rounded-[14px]" />
+            ))}
+          </div>
+        </div>
+      );
+    case "console-table":
+      return (
+        <div className="mx-auto max-w-[1100px]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <ConsoleHead />
+            </div>
+            {/* "Sync from Emma" button, inline with the heading in ClientsTable.tsx */}
+            <Block className="h-[30px] w-[132px] flex-none rounded-[10px]" />
+          </div>
+          <div className="rounded-[16px] border border-ink/10 bg-white p-2">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Block key={i} className="m-1.5 h-[46px]" />
+            ))}
+          </div>
+        </div>
+      );
+    case "console-usage":
+      return (
+        <div className="mx-auto max-w-[1100px]">
+          <ConsoleHead />
+          {/* period picker */}
+          <div className="mb-6 rounded-[16px] border border-ink/10 bg-white px-[18px] py-4">
+            <Block className="mb-2.5 h-[12px] w-[60px] rounded-[6px]" />
+            <div className="mb-3.5 flex flex-wrap gap-1.5">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Block key={i} className="h-[30px] w-[92px] rounded-[9px]" />
+              ))}
+            </div>
+            {/* From / To / Apply range form row */}
+            <Block className="h-[44px] w-[360px] max-w-full rounded-[9px]" />
+          </div>
+          <Block className="mb-6 h-[300px] rounded-[16px]" />
+          <Block className="h-[260px] rounded-[16px]" />
         </div>
       );
     default:

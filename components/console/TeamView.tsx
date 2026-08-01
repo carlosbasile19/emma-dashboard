@@ -1,5 +1,6 @@
 import { createTeamInvite, revokeInvite } from "@/app/console/actions";
 import { CopyButton } from "@/components/ui/CopyButton";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { relTime } from "@/lib/format";
 import type { InviteRow, TeamMember } from "@/lib/olivia/agency";
 
@@ -48,12 +49,12 @@ export function TeamView({
             className="w-full rounded-[10px] border border-ink/10 bg-white px-3 py-2 font-display text-[13px] text-ink placeholder:text-muted/60"
           />
         </div>
-        <button
-          type="submit"
+        <SubmitButton
+          pendingLabel="Inviting…"
           className="bg-gradient-brand rounded-[10px] px-4 py-2 font-display text-[13px] font-semibold text-white transition-transform active:scale-95"
         >
           Invite teammate
-        </button>
+        </SubmitButton>
       </form>
       <div className="-mt-4 mb-7 font-mono text-[11.5px] text-muted">
         Teammates get <span className="text-violet">admin</span> access (console + all clients).
@@ -87,12 +88,12 @@ export function TeamView({
                     <form action={revokeInvite}>
                       <input type="hidden" name="id" value={inv.id} />
                       <input type="hidden" name="returnTo" value="/console/team" />
-                      <button
-                        type="submit"
+                      <SubmitButton
+                        pendingLabel="Revoking…"
                         className="rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-danger transition-colors hover:bg-danger/8"
                       >
                         Revoke
-                      </button>
+                      </SubmitButton>
                     </form>
                   </div>
                   <div className="mt-3 flex items-center gap-2">

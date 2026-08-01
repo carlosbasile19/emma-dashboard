@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
+import { NavPendingDot } from "@/components/ui/states/NavPendingDot";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 
 const NAV = [
   { href: "/console", label: "Overview", key: "overview", group: "Agency" },
@@ -72,7 +74,8 @@ export function ConsoleSidebar({
                         : "font-normal text-ink hover:bg-lavender"
                     }`}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    <NavPendingDot />
                   </Link>
                 );
               })}
@@ -95,8 +98,7 @@ export function ConsoleSidebar({
           <div className="truncate text-[11px] text-muted">Agency console</div>
         </div>
         <form action={signOut}>
-          <button
-            type="submit"
+          <SubmitButton
             title="Sign out"
             className="cursor-pointer rounded-[8px] p-1.5 text-muted transition-colors hover:bg-lavender"
           >
@@ -105,7 +107,7 @@ export function ConsoleSidebar({
               <path d="M13 14l4-4-4-4" />
               <path d="M17 10H8" />
             </svg>
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </aside>
