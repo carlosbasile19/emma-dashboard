@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NavLink } from "@/components/ui/states/PendingNav";
+import { parseContentDispositionFilename } from "@/lib/content-disposition";
 
 /**
  * A month pill in the usage period picker.
@@ -54,14 +55,19 @@ export function ExportButton({ href }: { href: string }) {
       const res = await fetch(href);
       if (!res.ok) throw new Error(`export failed: ${res.status}`);
       const blob = await res.blob();
-      const name =
-        res.headers.get("content-disposition")?.match(/filename="?([^"]+)"?/)?.[1] ?? "usage.csv";
+      const name = parseContentDispositionFilename(res.headers.get("content-disposition"));
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = name;
+      // Firefox has historically required the anchor to be attached to the document for a
+      // programmatic `download` click to trigger, and revoking the object URL in the same tick
+      // as the click is a known cause of zero-byte or cancelled downloads. Chrome tolerates both
+      // shortcuts, which is why a Chrome-only manual pass wouldn't have caught this.
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
       setState("idle");
     } catch {
       setState("failed");
