@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { useNavigate } from "@/components/ui/states/PendingNav";
 import {
   addMonths,
   buildMonthGrid,
@@ -39,6 +40,7 @@ export function CalendarView({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const navigate = useNavigate();
 
   const cells = useMemo(() => buildMonthGrid(month), [month]);
   const byDay = useMemo(() => groupEventsByDay(events), [events]);
@@ -52,7 +54,7 @@ export function CalendarView({
     if (ym) next.set("month", ym);
     else next.delete("month");
     const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    navigate(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
   };
 
   const selectedEvents = byDay.get(selected) ?? [];
