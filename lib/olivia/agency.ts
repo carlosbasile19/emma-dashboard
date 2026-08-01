@@ -17,6 +17,9 @@ export interface AgencyClient {
   status: string | null;
   industry: string | null;
   timezone: string | null;
+  /** Workspace creation time from discovery. Null = unknown (row predates the column, or
+   *  upstream omitted it) — the usage report then blanks no months rather than hiding data. */
+  openedAt: string | null;
   memberCount: number;
 }
 
@@ -42,7 +45,7 @@ export async function listAgencyClients(): Promise<AgencyClient[]> {
   const [clientsRes, membersRes] = await Promise.all([
     admin
       .from("olivia_clients")
-      .select("olivia_client_id, name, status, industry, timezone")
+      .select("olivia_client_id, name, status, industry, timezone, opened_at")
       .order("name", { ascending: true }),
     admin.from("workspace_members").select("olivia_client_id"),
   ]);
@@ -61,6 +64,7 @@ export async function listAgencyClients(): Promise<AgencyClient[]> {
       status: (c.status as string | null) ?? null,
       industry: (c.industry as string | null) ?? null,
       timezone: (c.timezone as string | null) ?? null,
+      openedAt: (c.opened_at as string | null) ?? null,
       memberCount: counts.get(id) ?? 0,
     };
   });
@@ -114,6 +118,9 @@ export async function refreshAgencyClients(maxAgeSec = 600): Promise<number> {
     status: c.status ?? null,
     industry: c.industry ?? null,
     timezone: c.timezone ?? null,
+    // Drives the usage report's "before this workspace existed" blanks. Discovery is the only
+    // source for it, so it lands on the same cadence as the rest of the mirror.
+    opened_at: c.created_at ?? null,
     synced_at: new Date().toISOString(),
   }));
   await admin.from("olivia_clients").upsert(rows, { onConflict: "olivia_client_id" });
