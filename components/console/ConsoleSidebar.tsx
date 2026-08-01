@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/auth/actions";
+import { NavPendingDot } from "@/components/ui/states/NavPendingDot";
 
 const NAV = [
   { href: "/console", label: "Overview", key: "overview", group: "Agency" },
@@ -72,7 +73,8 @@ export function ConsoleSidebar({
                         : "font-normal text-ink hover:bg-lavender"
                     }`}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    <NavPendingDot />
                   </Link>
                 );
               })}

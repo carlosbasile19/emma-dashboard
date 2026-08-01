@@ -6,6 +6,7 @@ import { signOut } from "@/app/auth/actions";
 import { AgencyConsoleButton } from "@/components/dashboard/AgencyConsoleButton";
 import { LogoWordmark } from "@/components/brand/Logo";
 import { NavIcon } from "@/components/dashboard/nav-icons";
+import { NavPendingDot } from "@/components/ui/states/NavPendingDot";
 import { NAV_GROUPS, NAV_ITEMS } from "@/lib/design";
 import type { Workspace } from "@/lib/types";
 
@@ -51,6 +52,7 @@ export function Sidebar({
                   >
                     <NavIcon name={item.key} />
                     <span>{item.label}</span>
+                    <NavPendingDot />
                   </Link>
                 );
               })}

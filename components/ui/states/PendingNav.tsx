@@ -85,7 +85,9 @@ export function usePendingPhase(): PendingPhase {
  * left-click is intercepted and routed through the transition.
  *
  * For links that change route segment (the sidebars), use a plain `<Link>` with
- * `<NavPendingDot />` instead — `loading.tsx` already covers those.
+ * `<NavPendingDot />` instead — `loading.tsx` already covers those. Leads table rows are the
+ * deliberate exception: the row is a `<div onClick>`, not a `<Link>`, so there's no anchor for
+ * `NavPendingDot` to hang off — the shared transition is what's left.
  */
 export function NavLink({
   href,
