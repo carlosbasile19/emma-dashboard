@@ -89,14 +89,21 @@ never leaves `idle`.
 
 ## Architecture
 
-### Files added — `components/ui/states/`
+### Files added
 
-Alongside the existing `Skeleton.tsx` / `EmptyState.tsx` / `ErrorState.tsx`.
+**`lib/pending-phase.ts`** — the phase timeline as a pure, React-free module: the `PendingPhase`
+type, the three timing constants, `phaseFor(elapsedMs)`, and `nextPhaseChangeMs(elapsedMs)`.
+Kept out of the component so the selftest can import it in plain node, matching how
+`lib/usage.ts` is tested by `scripts/usage-selftest.ts`. `nextPhaseChangeMs` also lets the
+provider schedule exactly one timer per phase instead of polling on an interval.
 
-- **`PendingNav.tsx`** — the provider plus `useNavigate()` and `usePendingPhase()`. All four
-  timing constants live at the top of this file and nowhere else. Internally splits `navigate`
-  (stable) and `phase` (changing) into two contexts, so a control that only *triggers*
-  navigation does not re-render when the phase flips.
+**`components/ui/states/`** — alongside the existing `Skeleton.tsx` / `EmptyState.tsx` /
+`ErrorState.tsx`.
+
+- **`PendingNav.tsx`** — the provider plus `useNavigate()`, `usePendingPhase()`, and `NavLink`.
+  Internally splits `navigate` (stable) and `phase` (changing) into two contexts, so a control
+  that only *triggers* navigation does not re-render when the phase flips.
+- **`NavPendingDot.tsx`** — `useLinkStatus()` dot; must render as a `<Link>` descendant.
 - **`RouteProgress.tsx`** — 2px indeterminate bar in `--gradient-brand`, `fixed` at
   `z-50` (the sticky header is `z-20`). Renders when phase ≠ `idle`.
 - **`PendingContent.tsx`** — wraps `{children}`; applies `opacity-50` + `inert` when
@@ -120,7 +127,7 @@ Alongside the existing `Skeleton.tsx` / `EmptyState.tsx` / `ErrorState.tsx`.
 | `components/dashboard/leads/LeadsTable.tsx` | the `router.replace` inside `setParam` → `navigate(…)`; row-click `router.push` → `navigate(…)` |
 | `components/dashboard/Sidebar.tsx` | pending dot via `useLinkStatus` |
 | `components/console/ConsoleSidebar.tsx` | pending dot via `useLinkStatus` |
-| `components/console/UsageView.tsx` | period picker `<a href>` → `<Link>`; `ExportLink` → fetch-to-blob button |
+| `components/console/UsageView.tsx` | period picker `<a href>` → `NavLink`; `ExportLink` → fetch-to-blob button — both extracted into `components/console/UsageControls.tsx` (see below) |
 | 12 server-action forms (below) | submit control → `<SubmitButton>` |
 
 **The twelve forms without busy state.** Of 16 `<form>` elements, only `LoginForm` (2, via
@@ -135,6 +142,16 @@ Alongside the existing `Skeleton.tsx` / `EmptyState.tsx` / `ErrorState.tsx`.
 
 `syncClients` and `setActiveClient` are the worst offenders: both hit the Olivia API and both
 currently look like dead buttons.
+
+**Two of the twelve need a different shape.** `WorkspaceSwitcher` has no submit button at all — it
+submits via `requestSubmit()` on a `<select>` change — so it gets a `useFormStatus` child that
+disables the select rather than a `SubmitButton`. The two icon-only sign-out buttons have no room
+for a label, so their pending state is the disabled look plus a tooltip.
+
+**All eight console view files are server components.** That is fine and must stay that way: a
+server component may *render* a client component like `SubmitButton`, it just cannot call hooks
+itself. Any change that flips one of these files to `"use client"` is a mistake — see the
+`UsageView` note below for what that costs.
 
 ### Console skeletons
 
@@ -155,9 +172,20 @@ Two changes go slightly beyond "add loading feedback". Both were raised and appr
    route handler, no router transition ever fires, so no pending state is observable. Buffering
    is acceptable because a usage CSV is one month of rows. The existing comment explaining the
    anchor choice gets rewritten, not silently contradicted.
-2. **The usage period picker becomes a `<Link>`.** It is currently a plain `<a href>`, so
-   switching months triggers a **full page reload** — white flash, whole app re-downloaded. As a
-   soft navigation it inherits the bar and dim for free.
+2. **The usage period picker becomes a `NavLink`.** It is currently a plain `<a href>`, so
+   switching months triggers a **full page reload** — white flash, whole app re-downloaded.
+   A plain `<Link>` would fix the reload but earn no feedback: switching month is a *same-segment*
+   param change, so `loading.tsx` never fires for it and Next's internal navigation never touches
+   our transition. `NavLink` renders a real anchor (middle-click and open-in-new-tab keep working)
+   but routes unmodified left-clicks through `navigate()`, so it behaves exactly like the Header's
+   range pills — which are the same kind of control.
+
+   **`UsageView` must stay a server component while this happens.** `app/console/usage/page.tsx`
+   passes it `exportHref` and `monthHref` as *functions*, which is only legal server-to-server —
+   functions cannot be serialized to a client component. Putting `useState` in `UsageView` would
+   force it client-side and break that prop contract, cascading into a page rewrite. Both controls
+   are therefore extracted into `components/console/UsageControls.tsx` as small client islands
+   taking plain string props; the table stays server-rendered and the page is untouched.
 
 ## Error handling
 
