@@ -80,9 +80,16 @@ never leaves `idle`.
   The top bar and the dim do **not** engage for sidebar navigation — the skeleton already
   replaces the whole view, and stacking a bar and a dim on top of it would be three signals for
   one wait. `useLinkStatus` stays local to the link; it does not feed the shared phase.
-- **The filter controls stay live while pending.** `PendingContent` wraps `{children}` only, so
-  `Header` is never dimmed or made `inert`. Changing your mind mid-load (tapping 90d while 7d is
-  still resolving) must always be possible.
+- **The Header stays live while pending; a page's own filter controls do not.** `PendingContent`
+  wraps `{children}` only, so `Header`'s range/campaign controls are never dimmed or made
+  `inert` — changing your mind mid-load (tapping 90d while 7d is still resolving) is always
+  possible there. That is NOT true of a page's own in-page filter controls (the leads
+  search/selects, the log tab switcher, the calendar month nav): those render *inside*
+  `{children}`, so they ARE dimmed and `inert` like the rest of the content while a wait is in
+  flight. `PendingContent` restores focus to whatever was focused inside it once the wait clears,
+  which is what keeps the leads search usable across a multi-second commit rather than
+  permanently blurred. Exempting in-page controls from the dim, so they behave like the Header,
+  is deferred work.
 - **Console routes:** each of the six gets a skeleton matched to its layout.
 - **Server-action forms:** the submit control disables and swaps its label while in flight.
 - **CSV export:** the button shows a busy state for the real duration of the fetch.
@@ -108,9 +115,17 @@ provider schedule exactly one timer per phase instead of polling on an interval.
   `z-50` (the sticky header is `z-20`). Renders when phase ≠ `idle`.
 - **`PendingContent.tsx`** — wraps `{children}`; applies `opacity-50` + `inert` when
   phase ≠ `idle`. `inert` (not `pointer-events-none`) so stale content also leaves the tab order
-  and the accessibility tree.
+  and the accessibility tree. Also tracks the last-focused element inside the wrapper via a
+  continuous `focusin` listener — not a `busy`-keyed read of `document.activeElement`, which
+  would run after the browser's focus-fixup had already moved focus to `<body>` — and restores
+  it once `busy` clears, if focus is still sitting on `<body>` and the element is still
+  connected. This is what keeps an in-page control like the leads search input usable across a
+  wait instead of permanently blurred.
 - **`SlowNotice.tsx`** — escalation copy in an `aria-live="polite"` region; Retry renders only
-  at `stuck`.
+  at `stuck`. The `role="status"` wrapper itself is always mounted — only its content (and, when
+  idle, its `sr-only` visibility) is gated on phase — because a live region that is registered
+  and populated in the same mutation is commonly missed by screen readers; mounting it empty
+  first is what makes the eventual announcement reliable.
 - **`SubmitButton.tsx`** — `useFormStatus()`-driven submit control for server-action forms.
 
 ### Mount points
@@ -125,6 +140,8 @@ provider schedule exactly one timer per phase instead of polling on an interval.
 |---|---|
 | `components/dashboard/Header.tsx` | range + campaign `router.replace` → `navigate(…)` |
 | `components/dashboard/leads/LeadsTable.tsx` | the `router.replace` inside `setParam` → `navigate(…)`; row-click `router.push` → `navigate(…)` |
+| `components/dashboard/log/LogView.tsx` | the `router.replace` inside `setParam` (tab switch, call paging) → `navigate(…)` |
+| `components/dashboard/calendar/CalendarView.tsx` | the `router.replace` inside `gotoMonth` (month nav) → `navigate(…)` |
 | `components/dashboard/Sidebar.tsx` | pending dot via `useLinkStatus` |
 | `components/console/ConsoleSidebar.tsx` | pending dot via `useLinkStatus` |
 | `components/console/UsageView.tsx` | period picker `<a href>` → `NavLink`; `ExportLink` → fetch-to-blob button — both extracted into `components/console/UsageControls.tsx` (see below) |
@@ -209,9 +226,13 @@ Two changes go slightly beyond "add loading feedback". Both were raised and appr
 
 ## Accessibility & motion
 
-- `prefers-reduced-motion`: the opacity change and all static styling stay; the bar's sweep and
-  the shimmer animation stop. Feedback must not depend on animation.
-- `SlowNotice` is `aria-live="polite"` — the escalation is announced, not only shown.
+- `prefers-reduced-motion`: the opacity change and all static styling stay; the bar's sweep, the
+  shimmer animation, and `NavPendingDot`'s `animate-pulse` all stop. Feedback must not depend on
+  animation.
+- `SlowNotice` is `aria-live="polite"` and always mounted — content-gated, not presence-gated —
+  so the escalation is reliably announced, not only shown. A live region inserted already
+  containing its text is commonly missed by screen readers; mounting it empty and only ever
+  changing its content afterwards is what makes this reliable.
 - `inert` on dimmed content removes it from the tab order, so keyboard focus cannot land on
   values that are about to be replaced.
 - The progress bar is decorative (`aria-hidden`); `SlowNotice` carries the announcement.
