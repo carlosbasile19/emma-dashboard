@@ -7,6 +7,7 @@ import { AgencyConsoleButton } from "@/components/dashboard/AgencyConsoleButton"
 import { LogoWordmark } from "@/components/brand/Logo";
 import { NavIcon } from "@/components/dashboard/nav-icons";
 import { NavPendingDot } from "@/components/ui/states/NavPendingDot";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { NAV_GROUPS, NAV_ITEMS } from "@/lib/design";
 import type { Workspace } from "@/lib/types";
 
@@ -82,8 +83,7 @@ export function Sidebar({
           </div>
         </div>
         <form action={signOut}>
-          <button
-            type="submit"
+          <SubmitButton
             title="Sign out"
             className="cursor-pointer rounded-[8px] p-1.5 text-muted transition-colors hover:bg-lavender"
           >
@@ -101,7 +101,7 @@ export function Sidebar({
               <path d="M13 14l4-4-4-4" />
               <path d="M17 10H8" />
             </svg>
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </aside>

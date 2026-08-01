@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
 import { createInvite } from "@/app/console/actions";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { centsToMoney, initials as toInitials, num, pct } from "@/lib/format";
 import type { ClientDetail } from "@/lib/olivia/agency";
 
@@ -44,8 +45,8 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
           </div>
           <form action={setActiveClient}>
             <input type="hidden" name="clientId" value={client.id} />
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Opening…"
               className="inline-flex items-center gap-1.5 rounded-[11px] bg-white px-4 py-2.5 font-display text-[13px] font-semibold text-ink transition-transform active:scale-95"
             >
               Open workspace
@@ -53,7 +54,7 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
                 <path d="M7 13 13 7" />
                 <path d="M7.5 7H13v5.5" />
               </svg>
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </div>
@@ -114,12 +115,12 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
               placeholder="Invite a teammate by email…"
               className="min-w-0 flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60"
             />
-            <button
-              type="submit"
+            <SubmitButton
+              pendingLabel="Creating…"
               className="bg-gradient-brand flex-none rounded-[9px] px-3 py-1.5 font-display text-[12.5px] font-medium text-white transition-transform active:scale-95"
             >
               Invite
-            </button>
+            </SubmitButton>
           </form>
         </div>
 

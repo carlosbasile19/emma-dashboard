@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { PendingContent } from "@/components/ui/states/PendingContent";
 import { PendingNavProvider } from "@/components/ui/states/PendingNav";
 import { RouteProgress } from "@/components/ui/states/RouteProgress";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { AuthError, getWorkspace } from "@/lib/auth";
 import { fetchCampaigns } from "@/lib/olivia/service";
 
@@ -81,9 +82,12 @@ function NoWorkspace() {
         finish provisioning, then sign in again.
       </p>
       <form action={signOut}>
-        <button className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-5 py-[11px] text-sm font-medium text-ink hover:bg-lavender">
+        <SubmitButton
+          pendingLabel="Signing out…"
+          className="cursor-pointer rounded-[10px] border border-ink/10 bg-white px-5 py-[11px] text-sm font-medium text-ink hover:bg-lavender"
+        >
           Sign out
-        </button>
+        </SubmitButton>
       </form>
     </main>
   );

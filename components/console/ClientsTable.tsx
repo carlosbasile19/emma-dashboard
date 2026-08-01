@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { setActiveClient } from "@/app/auth/actions";
 import { syncClients } from "@/app/console/actions";
+import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { centsToMoney, initials as toInitials, num, relTime } from "@/lib/format";
 import type { AgencyClientStats } from "@/lib/olivia/agency";
 
@@ -26,16 +27,16 @@ export function ClientsTable({
               Synced {relTime(syncedAt)}
             </span>
           ) : null}
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1.5 rounded-[10px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender"
+          <SubmitButton
+            pendingLabel="Syncing…"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender"
           >
             <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M16 4v4h-4" />
               <path d="M16 8a6.5 6.5 0 1 0 1 5" />
             </svg>
             Sync from Emma
-          </button>
+          </SubmitButton>
         </form>
       </div>
       <div className="mb-6 text-[14px] text-muted">
@@ -129,8 +130,8 @@ export function ClientsTable({
               <div className="flex justify-end">
                 <form action={setActiveClient}>
                   <input type="hidden" name="clientId" value={c.id} />
-                  <button
-                    type="submit"
+                  <SubmitButton
+                    pendingLabel="Opening…"
                     className="bg-gradient-brand inline-flex items-center gap-1.5 rounded-[9px] px-3 py-[7px] font-display text-[12.5px] font-medium text-white transition-transform active:scale-95"
                   >
                     Open workspace
@@ -138,7 +139,7 @@ export function ClientsTable({
                       <path d="M7 13 13 7" />
                       <path d="M7.5 7H13v5.5" />
                     </svg>
-                  </button>
+                  </SubmitButton>
                 </form>
               </div>
             </div>
