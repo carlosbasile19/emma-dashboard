@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { Badge } from "@/components/ui/Badge";
@@ -50,11 +50,17 @@ export function LeadsTable({
   // longer than that, and seconds on a search commit because of the corpus crawl.
   const pendingSearchRef = useRef<string | null>(null);
 
-  // Every filter arrives as a prop from the server render, so a change in any of them means
-  // the server has applied our last write and `window.location` is authoritative again.
+  // Reset once ANY navigation commits, not just one that changes our own props. Header (same
+  // layout, same route) also writes `range` and `campaign` to this URL, and neither touches
+  // status/source/q/page — so watching only our props left the ref stale after a Header write,
+  // and the next filter change composed onto a dead search instead of the live URL, silently
+  // dropping the range/campaign Header had just set. useSearchParams() updates on the same
+  // commit boundary as window.location, so this still holds the ref across the whole pending
+  // window while clearing it promptly once *any* write lands — ours or Header's.
+  const committed = useSearchParams().toString();
   useEffect(() => {
     pendingSearchRef.current = null;
-  }, [status, source, q, page]);
+  }, [committed]);
 
   // Composes onto the most recent INTENDED state (our pending write if one is in flight,
   // otherwise the live URL) so two writes that race — "change Status mid-typing" and "change
