@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { EMPTY_COPY, LEADS_SEARCH_EMPTY } from "@/lib/copy";
@@ -39,11 +39,15 @@ export function LeadsTable({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const params = useSearchParams();
 
+  // Reads the live URL at write time rather than closing over a snapshot from
+  // `useSearchParams()`. Most callers are synchronous with a user gesture, where that
+  // wouldn't matter — but the debounced search write fires up to 250ms after the keystroke
+  // that scheduled it, and a stale snapshot from then would silently revert any filter
+  // changed in the meantime.
   const setParam = useCallback(
     (updates: Record<string, string | null>) => {
-      const next = new URLSearchParams(params.toString());
+      const next = new URLSearchParams(window.location.search);
       for (const [k, v] of Object.entries(updates)) {
         if (v === null || v === "all" || v === "") next.delete(k);
         else next.set(k, v);
@@ -51,17 +55,27 @@ export function LeadsTable({
       const qs = next.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [params, pathname, router],
+    [pathname, router],
   );
 
+  const setQuery = useCallback((v: string) => setParam({ q: v, page: null }), [setParam]);
+
+  // Bumped on "Clear filters" to remount SearchInput with a fresh key, which discards any
+  // uncommitted draft (and its pending debounce timer) even when q was already "" and so
+  // wouldn't otherwise change to trigger a re-sync.
+  const [searchNonce, setSearchNonce] = useState(0);
+
   const filtered = status !== "all" || source !== "all" || q !== "";
-  const clearFilters = () => setParam({ status: null, source: null, q: null, page: null });
+  const clearFilters = () => {
+    setParam({ status: null, source: null, q: null, page: null });
+    setSearchNonce((n) => n + 1);
+  };
 
   return (
     <>
       {/* filter bar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <SearchInput value={q} onChange={(v) => setParam({ q: v, page: null })} />
+        <SearchInput key={searchNonce} value={q} onChange={setQuery} />
         <Select
           value={status}
           onChange={(v) => setParam({ status: v, page: null })}
@@ -254,18 +268,34 @@ function SearchInput({
   onChange: (v: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Re-sync when the URL changes from outside the field (Clear filters, browser back).
+  // Tracks the last value *this component* committed (trimmed, same as what the server
+  // stores). Comparing incoming `value` against this — instead of syncing unconditionally —
+  // is what lets the re-sync effect below tell its own echo apart from a genuine external
+  // change (browser back/forward). Without it, the URL update from our own debounced commit
+  // would come back around and clobber whatever the user typed in the meantime.
+  const committedRef = useRef(value);
+
   useEffect(() => {
+    if (value === committedRef.current) return;
+    committedRef.current = value;
     setDraft(value);
   }, [value]);
 
-  // Debounce the URL write so typing doesn't fire a navigation per keystroke.
+  // Debounce the URL write so typing doesn't fire a navigation per keystroke. Trim before
+  // comparing AND before committing: the server trims (`str(sp.q, "").trim()`), so comparing
+  // the raw draft against the trimmed committed value would leave a trailing-space draft
+  // permanently "dirty" and re-fire the write forever.
   useEffect(() => {
-    if (draft === value) return;
-    const t = setTimeout(() => onChange(draft), DEBOUNCE_MS);
+    const next = draft.trim();
+    if (next === committedRef.current) return;
+    const t = setTimeout(() => {
+      committedRef.current = next;
+      onChange(next);
+    }, DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [draft, value, onChange]);
+  }, [draft, onChange]);
 
   return (
     <div className="relative">
@@ -276,6 +306,7 @@ function SearchInput({
         </svg>
       </span>
       <input
+        ref={inputRef}
         type="search"
         aria-label="Search leads"
         placeholder="Search leads…"
@@ -289,7 +320,9 @@ function SearchInput({
           aria-label="Clear search"
           onClick={() => {
             setDraft("");
+            committedRef.current = "";
             onChange("");
+            inputRef.current?.focus();
           }}
           className="absolute right-[9px] top-1/2 -translate-y-1/2 cursor-pointer px-1 text-[13px] leading-none text-muted hover:text-ink"
         >
