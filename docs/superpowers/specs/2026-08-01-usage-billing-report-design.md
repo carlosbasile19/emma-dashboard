@@ -38,10 +38,18 @@ Each of these was verified against the live API on 2026-08-01, not inferred from
   timezone the agency chose to bill on is **$677.91**; using `/overview` verbatim would
   under-invoice this client by **$11.39 in one month**.
 
-  The fix is to pad every requested window by one day at each end and bucket on the returned
-  tz-local labels. IANA offsets span UTC-12 to UTC+14, so one day always covers the overhang.
-  Correctness is asserted by **convergence**, not by a fixed number: a month total is complete
-  only once widening the fetch window stops changing it (`scripts/usage-livecheck.ts`).
+  The fix is to pad every requested window by one day at each end, bucket on the returned tz-local
+  labels, then clip back to the requested span so the padding widens the request and never the
+  answer. IANA offsets span UTC-12 to UTC+14, so one day always covers the overhang. Correctness
+  is asserted by **convergence**, not by a fixed number: a month total is complete only once
+  widening the fetch window stops changing it (`scripts/usage-livecheck.ts`).
+
+  > **Resolved upstream 2026-08-01.** After we reported it (`docs/olivia-usage-api-request.md`),
+  > Olivia changed `from`/`to` to resolve on `tz`-local boundaries. Re-verified: `/overview` and
+  > `/timeseries` now both return $677.91 for Brisbane's July, and five different request windows
+  > agree. **Our figures did not change** — the padding had us on the correct number all along.
+  > The padding is kept deliberately: it costs two rows per fetch, makes us independent of
+  > upstream's window semantics, and means a regression there cannot quietly under-bill.
 
   A second consequence: a local day straddling a year-chunk boundary (Brisbane's 1 January
   begins at 31 December 14:00 UTC) arrives as two partial rows, one per chunk. They are summed,

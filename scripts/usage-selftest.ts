@@ -3,6 +3,7 @@ import {
   bucketByMonth,
   cell,
   centsToMoneyExact,
+  clipDaily,
   centsToUsd,
   historyCsvRows,
   periodCsvRows,
@@ -208,6 +209,28 @@ const SERIES: DailySpend[] = [
   });
   // One day covers every IANA offset — the extremes are UTC-12 to UTC+14.
   assert.equal(windowDays(padWindow({ from: "2026-07-01", to: "2026-07-01" })), 3);
+
+  // ---- clipDaily: padding is a FETCH concern and must not leak into the returned series ----
+  // We over-fetch by a day each side, so the raw response carries days outside the span. If those
+  // survive, a client's lifetime total silently includes spend that no month column displays —
+  // the row stops reconciling with its own columns. Padding widens the request, never the answer.
+  assert.deepEqual(clipDaily(SERIES, "2026-07-01", "2026-07-31"), [
+    { date: "2026-07-01", spendCents: 10 },
+    { date: "2026-07-15", spendCents: 20 },
+    { date: "2026-07-31", spendCents: 40 },
+  ]);
+  // Both endpoints are inclusive, matching sumRange.
+  assert.equal(
+    clipDaily(SERIES, "2026-06-01", "2026-08-01").reduce((a, d) => a + d.spendCents, 0),
+    SERIES.reduce((a, d) => a + d.spendCents, 0),
+  );
+  assert.deepEqual(clipDaily(SERIES, "2026-01-01", "2026-01-31"), []);
+  assert.deepEqual(clipDaily([], "2026-07-01", "2026-07-31"), []);
+  // A clipped series must agree with sumRange over the same window — they cannot diverge.
+  assert.equal(
+    clipDaily(SERIES, "2026-07-01", "2026-07-31").reduce((a, d) => a + d.spendCents, 0),
+    sumRange(SERIES, "2026-07-01", "2026-07-31"),
+  );
 
   // ---- mergeDaily: a year-chunk boundary splits one local day across two responses ----
   // Chunk 1 ends 2025-12-31 UTC and chunk 2 starts 2026-01-01 UTC, but Brisbane's 2026-01-01

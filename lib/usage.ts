@@ -242,6 +242,19 @@ export function padWindow({ from, to }: DateWindow): DateWindow {
 }
 
 /**
+ * Drop rows outside an inclusive window.
+ *
+ * `padWindow` deliberately over-fetches by a day at each end. That padding must not survive into
+ * the returned series: a client's lifetime total sums every row it holds, so a stray padding day
+ * would be counted there while no month column displays it, and the row would stop reconciling
+ * with its own columns. Padding widens the request, never the answer.
+ */
+export function clipDaily(rows: DailySpend[], from: string, to: string): DailySpend[] {
+  const [a, b] = ordered(from, to);
+  return rows.filter((d) => d.date >= a && d.date <= b);
+}
+
+/**
  * Collapse duplicate dates by SUMMING, ascending.
  *
  * Year-aligned chunks are contiguous in UTC, but a local day straddles the boundary: Brisbane's

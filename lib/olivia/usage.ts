@@ -1,6 +1,7 @@
 import "server-only";
 import { requireAdmin } from "@/lib/auth";
 import {
+  clipDaily,
   mergeDaily,
   monthsBetween,
   monthTotals,
@@ -134,12 +135,18 @@ async function fetchDaily(
  * One client's daily spend across an arbitrary span, stitched from year-aligned chunks so a
  * span longer than the upstream 366-day cap still resolves.
  *
- * The requested window is padded by a day at each end before fetching. Upstream filters on UTC
- * days but labels buckets on the client's timezone, so without padding the first local day of
- * the span comes back truncated — live, that put SOLVI's July at $666.52 instead of the correct
- * $677.91. See `padWindow`.
+ * The requested window is padded by a day at each end before fetching, then the result is
+ * clipped back to exactly what was asked for. Padding widens the request, never the answer.
  *
- * Rows are then merged by date, because a local day straddling a year-chunk boundary arrives as
+ * Why pad: upstream used to filter on UTC days while labelling buckets on the client's timezone,
+ * which truncated the first local day of any span — live, that put SOLVI's July at $666.52
+ * instead of the correct $677.91. **Olivia fixed this on 2026-08-01**; `from`/`to` now resolve on
+ * `tz`-local boundaries and every window agrees. The padding is retained deliberately: it costs
+ * two rows, it makes our figures independent of upstream's window semantics, and it means a
+ * regression there cannot quietly under-bill a client. `scripts/usage-livecheck.ts` proves the
+ * totals converge either way.
+ *
+ * Rows are merged by date, because a local day straddling a year-chunk boundary can arrive as
  * two partial rows that must be summed rather than deduped.
  *
  * If ANY chunk fails the whole series is `null`. A partial history would look complete and
@@ -157,7 +164,7 @@ export async function getUsageSeries(
   );
   if (parts.some((p) => p === null)) return null;
   return {
-    daily: mergeDaily((parts as DailySpend[][]).flat()),
+    daily: clipDaily(mergeDaily((parts as DailySpend[][]).flat()), from, to),
     basis: SOURCE_BASIS,
     currency: SOURCE_CURRENCY,
   };
