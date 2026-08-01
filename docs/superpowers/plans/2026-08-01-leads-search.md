@@ -102,7 +102,7 @@ const find = (q: string, rows: Lead[] = [maria, ana, redacted]) =>
 (() => {
   // Helpers
   assert.equal(normalize("  MaRiA  "), "maria");
-  assert.equal(digitsOnly("(077) 0090-0123"), "0770090123");
+  assert.equal(digitsOnly("(077) 0090-0123"), "07700900123");
   assert.deepEqual(tokenize("  maria   santos "), ["maria", "santos"]);
   assert.deepEqual(tokenize("   "), []);
 
@@ -150,7 +150,8 @@ const find = (q: string, rows: Lead[] = [maria, ana, redacted]) =>
   assert.equal(p2.total, 30);
   assert.equal(p2.page, 2);
   assert.equal(p2.limit, 25);
-  assert.equal(p2.items[0].id, "id-25");
+  // `noUncheckedIndexedAccess` is on in this repo's tsconfig, so index reads need a guard.
+  assert.equal(p2.items[0]?.id, "id-25");
 
   // Crawl loop control — a short page ends the crawl; so does reaching `total`.
   assert.equal(hasMorePages(100, 250, 100, 100), true);
