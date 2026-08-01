@@ -56,8 +56,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
               activeClientId={ws.clientId}
             />
           </Suspense>
-          {/* Only children are dimmed — the filter controls in Header stay live so you can
-              change your mind mid-load. */}
+          {/* Header sits outside PendingContent, so its range/campaign controls stay live and you
+              can always change your mind mid-load. That is NOT true of a page's own in-page
+              filter controls (the leads search/selects, the log tab switcher, the calendar month
+              nav) — those render as part of `{children}`, so they ARE dimmed and `inert` during a
+              load like everything else in <main>. PendingContent restores focus to whatever was
+              focused inside it once the wait clears (see the focusin listener there), which is
+              what keeps typing in the leads search usable across a multi-second commit. */}
           <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">
             <PendingContent>{children}</PendingContent>
           </main>
