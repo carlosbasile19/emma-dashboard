@@ -4,6 +4,16 @@
 **Date:** 2026-08-01
 **Affects:** billing / client invoicing
 
+> ## STATUS — sent, and mostly resolved the same day
+>
+> | Ask | Status |
+> |---|---|
+> | §2 `from`/`to` filtered on UTC while buckets label in `tz` | ✅ **Fixed.** `from`/`to` now resolve on `tz`-local boundaries. Re-verified: `/overview` and `/timeseries` both return $677.91 for Brisbane's July, and five different request windows agree. Our figures did not change — the padding workaround had us on the correct number already. |
+> | §3 $300 maintenance on Emma Test Funnel | ✅ **Fixed.** Now reports `no maint.`; SOLVI and Freedom Boat Club correctly retain theirs. **Still outstanding:** whether that $300 was actually billed in past months and needs crediting. |
+> | §1 `from`/`to`/`tz` on the agency cost endpoint | ❓ **Unverified.** Needs a direct call with `OLIVIA_AGENCY_ID`, which lives only in Vercel as a sensitive var. Not blocking — our report excludes maintenance by design, so this would only confirm our usage figure against Olivia's. |
+>
+> Kept as the record of what was asked and why. The reproduction in §2 no longer reproduces.
+
 ---
 
 ## Context

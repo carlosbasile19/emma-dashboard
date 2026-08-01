@@ -1,5 +1,11 @@
 # Paste-ready prompt for Olivia's Claude Code
 
+> **STATUS: sent 2026-08-01. Tasks 1 and 3 are done; Task 2 unverified.**
+> Task 1's reproduction no longer reproduces — `from`/`to` now resolve on `tz`-local boundaries.
+> Task 3's $300 maintenance is gone from Emma Test Funnel. Task 2 (date range on the agency cost
+> endpoint) still needs `OLIVIA_AGENCY_ID` to test. Re-send Task 2 alone, or the whole thing as a
+> regression reference. Full status table in `olivia-usage-api-request.md`.
+
 Everything below the line is the message. It is written for a coding agent working inside the
 Olivia codebase — it states where to look, what to change, and how to verify.
 
