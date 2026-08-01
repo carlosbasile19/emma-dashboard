@@ -79,6 +79,9 @@ const find = (q: string, rows: Lead[] = [maria, ana, redacted]) =>
   assert.deepEqual(find("abcd"), [redacted.id]);
   assert.equal(matchesLead(redacted, tokenize("maria")), false);
 
+  // 8b. Empty-token guard — "".includes("") is true, so this must not vacuously match.
+  assert.equal(matchesLead(maria, [""]), false);
+
   // 9. Empty / whitespace query returns everything untouched.
   assert.deepEqual(find(""), [maria.id, ana.id, redacted.id]);
   assert.deepEqual(find("   "), [maria.id, ana.id, redacted.id]);
@@ -97,6 +100,19 @@ const find = (q: string, rows: Lead[] = [maria, ana, redacted]) =>
   assert.equal(p2.limit, 25);
   // `noUncheckedIndexedAccess` is on in this repo's tsconfig, so index reads need a guard.
   assert.equal(p2.items[0]?.id, "id-25");
+
+  // 10b. Non-finite page/limit coerce to defaults (1, 25) instead of producing a
+  //      self-contradictory envelope (e.g. a non-zero total with `limit: NaN`).
+  const pNaNLimit = searchCorpus(many, "dup", 1, NaN);
+  assert.equal(pNaNLimit.limit, 25);
+  assert.equal(pNaNLimit.page, 1);
+  assert.equal(pNaNLimit.total, 30);
+  assert.equal(pNaNLimit.items.length, 25);
+  const pNaNPage = searchCorpus(many, "dup", NaN, 25);
+  assert.equal(pNaNPage.page, 1);
+  assert.equal(pNaNPage.limit, 25);
+  assert.equal(pNaNPage.total, 30);
+  assert.equal(pNaNPage.items.length, 25);
 
   // Crawl loop control — a short page ends the crawl; so does reaching `total`.
   assert.equal(hasMorePages(100, 250, 100, 100), true);

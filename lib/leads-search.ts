@@ -14,7 +14,7 @@ export function normalize(s: string): string {
   return s.trim().toLowerCase();
 }
 
-/** Strip everything that is not a digit, so "(077) 0090-0123" → "0770090123". */
+/** Strip everything that is not a digit, so "(077) 0090-0123" → "07700900123". */
 export function digitsOnly(s: string): string {
   return s.replace(/\D+/g, "");
 }
@@ -26,7 +26,9 @@ export function tokenize(q: string): string[] {
 
 /**
  * True when EVERY token matches at least one field (AND across tokens, OR across fields).
- * That's what makes "maria santos" work when first and last names are separate columns.
+ * A multi-word query like "maria santos" works because `tokenize` splits it into two
+ * AND-ed tokens, each checked independently against first/last/email/id/phone — not
+ * because of any joined "first last" string.
  * Fields absent without the dashboard:pii scope simply match nothing.
  */
 export function matchesLead(lead: Lead, tokens: string[]): boolean {
@@ -34,13 +36,15 @@ export function matchesLead(lead: Lead, tokens: string[]): boolean {
 
   const first = normalize(lead.first_name ?? "");
   const last = normalize(lead.last_name ?? "");
-  const joined = [first, last].filter(Boolean).join(" ");
   const email = normalize(lead.email ?? "");
   const id = normalize(lead.id);
   const phone = digitsOnly(lead.phone ?? "");
 
   return tokens.every((t) => {
-    if (first.includes(t) || last.includes(t) || joined.includes(t)) return true;
+    // Guard against a vacuous match: "".includes("") is true, so an empty token
+    // (e.g. from a caller that skips filter(Boolean)) must not match everything.
+    if (!t) return false;
+    if (first.includes(t) || last.includes(t)) return true;
     if (email.includes(t)) return true;
     if (id.includes(t)) return true;
     const d = digitsOnly(t);
@@ -48,7 +52,11 @@ export function matchesLead(lead: Lead, tokens: string[]): boolean {
   });
 }
 
-/** Filter a corpus by `q`, then slice to a page. An empty query returns everything. */
+/**
+ * Filter a corpus by `q`, then slice to a page. An empty query returns everything.
+ * Non-finite `page`/`limit` (NaN, ±Infinity) coerce to their defaults (1 and 25) so the
+ * returned envelope is never self-contradictory (e.g. a non-zero `total` with `limit: NaN`).
+ */
 export function searchCorpus(
   leads: Lead[],
   q: string,
@@ -57,8 +65,10 @@ export function searchCorpus(
 ): ListResponse<Lead> {
   const tokens = tokenize(q);
   const matches = tokens.length ? leads.filter((l) => matchesLead(l, tokens)) : leads;
-  const size = Math.max(1, limit);
-  const p = Math.max(1, page);
+  const safeLimit = Number.isFinite(limit) ? limit : 25;
+  const safePage = Number.isFinite(page) ? page : 1;
+  const size = Math.max(1, safeLimit);
+  const p = Math.max(1, safePage);
   const start = (p - 1) * size;
   return { items: matches.slice(start, start + size), total: matches.length, page: p, limit: size };
 }
