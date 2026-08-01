@@ -8,14 +8,18 @@ import {
   lastCompleteMonth,
   monthBounds,
   monthLabel,
+  mergeDaily,
   monthsBetween,
   monthTotals,
+  padWindow,
   resolveUsagePeriod,
+  shiftDay,
   seriesMatchesWindow,
   sumRange,
   toCsv,
   usageCsv,
   USAGE_CSV_HEADERS,
+  windowDays,
   yearChunks,
   type DailySpend,
 } from "../lib/usage";
@@ -184,6 +188,46 @@ const SERIES: DailySpend[] = [
   // No echoed period at all: unverifiable, so untrusted. Never optimistically accepted.
   assert.equal(seriesMatchesWindow(undefined, WANT), false);
   assert.equal(seriesMatchesWindow({}, WANT), false);
+
+  // ---- shiftDay / padWindow: the UTC-filter vs tz-label mismatch ----
+  // Upstream filters from/to on UTC days but labels timeseries buckets on the client's tz
+  // (guide §8). Brisbane's 1 Jul starts at 30 Jun 14:00 UTC, so a window starting 2026-07-01
+  // returns a TRUNCATED 2026-07-01 bucket — $11.39 short for SOLVI, observed live. Padding the
+  // request by a day on each side makes every day inside the wanted span complete.
+  assert.equal(shiftDay("2026-07-01", -1), "2026-06-30");
+  assert.equal(shiftDay("2026-03-01", -1), "2026-02-28");
+  assert.equal(shiftDay("2024-03-01", -1), "2024-02-29"); // leap
+  assert.equal(shiftDay("2026-12-31", 1), "2027-01-01");
+  assert.equal(shiftDay("2026-01-01", -1), "2025-12-31");
+  assert.deepEqual(padWindow({ from: "2026-07-01", to: "2026-07-31" }), {
+    from: "2026-06-30",
+    to: "2026-08-01",
+  });
+  // One day covers every IANA offset — the extremes are UTC-12 to UTC+14.
+  assert.equal(windowDays(padWindow({ from: "2026-07-01", to: "2026-07-01" })), 3);
+
+  // ---- mergeDaily: a year-chunk boundary splits one local day across two responses ----
+  // Chunk 1 ends 2025-12-31 UTC and chunk 2 starts 2026-01-01 UTC, but Brisbane's 2026-01-01
+  // straddles that instant — so the same local date comes back twice, each partial. They must
+  // SUM: keeping either one alone silently loses money on New Year's Day.
+  assert.deepEqual(
+    mergeDaily([
+      { date: "2026-01-01", spendCents: 400 },
+      { date: "2025-12-31", spendCents: 100 },
+      { date: "2026-01-01", spendCents: 700 },
+    ]),
+    [
+      { date: "2025-12-31", spendCents: 100 },
+      { date: "2026-01-01", spendCents: 1100 },
+    ],
+  );
+  assert.deepEqual(mergeDaily([]), []);
+  // Merging must not change the total.
+  const merged = mergeDaily(SERIES);
+  assert.equal(
+    merged.reduce((a, d) => a + d.spendCents, 0),
+    SERIES.reduce((a, d) => a + d.spendCents, 0),
+  );
 
   // ---- CSV encoding ----
   assert.equal(csvRow(["a", "b"]), "a,b");

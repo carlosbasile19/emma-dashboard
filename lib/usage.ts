@@ -220,6 +220,42 @@ export function windowDays({ from, to }: DateWindow): number {
   return (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY + 1;
 }
 
+/** Move a `YYYY-MM-DD` by whole days, crossing months, years and leap days correctly. */
+export function shiftDay(ymd: string, deltaDays: number): string {
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + deltaDays * DAY).toISOString().slice(0, 10);
+}
+
+/**
+ * Widen a requested window by one day at each end.
+ *
+ * Upstream filters `from`/`to` on **UTC** days but labels `/timeseries` buckets on the client's
+ * **timezone** (guide §8). The two disagree at the edges: Brisbane's 1 July begins at 30 June
+ * 14:00 UTC, so asking for `from=2026-07-01` returns a 2026-07-01 bucket missing everything
+ * before UTC midnight — measured live at $11.39 short on a $677.91 month.
+ *
+ * IANA offsets span UTC-12 to UTC+14, so a single day of padding always covers the overhang in
+ * either direction. The padding days come back as extra buckets; they are simply outside the
+ * window anything is reported for.
+ */
+export function padWindow({ from, to }: DateWindow): DateWindow {
+  return { from: shiftDay(from, -1), to: shiftDay(to, 1) };
+}
+
+/**
+ * Collapse duplicate dates by SUMMING, ascending.
+ *
+ * Year-aligned chunks are contiguous in UTC, but a local day straddles the boundary: Brisbane's
+ * 2026-01-01 starts at 2025-12-31 14:00 UTC, so it arrives as two partial rows, one per chunk.
+ * Taking either row alone loses a day's money; summing reconstructs it.
+ */
+export function mergeDaily(rows: DailySpend[]): DailySpend[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) totals.set(r.date, (totals.get(r.date) ?? 0) + r.spendCents);
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, spendCents]) => ({ date, spendCents }));
+}
+
 // ---- Period selection ----
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;

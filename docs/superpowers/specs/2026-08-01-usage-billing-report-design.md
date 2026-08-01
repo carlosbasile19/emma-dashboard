@@ -21,12 +21,31 @@ onto whatever window the agency actually invoices on.
 
 Each of these was verified against the live API on 2026-08-01, not inferred from the guide.
 
-- **Daily spend is available and internally consistent.** `/timeseries` returns one row per
-  tz-local day with `spend_cents` (`docs/olivia-external-api.md` §6.2). Summing July's 31 daily
-  rows for Freedom Boat Club gives **3,928 cents**, exactly matching
-  `/overview?from=2026-07-01&to=2026-07-31` → `kpis.spend.total_cents = 3928` (§6.1). Daily data
-  is therefore a faithful, finer-grained basis for the same number — one call per client can
-  serve every month, every custom range, and the CSV.
+- **Daily spend is available.** `/timeseries` returns one row per tz-local day with `spend_cents`
+  (`docs/olivia-external-api.md` §6.2), so one call per client can serve every month, every
+  custom range, and the CSV.
+- **⚠ The window filter is UTC but the buckets are tz-local, so month edges truncate.** §8 states
+  it: "`from`/`to` are inclusive UTC days; day-buckets in `/timeseries` use `tz`." Measured on
+  SOLVI (Australia/Brisbane, UTC+10), whose 1 July begins at 30 June 14:00 UTC:
+
+  | Requested window | 2026-07-01 bucket | July total |
+  |---|---|---|
+  | `from=2026-07-01` | $16.84 (truncated) | $666.52 |
+  | `from=2026-06-30` or earlier | $28.23 (complete) | **$677.91** |
+
+  **`/overview` truncates identically** — its month figure equals the truncated $666.52, so it is
+  a UTC-bounded July, not Brisbane's calendar July. The correct calendar-month total for the
+  timezone the agency chose to bill on is **$677.91**; using `/overview` verbatim would
+  under-invoice this client by **$11.39 in one month**.
+
+  The fix is to pad every requested window by one day at each end and bucket on the returned
+  tz-local labels. IANA offsets span UTC-12 to UTC+14, so one day always covers the overhang.
+  Correctness is asserted by **convergence**, not by a fixed number: a month total is complete
+  only once widening the fetch window stops changing it (`scripts/usage-livecheck.ts`).
+
+  A second consequence: a local day straddling a year-chunk boundary (Brisbane's 1 January
+  begins at 31 December 14:00 UTC) arrives as two partial rows, one per chunk. They are summed,
+  not deduplicated — keeping either alone would lose a day's spend every New Year.
 - **Any window works, including future-dated and historical.** `from`/`to` accept arbitrary
   `YYYY-MM-DD`. A `to` beyond today returns the partial period rather than an error (verified:
   `2026-08-01..2026-08-31` → 200, `81` cents on 2026-08-01), so month-to-date needs no special
@@ -172,8 +191,16 @@ the pattern used by `test:crawl`, `test:leadsearch`, `test:threads`). Cases:
   formatting has no float drift (e.g. `66652` → `666.52`).
 - `null` (fetch failure) is preserved through bucketing and never coerced to `0`.
 
-Live verification after implementation: the rendered July figures must equal the probe values —
-SOLVI **$666.52**, Freedom Boat Club **$39.28**, Emma Test Funnel **$10.85**.
+- Window padding: `shiftDay` across month, year and leap boundaries; `padWindow` widens by one
+  day each side.
+- `mergeDaily` sums duplicate dates rather than deduplicating them, and preserves the total.
+
+Live verification (`scripts/usage-livecheck.ts`, needs network + credentials, so not part of
+`npm run test:*`): for every client, the July total must be **unchanged when the fetch window is
+widened by a further five days** — the convergence proof that no boundary spend is missing. It
+also asserts no duplicate dates survive merging and that month buckets reconcile to the lifetime
+total. Confirmed calendar-month figures for July 2026: SOLVI **$677.91**, Freedom Boat Club
+**$39.28**, Emma Test Funnel **$10.85**.
 
 ## Out of scope
 

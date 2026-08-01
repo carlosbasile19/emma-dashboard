@@ -1,8 +1,10 @@
 import "server-only";
 import { requireAdmin } from "@/lib/auth";
 import {
+  mergeDaily,
   monthsBetween,
   monthTotals,
+  padWindow,
   seriesMatchesWindow,
   sumRange,
   yearChunks,
@@ -129,6 +131,14 @@ async function fetchDaily(
  * One client's daily spend across an arbitrary span, stitched from year-aligned chunks so a
  * span longer than the upstream 366-day cap still resolves.
  *
+ * The requested window is padded by a day at each end before fetching. Upstream filters on UTC
+ * days but labels buckets on the client's timezone, so without padding the first local day of
+ * the span comes back truncated — live, that put SOLVI's July at $666.52 instead of the correct
+ * $677.91. See `padWindow`.
+ *
+ * Rows are then merged by date, because a local day straddling a year-chunk boundary arrives as
+ * two partial rows that must be summed rather than deduped.
+ *
  * If ANY chunk fails the whole series is `null`. A partial history would look complete and
  * under-report a month — the one outcome this report must not produce.
  */
@@ -138,12 +148,16 @@ export async function getUsageSeries(
   from: string,
   to: string,
 ): Promise<UsageSeries | null> {
+  const window = padWindow({ from, to });
   const parts = await Promise.all(
-    yearChunks(from, to).map((c) => fetchDaily(clientId, tz, c.from, c.to)),
+    yearChunks(window.from, window.to).map((c) => fetchDaily(clientId, tz, c.from, c.to)),
   );
   if (parts.some((p) => p === null)) return null;
-  const daily = (parts as DailySpend[][]).flat().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return { daily, basis: SOURCE_BASIS, currency: SOURCE_CURRENCY };
+  return {
+    daily: mergeDaily((parts as DailySpend[][]).flat()),
+    basis: SOURCE_BASIS,
+    currency: SOURCE_CURRENCY,
+  };
 }
 
 /** `2026-06-04T…` → `2026-06`. Null stays null: unknown opening blanks no months. */
