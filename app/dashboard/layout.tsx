@@ -3,6 +3,9 @@ import { Suspense, type ReactNode } from "react";
 import { signOut } from "@/app/auth/actions";
 import { Header, type CampaignOption } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { PendingContent } from "@/components/ui/states/PendingContent";
+import { PendingNavProvider } from "@/components/ui/states/PendingNav";
+import { RouteProgress } from "@/components/ui/states/RouteProgress";
 import { AuthError, getWorkspace } from "@/lib/auth";
 import { fetchCampaigns } from "@/lib/olivia/service";
 
@@ -33,22 +36,32 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <div className="flex min-h-screen">
       <Sidebar workspace={ws} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Suspense
-          fallback={
-            <div className="sticky top-0 z-20 h-[57px] border-b border-ink/10 bg-warm/85 backdrop-blur-[10px]" />
-          }
-        >
-          <Header
-            workspaceName={ws.name}
-            campaignOptions={campaignOptions}
-            isAdmin={ws.isAdmin}
-            clients={ws.clients}
-            activeClientId={ws.clientId}
-          />
-        </Suspense>
-        <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">{children}</main>
-      </div>
+      {/* The provider must enclose BOTH the Header (which starts the wait) and <main> (which
+          reflects it). Sidebar stays outside — its links change route segment, so they're
+          covered by loading.tsx and a local useLinkStatus dot instead. */}
+      <PendingNavProvider>
+        <RouteProgress />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Suspense
+            fallback={
+              <div className="sticky top-0 z-20 h-[57px] border-b border-ink/10 bg-warm/85 backdrop-blur-[10px]" />
+            }
+          >
+            <Header
+              workspaceName={ws.name}
+              campaignOptions={campaignOptions}
+              isAdmin={ws.isAdmin}
+              clients={ws.clients}
+              activeClientId={ws.clientId}
+            />
+          </Suspense>
+          {/* Only children are dimmed — the filter controls in Header stay live so you can
+              change your mind mid-load. */}
+          <main className="flex-1 animate-fade-up px-7 pb-14 pt-[22px]">
+            <PendingContent>{children}</PendingContent>
+          </main>
+        </div>
+      </PendingNavProvider>
     </div>
   );
 }
