@@ -1477,6 +1477,16 @@ git commit -m "feat(loading): soft month switching and real export progress on u
 
 ## Final verification
 
+> **STATUS AT MERGE TIME.** The automated half is done and verified: `tsc --noEmit` clean, all
+> three selftests passing (`test:loading` 9 checks, `test:usage`, `test:leadsearch`), `npm run
+> build` clean across all routes, `npm run lint` showing only a pre-existing warning in
+> `components/dashboard/leads/LeadDetailView.tsx:55` — a file this branch never touched.
+>
+> **Everything below the build step is UNVERIFIED.** No browser was ever opened during
+> implementation. The whole visual layer — every skeleton, the dim, the top bar, focus
+> restoration, the live region, the escalation, and the CSV download — is implemented and
+> reasoned about but has not been seen working. This checklist is the outstanding work.
+
 - [ ] **Run the full test suite**
 
 ```bash
@@ -1507,6 +1517,71 @@ The 8s and 25s phases are the hardest to see naturally. Force them by temporaril
 4. Tab to Retry with the keyboard → **it must be reachable**. If it isn't, `SlowNotice` has been nested inside the `inert` element.
 
 **Then revert the constants to 8_000 / 25_000 and re-run `npm run test:loading`** — the selftest asserts the real values and will fail if you forget.
+
+## Checks added during execution
+
+These were not in the original plan. Each exists because a review found something the plan
+assumed rather than verified. Ordered by how much is riding on them.
+
+- [ ] **The leads race set — highest priority.** Task 4 was isolated precisely because
+  `LeadsTable.setParam`'s `pendingSearchRef` exists to fix a previously-shipped bug where racing
+  URL writes dropped filters. Wrapping the write in a transition was reviewed on the strongest
+  model available and judged safe — the transition can only *delay* the commit that clears the
+  ref, never advance it, which is the safe direction — but that is reasoning, not evidence.
+  On `/dashboard/leads`:
+  1. Type a partial term; before the 250ms debounce commits, change Status. Both must survive.
+  2. With a status filter and a search active, click `30d` → `7d` in the Header. `range`, `status`
+     and `q` must all be in the URL afterwards.
+  3. Page with Next/Prev. 4. "Clear filters" empties `q`, `status`, `source`, `page`.
+  5. **The harder variant the reviewer proposed:** start a slow search commit (the corpus crawl
+     takes seconds), change the Header range while it is in flight, then change Status. All three
+     of `q`, `range` and `status` must survive.
+  If any of these drops a param, **stop and report it** — do not fix it by reordering the ref
+  assignment in `setParam`. That belongs in its own change with its own reasoning.
+
+  Note test #2 from the original Task 4 list — "change Status *while a search commit is in
+  flight*" — is no longer performable: the Status select is inside `{children}` and therefore
+  `inert` during the commit. That is a known consequence of the dim's scope, recorded below.
+
+- [ ] **Focus restoration.** Type in the leads search, pause ~1s so the debounce commits, then
+  keep typing. The keystrokes after the pause must land in the input. Before the fix they went to
+  `<body>`, because `inert` on an ancestor triggers HTML's focus-fixup rule. This is the one
+  functional break the whole-branch review caught, and it is browser-only — nothing in CI sees it.
+
+- [ ] **The CSV export in Firefox and Safari, not just Chrome.** The download builds a blob and
+  clicks an anchor. Chrome tolerates a detached anchor and a same-tick `revokeObjectURL`; Firefox
+  historically does not. The code now appends the anchor and defers the revoke, but only a
+  non-Chrome browser proves it. Open the downloaded CSV and confirm it matches what the old
+  `<a href>` export produced — someone invoices from this file.
+
+- [ ] **The screen-reader announcement.** `SlowNotice` is the only non-`aria-hidden` signal in the
+  entire feature; the bar and the nav dot are both hidden from assistive tech. Its wrapper is now
+  always mounted so the live region registers on entry, with only its content gated. With the
+  slow-path constants lowered, confirm a screen reader actually announces "Still fetching" — if it
+  doesn't, screen-reader users get nothing at all from any of the four mechanisms.
+
+- [ ] **Console skeleton shapes.** Hard-reload each of the six `/console` routes. `team` and
+  `invites` must show **no hero** block, and `clients/[id]` a back-link then a hero at 1000px
+  width. The first implementation shared one skeleton across all four and would have dropped
+  ~208px and reflowed 100px sideways when real content landed.
+
+- [ ] **Known narrow focus quirk, non-blocking.** `PendingContent` never clears its
+  last-focused reference on `focusout`. Reachable path: focus the leads search → click blank page
+  background → change a Header filter on a browser that doesn't focus buttons on click
+  (Safari/Firefox on macOS) → after the wait, focus jumps back into the search input. Harmless and
+  scroll-safe, but if it proves annoying, clear the ref on `focusout` when `relatedTarget` falls
+  outside the wrapper.
+
+## Deferred work
+
+- **Exempt in-page filter controls from the dim.** The Header stays live during a load, but a
+  page's own filter bar (leads search/selects, log tab switcher, calendar month nav) lives inside
+  `{children}` and so goes `inert`. Focus restoration makes this survivable; it does not make it
+  right. Doing it properly means giving `PendingContent` a slot rendered outside the inert region
+  and having those three pages hoist their controls into it — a change to how three pages compose
+  their filter bars, with an SSR/hydration wrinkle, which is bigger than the feature it patches.
+- **Per-widget streaming** — independent `<Suspense>` per card so fast tiles land before slow
+  charts. Considered and deferred at design time; this branch is its prerequisite.
 
 ## Self-review notes
 
