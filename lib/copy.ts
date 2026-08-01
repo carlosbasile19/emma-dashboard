@@ -95,3 +95,13 @@ export const RANGE_LABELS: Record<string, string> = {
   "30d": "Last 30 days",
   "90d": "Last 90 days",
 };
+
+/**
+ * Empty state for a search that matched nothing — distinct from an unfiltered empty list.
+ * `EMPTY_COPY` is keyed by NavKey, so search copy cannot be a member of it.
+ */
+export const LEADS_SEARCH_EMPTY: EmptyCopy = {
+  title: "No leads match that search",
+  body: "Nothing in this range matches. Try fewer words, a phone number, or widen the date range.",
+  cta: "Clear filters",
+};
