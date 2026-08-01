@@ -174,6 +174,26 @@ export function yearChunks(from: string, to: string): DateWindow[] {
 }
 
 /**
+ * Display money, exact to the cent.
+ *
+ * `centsToMoney()` in lib/format rounds to whole dollars — right for a KPI card, wrong here:
+ * $666.52 would render as $667 and a month of those would not reconcile against an invoice.
+ *
+ * Grouping is applied to the dollar part as an integer, so no float ever touches the value.
+ * A non-USD amount carries its currency code rather than rendering as a bare number, because
+ * an unlabelled figure on a billing screen is a number waiting to be misread.
+ */
+export function centsToMoneyExact(cents: number, currency = "usd"): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(cents));
+  const dollars = Math.floor(abs / 100).toLocaleString("en-US");
+  const amount = `${dollars}.${String(abs % 100).padStart(2, "0")}`;
+  return currency.toLowerCase() === "usd"
+    ? `${sign}$${amount}`
+    : `${sign}${amount} ${currency.toUpperCase()}`;
+}
+
+/**
  * Does an upstream response actually cover the window we asked for?
  *
  * `cachedFetch` falls back to the CLOSEST cached window (up to 7 days old) when upstream fails
@@ -200,6 +220,63 @@ export function windowDays({ from, to }: DateWindow): number {
   return (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY + 1;
 }
 
+// ---- Period selection ----
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** How far back a custom range may reach. Guards against a URL that would fan out into
+ *  a hundred year-chunks per client — this page is admin-only, but a typo shouldn't
+ *  become an outage. */
+const MAX_HISTORY_YEARS = 5;
+
+export interface UsagePeriod {
+  from: string;
+  to: string;
+  /** Set when the period is exactly one calendar month, so the picker can highlight it. */
+  month: MonthKey | null;
+  label: string;
+}
+
+/** `2026-07-01` → `1 Jul 2026`. Year always shown: a billing report can span years. */
+export function dayLabel(ymd: string): string {
+  const d = Number(ymd.slice(8, 10));
+  return `${d} ${MONTH_NAMES[Number(ymd.slice(5, 7)) - 1]} ${ymd.slice(0, 4)}`;
+}
+
+/**
+ * Turn search params into the window to report on.
+ *
+ * Defaults to the last CLOSED calendar month — the one being invoiced on the 1st, never the
+ * current month, which is still accruing. Anything unparseable falls back to that default
+ * rather than throwing: a broken URL should show the sensible period, not an error page.
+ */
+export function resolveUsagePeriod(
+  params: { month?: string; from?: string; to?: string },
+  today: string,
+): UsagePeriod {
+  const asMonth = (m: MonthKey): UsagePeriod => {
+    const { from, to } = monthBounds(m);
+    return { from, to, month: m, label: monthLabel(m) };
+  };
+
+  if (params.month && YM.test(params.month)) return asMonth(params.month);
+
+  if (params.from && params.to && YMD.test(params.from) && YMD.test(params.to)) {
+    const [rawFrom, to] = ordered(params.from, params.to);
+    const floor = `${Number(today.slice(0, 4)) - MAX_HISTORY_YEARS}${today.slice(4)}`;
+    const from = rawFrom < floor ? floor : rawFrom;
+    // A span that is exactly one calendar month IS that month — keeps a shared URL's pill
+    // highlighted and the CSV's period column consistent.
+    const asMonthKey = from.slice(0, 7);
+    const bounds = monthBounds(asMonthKey);
+    if (bounds.from === from && bounds.to === to) return asMonth(asMonthKey);
+    return { from, to, month: null, label: `${dayLabel(from)} – ${dayLabel(to)}` };
+  }
+
+  return asMonth(lastCompleteMonth(today));
+}
+
 // ---- CSV ----
 // This file lands in a spreadsheet that drives invoicing, so encoding is defensive:
 // a client name is user-controlled data and must never be evaluated as a formula.
@@ -224,4 +301,54 @@ export function csvRow(values: string[]): string {
 /** Header + data rows, CRLF-separated per RFC 4180. No totals row: it breaks SUM() and pivots. */
 export function toCsv(headers: string[], rows: string[][]): string {
   return [csvRow(headers), ...rows.map(csvRow)].join("\r\n");
+}
+
+/** Both exports share these columns, so a period file and a history file stack in one sheet. */
+export const USAGE_CSV_HEADERS = [
+  "client_name",
+  "client_id",
+  "period",
+  "from",
+  "to",
+  "timezone",
+  "currency",
+  "basis",
+  "spend_usd",
+] as const;
+
+export interface UsageCsvRow {
+  clientName: string;
+  clientId: string;
+  /** `2026-07` for a history row, `2026-07-01..2026-07-31` for a period row. */
+  period: string;
+  from: string;
+  to: string;
+  tz: string;
+  currency: string;
+  basis: string;
+  /** `null` when the figure could not be loaded — exports EMPTY, never `0.00`. */
+  cents: number | null;
+}
+
+/**
+ * The billing export.
+ *
+ * An unloadable client still gets a row (so nobody assumes they were simply absent) but with an
+ * empty amount. Writing 0.00 there would be a number someone bills against.
+ */
+export function usageCsv(rows: UsageCsvRow[]): string {
+  return toCsv(
+    [...USAGE_CSV_HEADERS],
+    rows.map((r) => [
+      r.clientName,
+      r.clientId,
+      r.period,
+      r.from,
+      r.to,
+      r.tz,
+      r.currency,
+      r.basis,
+      r.cents == null ? "" : centsToUsd(r.cents),
+    ]),
+  );
 }

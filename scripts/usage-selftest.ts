@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   bucketByMonth,
   cell,
+  centsToMoneyExact,
   centsToUsd,
   csvRow,
   lastCompleteMonth,
@@ -9,9 +10,12 @@ import {
   monthLabel,
   monthsBetween,
   monthTotals,
+  resolveUsagePeriod,
   seriesMatchesWindow,
   sumRange,
   toCsv,
+  usageCsv,
+  USAGE_CSV_HEADERS,
   yearChunks,
   type DailySpend,
 } from "../lib/usage";
@@ -114,6 +118,16 @@ const SERIES: DailySpend[] = [
   // 0.1 + 0.2 style drift must be impossible: sum the cents, format once.
   assert.equal(centsToUsd([1010, 2020, 3030].reduce((a, n) => a + n, 0)), "60.60");
 
+  // ---- centsToMoneyExact: the house centsToMoney rounds to whole dollars ($667), which is
+  // fine for a KPI card and wrong for an invoice line. ----
+  assert.equal(centsToMoneyExact(66652), "$666.52");
+  assert.equal(centsToMoneyExact(3928), "$39.28");
+  assert.equal(centsToMoneyExact(0), "$0.00");
+  assert.equal(centsToMoneyExact(123456789), "$1,234,567.89"); // grouped, still exact
+  assert.equal(centsToMoneyExact(-250), "-$2.50");
+  // A non-USD amount must never render as a bare number with no currency on a billing screen.
+  assert.equal(centsToMoneyExact(100, "eur"), "1.00 EUR");
+
   // ---- yearChunks: never exceed the upstream 366-day cap, never gap or overlap ----
   assert.deepEqual(yearChunks("2026-06-04", "2026-08-01"), [
     { from: "2026-06-04", to: "2026-08-01" },
@@ -195,6 +209,91 @@ const SERIES: DailySpend[] = [
     'client,spend_usd\r\n"Acme, Inc.",666.52\r\n\'=evil,0.00',
   );
   assert.equal(toCsv(["client"], []), "client");
+
+  // ---- resolveUsagePeriod: search params are user input and drive what gets invoiced ----
+  const TODAY = "2026-08-01";
+  // Default is the last CLOSED month — never the current one, which is still accruing.
+  assert.deepEqual(resolveUsagePeriod({}, TODAY), {
+    from: "2026-07-01",
+    to: "2026-07-31",
+    month: "2026-07",
+    label: "Jul 2026",
+  });
+  assert.deepEqual(resolveUsagePeriod({ month: "2026-06" }, TODAY), {
+    from: "2026-06-01",
+    to: "2026-06-30",
+    month: "2026-06",
+    label: "Jun 2026",
+  });
+  // Garbage falls back to the default rather than throwing or querying a nonsense window.
+  assert.equal(resolveUsagePeriod({ month: "nope" }, TODAY).month, "2026-07");
+  assert.equal(resolveUsagePeriod({ month: "2026-13" }, TODAY).month, "2026-07");
+  assert.equal(resolveUsagePeriod({ from: "2026-07-01" }, TODAY).month, "2026-07"); // half a range
+  assert.equal(resolveUsagePeriod({ from: "x", to: "y" }, TODAY).month, "2026-07");
+
+  // A custom span — the 15th-14th cycle they're reconciling against.
+  assert.deepEqual(resolveUsagePeriod({ from: "2026-07-15", to: "2026-08-14" }, TODAY), {
+    from: "2026-07-15",
+    to: "2026-08-14",
+    month: null,
+    label: "15 Jul 2026 – 14 Aug 2026",
+  });
+  // Reversed input is tolerated, not rejected.
+  assert.equal(resolveUsagePeriod({ from: "2026-08-14", to: "2026-07-15" }, TODAY).from, "2026-07-15");
+  // A custom span that happens to be exactly one month is recognised as that month, so a
+  // shared URL highlights the right pill and labels the CSV consistently.
+  assert.equal(resolveUsagePeriod({ from: "2026-07-01", to: "2026-07-31" }, TODAY).month, "2026-07");
+  // `month` wins over from/to when both are present.
+  assert.equal(resolveUsagePeriod({ month: "2026-06", from: "2026-01-01", to: "2026-01-31" }, TODAY).month, "2026-06");
+  // A pathological start is clamped: 126 year-chunks per client is a self-inflicted outage.
+  assert.equal(resolveUsagePeriod({ from: "1900-01-01", to: "2026-08-01" }, TODAY).from, "2021-08-01");
+  // The current month is selectable (month-to-date) — `to` may sit in the future.
+  assert.deepEqual(resolveUsagePeriod({ month: "2026-08" }, TODAY), {
+    from: "2026-08-01",
+    to: "2026-08-31",
+    month: "2026-08",
+    label: "Aug 2026",
+  });
+
+  // ---- usageCsv: an unavailable client must export blank, never 0.00 ----
+  const csv = usageCsv([
+    {
+      clientName: "001. SOLVI",
+      clientId: "9c6d445a",
+      period: "2026-07",
+      from: "2026-07-01",
+      to: "2026-07-31",
+      tz: "Australia/Brisbane",
+      currency: "usd",
+      basis: "billed_voice",
+      cents: 66652,
+    },
+    {
+      clientName: "002. Freedom Boat Club",
+      clientId: "0e01011c",
+      period: "2026-07",
+      from: "2026-07-01",
+      to: "2026-07-31",
+      tz: "Australia/Sydney",
+      currency: "usd",
+      basis: "billed_voice",
+      cents: null,
+    },
+  ]);
+  const lines = csv.split("\r\n");
+  assert.equal(lines[0], USAGE_CSV_HEADERS.join(","));
+  assert.equal(
+    lines[1],
+    "001. SOLVI,9c6d445a,2026-07,2026-07-01,2026-07-31,Australia/Brisbane,usd,billed_voice,666.52",
+  );
+  // Trailing empty field: the row exists, the number does not. Never "0.00".
+  assert.equal(
+    lines[2],
+    "002. Freedom Boat Club,0e01011c,2026-07,2026-07-01,2026-07-31,Australia/Sydney,usd,billed_voice,",
+  );
+  assert.ok(!csv.includes("0.00"), "an unloadable client must never export as a zero amount");
+  // No totals row — it breaks SUM() over the column and corrupts pivots.
+  assert.equal(lines.length, 3);
 
   console.log("usage-selftest: all assertions passed");
 })();

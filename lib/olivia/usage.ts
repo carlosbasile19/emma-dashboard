@@ -2,11 +2,13 @@ import "server-only";
 import { requireAdmin } from "@/lib/auth";
 import {
   monthsBetween,
+  monthTotals,
   seriesMatchesWindow,
   sumRange,
   yearChunks,
   type DailySpend,
   type MonthKey,
+  type UsageCell,
 } from "@/lib/usage";
 import * as api from "./api";
 import { listAgencyClients, type AgencyClient } from "./agency";
@@ -185,6 +187,51 @@ export async function getUsageReport(from: string, to: string): Promise<UsageRep
 /** One client's spend for a window, or `null` when their data could not be loaded. */
 export function periodTotal(usage: ClientUsage, from: string, to: string): number | null {
   return usage.series ? sumRange(usage.series.daily, from, to) : null;
+}
+
+/** One rendered line: the selected period plus that client's whole month history. */
+export interface UsageRow {
+  id: string;
+  name: string;
+  tz: string;
+  periodCents: number | null;
+  monthCells: UsageCell[];
+  /** Lifetime across the loaded history; null when the client failed to load. */
+  lifetimeCents: number | null;
+}
+
+/** Shared by the page and the CSV export so a downloaded file always matches the screen. */
+export function buildUsageRows(
+  report: UsageReport,
+  period: { from: string; to: string },
+): UsageRow[] {
+  return report.clients.map((u) => ({
+    id: u.client.id,
+    name: u.client.name,
+    tz: u.tz,
+    periodCents: periodTotal(u, period.from, period.to),
+    monthCells: monthTotals(u.series?.daily ?? null, report.months, openedMonth(u.client)),
+    lifetimeCents: u.series
+      ? u.series.daily.reduce((a, d) => a + d.spendCents, 0)
+      : null,
+  }));
+}
+
+/**
+ * Per-month agency totals. A column is `null` when ANY client's figure for it is unavailable —
+ * a column total that quietly omits an unreachable client is a wrong number that looks right.
+ * Months before a client opened contribute nothing, which is correct rather than missing.
+ */
+export function columnTotals(rows: UsageRow[], months: MonthKey[]): Array<number | null> {
+  return months.map((_, i) => {
+    let total = 0;
+    for (const row of rows) {
+      const c = row.monthCells[i];
+      if (!c || c.kind === "unavailable") return null;
+      if (c.kind === "value") total += c.cents;
+    }
+    return total;
+  });
 }
 
 /**
