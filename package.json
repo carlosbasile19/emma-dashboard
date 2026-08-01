@@ -15,7 +15,8 @@
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
     "test:calendar": "tsx scripts/calendar-selftest.ts",
     "test:threads": "tsx scripts/threads-selftest.ts",
-    "test:besttimes": "tsx scripts/best-times-selftest.ts"
+    "test:besttimes": "tsx scripts/best-times-selftest.ts",
+    "test:leadsearch": "tsx scripts/leads-search-selftest.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
