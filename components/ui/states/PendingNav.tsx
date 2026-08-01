@@ -67,10 +67,22 @@ export function PendingNavProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Wrap a router call so the whole layout can reflect the wait. No-ops outside the provider. */
+/**
+ * Fallback `navigate` used when `useNavigate` is called outside `PendingNavProvider`. Hoisted to
+ * a module-level constant rather than allocated inline on every call — not reachable today (the
+ * provider always wraps the tree), but the failure mode if it churned would be silent and
+ * severe: an unstable `navigate` identity would retrigger every effect/`useCallback` built on it
+ * (setParam → setQuery → the leads search debounce effect), and the search would never commit.
+ */
+const noProviderFallback = (fn: () => void) => fn();
+
+/**
+ * Wrap a router call so the whole layout can reflect the wait. Outside the provider, runs `fn`
+ * without the shared pending treatment.
+ */
 export function useNavigate(): (fn: () => void) => void {
   const ctx = useContext(NavigateCtx);
-  return ctx ?? ((fn: () => void) => fn());
+  return ctx ?? noProviderFallback;
 }
 
 export function usePendingPhase(): PendingPhase {
@@ -86,12 +98,16 @@ export function usePendingPhase(): PendingPhase {
  *
  * For links that change route segment (the sidebars), use a plain `<Link>` with
  * `<NavPendingDot />` instead — `loading.tsx` already covers those. Leads table rows are the
- * deliberate exception: the row is a `<div onClick>`, not a `<Link>`, so there's no anchor for
- * `NavPendingDot` to hang off — the shared transition is what's left.
+ * exception: the row is a `<div onClick>`, not a `<Link>`, so there's no anchor for
+ * `NavPendingDot` to hang off, and it wraps its `router.push` in the shared transition instead.
+ * That wrap is a harmless no-op, not the only coverage: `app/dashboard/leads/[id]/loading.tsx`
+ * already handles the route-segment change, and in practice React commits that never-before-
+ * mounted Suspense fallback well inside the 150ms grace period, so nothing visibly stacks.
  */
 export function NavLink({
   href,
   children,
+  target,
   ...rest
 }: { href: string; children: ReactNode } & Omit<
   React.ComponentPropsWithoutRef<typeof Link>,
@@ -102,10 +118,14 @@ export function NavLink({
   return (
     <Link
       href={href}
+      target={target}
       {...rest}
       onClick={(e) => {
         if (e.defaultPrevented) return;
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        // A target other than "_self" (e.g. a future target="_blank" caller) must fall through
+        // to native anchor behavior rather than silently navigating in this tab.
+        if (target && target !== "_self") return;
         e.preventDefault();
         navigate(() => router.push(href));
       }}

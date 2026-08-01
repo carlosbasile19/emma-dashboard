@@ -189,4 +189,9 @@ body {
   .shimmer {
     animation: none;
   }
+  /* NavPendingDot uses Tailwind's animate-pulse; feedback must never depend on animation, and
+     the dot stays visible (just static) either way — this is the point, not a compromise. */
+  .animate-pulse {
+    animation: none;
+  }
 }
