@@ -1,10 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { Badge } from "@/components/ui/Badge";
-import { EMPTY_COPY } from "@/lib/copy";
+import { EMPTY_COPY, LEADS_SEARCH_EMPTY } from "@/lib/copy";
 import { fmtEnum, fullName, num, relTime } from "@/lib/format";
 import { LEAD_SOURCES, LEAD_STATUSES, type Lead } from "@/lib/types";
 
@@ -23,6 +23,8 @@ export function LeadsTable({
   end,
   status,
   source,
+  q,
+  truncated,
 }: {
   rows: Lead[];
   total: number;
@@ -32,6 +34,8 @@ export function LeadsTable({
   end: number;
   status: string;
   source: string;
+  q: string;
+  truncated: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -50,13 +54,14 @@ export function LeadsTable({
     [params, pathname, router],
   );
 
-  const filtered = status !== "all" || source !== "all";
-  const clearFilters = () => setParam({ status: null, source: null, page: null });
+  const filtered = status !== "all" || source !== "all" || q !== "";
+  const clearFilters = () => setParam({ status: null, source: null, q: null, page: null });
 
   return (
     <>
       {/* filter bar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <SearchInput value={q} onChange={(v) => setParam({ q: v, page: null })} />
         <Select
           value={status}
           onChange={(v) => setParam({ status: v, page: null })}
@@ -87,9 +92,15 @@ export function LeadsTable({
         </span>
       </div>
 
+      {truncated && q ? (
+        <p className="-mt-2 mb-4 font-mono text-[11.5px] text-muted">
+          Searched the most recent 2,500 leads in this range.
+        </p>
+      ) : null}
+
       {total === 0 ? (
         <div className="rounded-[16px] border border-ink/10 bg-white shadow-sm">
-          <EmptyState copy={EMPTY_COPY.leads} onAction={clearFilters} />
+          <EmptyState copy={q ? LEADS_SEARCH_EMPTY : EMPTY_COPY.leads} onAction={clearFilters} />
         </div>
       ) : (
         <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
@@ -230,5 +241,61 @@ function PageButton({
     >
       {children}
     </button>
+  );
+}
+
+const DEBOUNCE_MS = 250;
+
+function SearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  // Re-sync when the URL changes from outside the field (Clear filters, browser back).
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  // Debounce the URL write so typing doesn't fire a navigation per keystroke.
+  useEffect(() => {
+    if (draft === value) return;
+    const t = setTimeout(() => onChange(draft), DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [draft, value, onChange]);
+
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-[11px] top-1/2 -translate-y-1/2 text-muted">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="9" cy="9" r="6" />
+          <path d="M13.5 13.5 17 17" strokeLinecap="round" />
+        </svg>
+      </span>
+      <input
+        type="search"
+        aria-label="Search leads"
+        placeholder="Search leads…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        className="w-[220px] rounded-[10px] border border-ink/10 bg-white py-[9px] pl-[32px] pr-[30px] font-display text-[13px] text-ink placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+      />
+      {draft ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            setDraft("");
+            onChange("");
+          }}
+          className="absolute right-[9px] top-1/2 -translate-y-1/2 cursor-pointer px-1 text-[13px] leading-none text-muted hover:text-ink"
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
   );
 }
