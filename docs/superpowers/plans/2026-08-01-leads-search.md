@@ -71,7 +71,7 @@ import type { Lead } from "../lib/types";
 function lead(over: Partial<Lead> & { id: string }): Lead {
   return {
     status: "new",
-    source: "instagram",
+    source: "csv_import",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
     total_calls: 0,
