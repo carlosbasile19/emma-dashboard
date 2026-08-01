@@ -1115,6 +1115,14 @@ Replace the whole `<button type="submit">…</button>` inside the `syncClients` 
 
 Apply the same pattern to each. For every one: add the `SubmitButton` import to the file if absent, replace the form's `<button type="submit">` with `<SubmitButton>`, move the existing `className` across verbatim, and give a `pendingLabel`.
 
+> **AMENDED DURING EXECUTION — two exceptions to "verbatim".** Review caught this rule
+> contradicting Step 2's own code block, which adds `cursor-pointer` to the sync button. Ruled in
+> favour of the code: a `<button>` does not get `cursor: pointer` by default, and this app's other
+> interactive controls (Header range pills, sign-out, workspace select) already carry it, so the
+> addition makes the sync button consistent rather than exceptional. The second exception is
+> `disabled:cursor-default disabled:opacity-60`, which styles genuinely new behavior rather than
+> restyling existing appearance. Everything else moves across byte-identical.
+
 | File | Action | `pendingLabel` |
 |---|---|---|
 | `app/dashboard/layout.tsx` (signOut) | `signOut` | `Signing out…` |
@@ -1126,7 +1134,7 @@ Apply the same pattern to each. For every one: add the `SubmitButton` import to 
 | `components/console/TeamView.tsx:36` | `createTeamInvite` | `Inviting…` |
 | `components/console/TeamView.tsx:87` | `revokeInvite` | `Revoking…` |
 
-All eight of those files are **server** components, which is fine — a server component may render a client component like `SubmitButton`; it just can't call hooks itself.
+The five distinct files in that table — `app/dashboard/layout.tsx`, `ClientsTable.tsx`, `ClientDetailView.tsx`, `InvitesView.tsx`, `TeamView.tsx` — are all **server** components, which is fine: a server component may render a client component like `SubmitButton`; it just can't call hooks itself. (`Sidebar.tsx` and `ConsoleSidebar.tsx`, covered below, were already client components for unrelated `usePathname` reasons.)
 
 **The two icon-only sign-out buttons** (`components/dashboard/Sidebar.tsx:82` and
 `components/console/ConsoleSidebar.tsx:97`) have no room for a label, so `pendingLabel` is omitted
