@@ -3,6 +3,7 @@ import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } 
 import { fullName } from "@/lib/format";
 import { byRecencyDesc } from "@/lib/threads";
 import { hasMorePages } from "@/lib/leads-search";
+import { shouldFetchNextPage } from "./crawl";
 import type {
   Agent,
   CalendarResponse,
@@ -186,6 +187,9 @@ export async function getLeadDirectory(
   const from = ymdUTC(-365 * 24 * 60 * 60 * 1000);
   const to = ymdUTC();
   const dir: Record<string, string> = {};
+  let fetched = 0;
+  let lastTotal: number | undefined;
+
   for (let page = 1; page <= LEAD_DIR_MAX_PAGES; page++) {
     const { items, total, limit } = await getLeads(
       clientId,
@@ -196,16 +200,34 @@ export async function getLeadDirectory(
       const name = fullName(lead.first_name, lead.last_name);
       if (name) dir[lead.id] = name;
     }
+    fetched += items.length;
+    lastTotal = total;
     const pageSize = limit || LEAD_DIR_PAGE_SIZE;
-    if (items.length < pageSize || page * pageSize >= total) break;
+    // Termination lives in `shouldFetchNextPage` so a short page mid-list no longer reads as
+    // the end of the list. It used to: a 250-lead client whose second page came back with 80
+    // rows stopped at 180, and the ~70 missing names showed as raw lead ids in the call and
+    // conversation logs with nothing explaining why.
+    if (!shouldFetchNextPage(fetched, { received: items.length, total, pageSize })) break;
     if (page === LEAD_DIR_MAX_PAGES) {
       console.warn(
-        "[olivia] lead directory truncated at %d leads (total=%d) — older rows fall back to lead_id",
-        LEAD_DIR_MAX_PAGES * pageSize,
+        "[olivia] lead directory hit the %d-page cap at %d leads (total=%d) — older rows fall back to lead_id",
+        LEAD_DIR_MAX_PAGES,
+        fetched,
         total,
       );
     }
   }
+
+  // Ending short of a known total means rows were dropped upstream. The directory degrades
+  // gracefully (callers fall back to the lead_id), but it should not do so silently.
+  if (Number.isFinite(lastTotal) && fetched < (lastTotal as number)) {
+    console.warn(
+      "[olivia] lead directory incomplete: collected %d of %d leads — those rows fall back to lead_id",
+      fetched,
+      lastTotal,
+    );
+  }
+
   return dir;
 }
 

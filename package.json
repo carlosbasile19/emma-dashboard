@@ -16,6 +16,7 @@
     "test:calendar": "tsx scripts/calendar-selftest.ts",
     "test:threads": "tsx scripts/threads-selftest.ts",
     "test:besttimes": "tsx scripts/best-times-selftest.ts",
+    "test:crawl": "tsx scripts/crawl-selftest.ts",
     "test:leadsearch": "tsx scripts/leads-search-selftest.ts"
   },
   "dependencies": {
