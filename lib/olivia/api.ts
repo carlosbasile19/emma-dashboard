@@ -215,14 +215,18 @@ const LEAD_CORPUS_MAX_PAGES = 25; // safety cap (~2500 leads); overflow is repor
 /**
  * Every lead in the window, for in-app search. Upstream /leads has no search parameter
  * (guide §5), so the list is paged in full and filtered locally. `status`/`source` ride
- * along so a filtered search crawls less. `truncated` is true when the cap cut the crawl
- * short — callers MUST surface that rather than imply a complete result.
+ * along so a filtered search crawls less. `truncated` is true when the crawl did not cover
+ * the whole list — callers MUST surface that rather than imply a complete result. It has
+ * three causes with very different sizes (page cap hit, `total` missing, fewer rows
+ * collected than `total` claimed), so `searched` reports how many rows were ACTUALLY
+ * collected: a caller that assumes the cap (2,500) would overstate coverage in the other
+ * two cases, which can be a single short page or even zero rows.
  */
 export async function getLeadsCorpus(
   clientId: string,
   params: LeadsParams,
   h: Hints = {},
-): Promise<{ items: Lead[]; truncated: boolean }> {
+): Promise<{ items: Lead[]; truncated: boolean; searched: number }> {
   const items: Lead[] = [];
   let truncated = false;
   let lastTotal: number | undefined;
@@ -263,7 +267,7 @@ export async function getLeadsCorpus(
     truncated = true;
   }
 
-  return { items, truncated };
+  return { items, truncated, searched: items.length };
 }
 
 /** `lead_id` returns the lead's WHOLE history — the from/to window is not applied when set. */

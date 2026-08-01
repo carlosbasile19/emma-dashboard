@@ -172,7 +172,12 @@ export async function fetchLeads(
   });
 }
 
-export type LeadsSearchResult = ListResponse<Lead> & { truncated: boolean };
+export type LeadsSearchResult = ListResponse<Lead> & {
+  /** The crawl did not cover the whole list — see api.getLeadsCorpus. */
+  truncated: boolean;
+  /** Rows the crawl actually collected and searched. Only meaningful with `truncated`. */
+  searched: number;
+};
 
 /**
  * Search leads by name / phone / email / id across the whole window. Upstream has no search
@@ -194,8 +199,16 @@ export async function searchLeads(
     force: opts.force,
     fetcher: () => api.getLeadsCorpus(clientId, corpus),
   });
+  const { items, truncated } = cached.data;
   return {
-    data: { ...searchCorpus(cached.data.items, q, page, limit), truncated: cached.data.truncated },
+    data: {
+      ...searchCorpus(items, q, page, limit),
+      truncated,
+      // Derived from the corpus we hold rather than read off the payload: cache rows written
+      // before `searched` existed would otherwise report `undefined` for their whole stale
+      // window. Same number either way.
+      searched: items.length,
+    },
     freshness: cached.freshness,
   };
 }

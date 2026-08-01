@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { OliviaError } from "./errors";
-import { pickFallbackRow, stableStringify } from "./fallback";
+import { pickFallbackRow, stableStringify, type FallbackCandidate } from "./fallback";
 import { acquireLock, consumeToken, releaseLock } from "./governor";
 import type { WithFreshness } from "@/lib/types";
 
@@ -44,6 +44,26 @@ export const TIERS = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How often a caller that lost the single-flight lock re-reads the key. */
+const LOCK_POLL_MS = 180;
+/** Floor: the pre-existing 6 × 180ms wait, kept for cheap tiers. */
+const LOCK_WAIT_MIN_MS = 6 * LOCK_POLL_MS;
+/** Ceiling: a holder that died must never stall a request longer than this. */
+const LOCK_WAIT_MAX_MS = 10_000;
+
+/**
+ * How long to wait for the single-flight holder before doing the work ourselves, scaled to
+ * the tier's fresh window as a proxy for how expensive a refresh is (`fresh` seconds × 60ms,
+ * floored at the legacy ~1.1s and capped at 10s). This only matters when the exact key has
+ * NO row at all: with nothing to serve, giving up early means running the holder's work a
+ * second time. For the 25-page lead-corpus crawl (fresh 120 → ~7.2s) that duplication is
+ * expensive — debounced typing commits several URLs while the key is still cold, so a short
+ * wait turns one user's search into several concurrent crawls against a shared rate budget.
+ */
+function lockWaitMs(tier: Tier): number {
+  return Math.min(Math.max(tier.fresh * 60, LOCK_WAIT_MIN_MS), LOCK_WAIT_MAX_MS);
+}
+
 /**
  * Cache key MUST include client_id + endpoint + every param. A cached value can never be
  * served to a different client_id (tenant isolation, not just optimization).
@@ -82,20 +102,35 @@ async function readFallbackCache(
   endpoint: string,
   params: Record<string, unknown>,
 ): Promise<CacheRow | null> {
+  // Two reads on purpose. Choosing a row needs only the key + timestamp, so the listing must
+  // NOT select `payload`: a `leads-corpus` row holds up to 2,500 leads with PII (~1MB) and
+  // mints a new key per (window, filters) per day, which would make this listing pull tens of
+  // megabytes — on exactly the path that runs when upstream is already failing.
   const { data } = await admin
     .from("response_cache")
-    .select("cache_key, payload, fetched_at")
+    .select("cache_key, fetched_at")
     .eq("client_id", clientId)
     .eq("endpoint", endpoint)
     .order("fetched_at", { ascending: false })
     .limit(24);
-  return pickFallbackRow(
-    (data as (CacheRow & { cache_key: string })[] | null) ?? [],
+  const pick = pickFallbackRow(
+    (data as FallbackCandidate[] | null) ?? [],
     clientId,
     endpoint,
     params,
     Date.now(),
   );
+  if (!pick) return null;
+  // Fetch just the winner's payload, re-asserting the tenant guards on the row actually
+  // returned (the key is already prefix-checked by pickFallbackRow; these make it explicit).
+  const { data: full } = await admin
+    .from("response_cache")
+    .select("payload, fetched_at")
+    .eq("cache_key", pick.cache_key)
+    .eq("client_id", clientId)
+    .eq("endpoint", endpoint)
+    .maybeSingle();
+  return (full as CacheRow | null) ?? null;
 }
 
 async function writeCache(
@@ -176,9 +211,14 @@ export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFres
   const acquired = await acquireLock(key, admin);
   try {
     if (!acquired) {
-      // Another instance is refreshing this key. Briefly await its result…
-      for (let i = 0; i < 6; i++) {
-        await sleep(180);
+      // Another instance is refreshing this key. Await its result — but only as long as
+      // giving up actually costs something. With a stale row in hand the exit is cheap
+      // (serve last-known-good after the short legacy wait); with NO row we would instead
+      // duplicate the holder's whole refresh, so an expensive tier waits proportionally
+      // longer. See lockWaitMs.
+      const deadline = Date.now() + (row ? LOCK_WAIT_MIN_MS : lockWaitMs(tier));
+      while (Date.now() < deadline) {
+        await sleep(LOCK_POLL_MS);
         const latest = await readCache(admin, key);
         if (latest && new Date(latest.fetched_at).getTime() > startedAt) {
           return fresh(latest.payload as T, new Date(latest.fetched_at).getTime());

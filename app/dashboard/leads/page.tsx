@@ -35,9 +35,12 @@ export default async function LeadsPage({ searchParams }: { searchParams: SP }) 
 
   let data: ListResponse<Lead>;
   let freshness: Freshness;
-  // True only when the corpus crawl hit its page cap — surfaced so a partial search never
-  // reads as a complete one.
+  // True when the corpus crawl did not cover the whole list — surfaced so a partial search
+  // never reads as a complete one. `searched` is how many rows it actually covered; the
+  // causes range from the 2,500-row page cap down to a single short page, so the note must
+  // quote the real number rather than assume the cap.
   let truncated = false;
+  let searched = 0;
   try {
     // No query → the plain single-request path, unchanged. Only a real search pays for the
     // corpus crawl.
@@ -46,6 +49,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: SP }) 
       data = res.data;
       freshness = res.freshness;
       truncated = res.data.truncated;
+      searched = res.data.searched;
     } else {
       const res = await fetchLeads(query);
       data = res.data;
@@ -75,6 +79,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: SP }) 
         source={source}
         q={q}
         truncated={truncated}
+        searched={searched}
       />
     </>
   );

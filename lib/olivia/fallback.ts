@@ -12,10 +12,16 @@ const WINDOW_KEYS = new Set(["from", "to"]);
  */
 export const FALLBACK_MAX_AGE_SEC = 7 * 24 * 3600;
 
+/**
+ * A row considered for the cross-window fallback. The matcher reads ONLY `cache_key` and
+ * `fetched_at` — the payload is deliberately not required, so callers can list candidates
+ * without dragging every row's body across the wire (a `leads-corpus` payload holds up to
+ * 2,500 leads). Optional so callers that already hold the payload can still pass it through.
+ */
 export interface FallbackCandidate {
   cache_key: string;
-  payload: unknown;
   fetched_at: string;
+  payload?: unknown;
 }
 
 export function stableStringify(obj: Record<string, unknown>): string {

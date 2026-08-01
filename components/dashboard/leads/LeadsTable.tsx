@@ -25,6 +25,7 @@ export function LeadsTable({
   source,
   q,
   truncated,
+  searched,
 }: {
   rows: Lead[];
   total: number;
@@ -36,23 +37,37 @@ export function LeadsTable({
   source: string;
   q: string;
   truncated: boolean;
+  searched: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Reads the live URL at write time rather than closing over a snapshot from
-  // `useSearchParams()`. Most callers are synchronous with a user gesture, where that
-  // wouldn't matter — but the debounced search write fires up to 250ms after the keystroke
-  // that scheduled it, and a stale snapshot from then would silently revert any filter
-  // changed in the meantime.
+  // The query string of the last URL *this component* asked for, or null once the server has
+  // caught up. `window.location` is NOT a safe base to compose onto: Next only rewrites it
+  // when a navigation COMMITS, and a newer navigation marks a pending one discarded, so the
+  // loser's params would be dropped for good. That window is wide — the debounced search
+  // write lands 250ms after the last keystroke, while an RSC round trip for this route takes
+  // longer than that, and seconds on a search commit because of the corpus crawl.
+  const pendingSearchRef = useRef<string | null>(null);
+
+  // Every filter arrives as a prop from the server render, so a change in any of them means
+  // the server has applied our last write and `window.location` is authoritative again.
+  useEffect(() => {
+    pendingSearchRef.current = null;
+  }, [status, source, q, page]);
+
+  // Composes onto the most recent INTENDED state (our pending write if one is in flight,
+  // otherwise the live URL) so two writes that race — "change Status mid-typing" and "change
+  // Status while a search commit is in flight" — merge instead of clobbering each other.
   const setParam = useCallback(
     (updates: Record<string, string | null>) => {
-      const next = new URLSearchParams(window.location.search);
+      const next = new URLSearchParams(pendingSearchRef.current ?? window.location.search);
       for (const [k, v] of Object.entries(updates)) {
         if (v === null || v === "all" || v === "") next.delete(k);
         else next.set(k, v);
       }
       const qs = next.toString();
+      pendingSearchRef.current = qs ? `?${qs}` : "";
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
     [pathname, router],
@@ -106,15 +121,24 @@ export function LeadsTable({
         </span>
       </div>
 
+      {/* Truncation is only ever surfaced for a real search, and only when the crawl fell
+          short. The count must be the corpus we actually covered — "truncated" can also mean
+          upstream omitted `total` or returned fewer rows than it claimed, and those can stop
+          the crawl at a single short page, so quoting the 2,500 cap would overstate it. */}
       {truncated && q ? (
         <p className="-mt-2 mb-4 font-mono text-[11.5px] text-muted">
-          Searched the most recent 2,500 leads in this range.
+          {searched > 0
+            ? `Searched the most recent ${num(searched)} ${searched === 1 ? "lead" : "leads"} in this range.`
+            : "We couldn’t read the full lead list for this range, so this search may be incomplete."}
         </p>
       ) : null}
 
       {total === 0 ? (
         <div className="rounded-[16px] border border-ink/10 bg-white shadow-sm">
-          <EmptyState copy={q ? LEADS_SEARCH_EMPTY : EMPTY_COPY.leads} onAction={clearFilters} />
+          <EmptyState
+            copy={q ? LEADS_SEARCH_EMPTY(q) : EMPTY_COPY.leads}
+            onAction={clearFilters}
+          />
         </div>
       ) : (
         <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
