@@ -162,7 +162,7 @@ Six `loading.tsx` files over **five** new `SkeletonVariant`s:
 | `console` | `/console` | 1100px, hero, stat grid, rows |
 | `console-detail` | `/console/clients/[id]` | 1000px, back-link, hero, stats, cards |
 | `console-plain` | `/console/team`, `/console/invites` | 1000px, **no hero**, stat/form band, rows |
-| `console-table` | `/console/clients` | 1000px, head + sync button, table rows |
+| `console-table` | `/console/clients` | 1100px, head + sync button, table rows |
 | `console-usage` | `/console/usage` | period picker + range form, tiles, two tables |
 
 **This started as three variants and was wrong.** The first draft assumed the console views shared

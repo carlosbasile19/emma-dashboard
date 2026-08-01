@@ -17,7 +17,7 @@ function Block({ className }: { className?: string }) {
   return <div className={`shimmer rounded-[8px] ${className ?? ""}`} />;
 }
 
-// Every console view opens with a 26-34px heading and a muted subtitle, so all three console
+// Every console view opens with a 26-34px heading and a muted subtitle, so all five console
 // variants share this head rather than repeating it.
 function ConsoleHead() {
   return (

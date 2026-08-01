@@ -18,7 +18,7 @@
 - **User-facing copy says "Emma", never "Olivia".** `Olivia` stays in internal identifiers, module paths, and comments only.
 - **`inert`, not `pointer-events-none`,** for dimmed content — it must leave the tab order and the accessibility tree too.
 - **`SlowNotice` must render OUTSIDE the `inert` wrapper.** Inside it, the Retry button is unclickable and invisible to screen readers. This is the single easiest way to ship this feature broken.
-- **The Header/filter controls are never dimmed.** Only `{children}` is wrapped. Changing your mind mid-load must always work.
+- **The Header stays live and is never dimmed** — it sits outside `{children}`, so changing range/campaign mid-load always works. This is NOT true of a page's own in-page filter controls (leads search/selects, the log tab switcher, the calendar month nav): those are part of `{children}`, so they ARE dimmed and `inert` during a load, same as everything else in it. `PendingContent` restores focus to whatever was focused inside it once the wait clears, which is what keeps a search input usable across the wait rather than permanently blurred. Properly exempting in-page controls from the dim, so they behave like the Header, is deferred work.
 - **`useLinkStatus` must be called from a `<Link>` descendant**, never from the `<Link>` itself or a sibling.
 - **`useFormStatus` must be called from a component rendered inside the `<form>`**, never from the component that renders the `<form>`.
 - **Verification before completion:** every task's test step requires running the command and reading the output. Do not mark a step done on the assumption it passes.
@@ -836,7 +836,15 @@ Closes the biggest hole: six routes that currently render nothing until their da
 > `console` (1100px + hero, `/console` only), `console-detail` (1000px + back-link + hero,
 > `clients/[id]`), and `console-plain` (1000px, no hero, `team` + `invites`). Shipped in c0d2b1b.
 
-- [ ] **Step 1: Add the three variants**
+- [ ] **Step 1: Add the five variants**
+
+> **SUPERSEDED — do not copy the code below.** This step, and the type union and switch cases in
+> it, were written before the amendment above and still show only the original three variants
+> (`console`, `console-table`, `console-usage`). The shipped type additionally has
+> `console-detail` and `console-plain`; `console`'s own case is unchanged. See
+> `components/ui/states/Skeleton.tsx` for the authoritative five-case switch — following the
+> stale blocks below verbatim reproduces the exact shape mismatch this amendment exists to
+> prevent.
 
 In `components/ui/states/Skeleton.tsx`, extend the type:
 
@@ -921,6 +929,23 @@ Then add these three cases to the switch, immediately before `default:`:
 ```
 
 - [ ] **Step 2: Create the six loading files**
+
+> **SUPERSEDED — the variant names below are wrong for three of the six files.** These code
+> blocks predate the amendment above and give `variant="console"` for `clients/[id]`, `invites`,
+> and `team`. Following them verbatim reproduces the exact skeleton-shape mismatch the amendment
+> exists to prevent. The shipped mapping is:
+>
+> | File | Variant |
+> |---|---|
+> | `app/console/loading.tsx` | `"console"` |
+> | `app/console/clients/loading.tsx` | `"console-table"` |
+> | `app/console/clients/[id]/loading.tsx` | `"console-detail"` |
+> | `app/console/invites/loading.tsx` | `"console-plain"` |
+> | `app/console/team/loading.tsx` | `"console-plain"` |
+> | `app/console/usage/loading.tsx` | `"console-usage"` |
+>
+> Each file otherwise matches the shape shown below (same `Skeleton` import, same `Loading`
+> component) — only the `variant` string differs from what's printed for those three files.
 
 `app/console/loading.tsx`:
 
