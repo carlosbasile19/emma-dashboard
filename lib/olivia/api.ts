@@ -225,6 +225,7 @@ export async function getLeadsCorpus(
 ): Promise<{ items: Lead[]; truncated: boolean }> {
   const items: Lead[] = [];
   let truncated = false;
+  let lastTotal: number | undefined;
 
   for (let page = 1; page <= LEAD_CORPUS_MAX_PAGES; page++) {
     const res = await getLeads(
@@ -233,6 +234,7 @@ export async function getLeadsCorpus(
       h,
     );
     items.push(...res.items);
+    lastTotal = res.total;
     const pageSize = res.limit || LEAD_CORPUS_PAGE_SIZE;
     if (!hasMorePages(items.length, res.total, res.items.length, pageSize)) break;
     if (page === LEAD_CORPUS_MAX_PAGES) {
@@ -243,6 +245,22 @@ export async function getLeadsCorpus(
         res.total,
       );
     }
+  }
+
+  // `hasMorePages` reading a short last page as "the end" is only valid if the crawl actually
+  // reached the true end of the list. Two situations look identical to a short page but are NOT
+  // completion: (1) some locked/PII-gated responses omit `total` entirely despite its `number`
+  // type, so `fetched < total` silently evaluates to `false` and the crawl stops after page one;
+  // and (2) upstream can return a short page mid-list (a hiccup, dedup, or post-pagination
+  // filtering) while `total` says more rows exist. Neither may be read as "done" — a missing/
+  // non-finite total means the size is simply unknown, and a collected count short of a known
+  // total means rows were dropped. Both must mark the corpus truncated so a partial result is
+  // never cached and searched as if it were the whole list. Do not simplify this back to
+  // "short page = complete".
+  if (!Number.isFinite(lastTotal)) {
+    truncated = true;
+  } else if (items.length < (lastTotal as number)) {
+    truncated = true;
   }
 
   return { items, truncated };
