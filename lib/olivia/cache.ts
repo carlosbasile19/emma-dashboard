@@ -27,6 +27,10 @@ export const TIERS = {
   // lead_id → name directory used to enrich call/conversation rows. Names are stable, so a
   // long fresh window avoids re-paging the whole leads list on every log view.
   leadDirectory: { fresh: 300, stale: 1800 },
+  // Full lead corpus backing in-app search. Paging the whole list is expensive, so the fresh
+  // window is longer than `leads` — a search result up to ~2 min behind live is an acceptable
+  // trade for not re-crawling on every keystroke.
+  leadsCorpus: { fresh: 120, stale: 600 },
   calls: { fresh: 30, stale: 60 },
   conversations: { fresh: 30, stale: 60 },
   calendar: { fresh: 60, stale: 300 },

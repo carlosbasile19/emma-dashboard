@@ -2,6 +2,7 @@ import "server-only";
 import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } from "./client";
 import { fullName } from "@/lib/format";
 import { byRecencyDesc } from "@/lib/threads";
+import { hasMorePages } from "@/lib/leads-search";
 import type {
   Agent,
   CalendarResponse,
@@ -206,6 +207,45 @@ export async function getLeadDirectory(
     }
   }
   return dir;
+}
+
+const LEAD_CORPUS_PAGE_SIZE = 100; // API max per page
+const LEAD_CORPUS_MAX_PAGES = 25; // safety cap (~2500 leads); overflow is reported, not hidden
+
+/**
+ * Every lead in the window, for in-app search. Upstream /leads has no search parameter
+ * (guide §5), so the list is paged in full and filtered locally. `status`/`source` ride
+ * along so a filtered search crawls less. `truncated` is true when the cap cut the crawl
+ * short — callers MUST surface that rather than imply a complete result.
+ */
+export async function getLeadsCorpus(
+  clientId: string,
+  params: LeadsParams,
+  h: Hints = {},
+): Promise<{ items: Lead[]; truncated: boolean }> {
+  const items: Lead[] = [];
+  let truncated = false;
+
+  for (let page = 1; page <= LEAD_CORPUS_MAX_PAGES; page++) {
+    const res = await getLeads(
+      clientId,
+      { ...params, page, limit: LEAD_CORPUS_PAGE_SIZE },
+      h,
+    );
+    items.push(...res.items);
+    const pageSize = res.limit || LEAD_CORPUS_PAGE_SIZE;
+    if (!hasMorePages(items.length, res.total, res.items.length, pageSize)) break;
+    if (page === LEAD_CORPUS_MAX_PAGES) {
+      truncated = true;
+      console.warn(
+        "[olivia] lead search corpus truncated at %d leads (total=%d) — search covers newest rows only",
+        items.length,
+        res.total,
+      );
+    }
+  }
+
+  return { items, truncated };
 }
 
 /** `lead_id` returns the lead's WHOLE history — the from/to window is not applied when set. */

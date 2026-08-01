@@ -16,6 +16,7 @@ import type {
 import { OliviaError } from "./errors";
 import { cachedFetch, TIERS } from "./cache";
 import { mergeThreadRows } from "@/lib/threads";
+import { searchCorpus } from "@/lib/leads-search";
 import type {
   Agent,
   CalendarResponse,
@@ -169,6 +170,34 @@ export async function fetchLeads(
     force: opts.force,
     fetcher: () => api.getLeads(clientId, params),
   });
+}
+
+export type LeadsSearchResult = ListResponse<Lead> & { truncated: boolean };
+
+/**
+ * Search leads by name / phone / email / id across the whole window. Upstream has no search
+ * param, so we cache the CORPUS (keyed on window + filters) and filter it in memory.
+ * `q` is deliberately NOT part of the cache key — including it would write a cache entry
+ * per keystroke.
+ */
+export async function searchLeads(
+  params: LeadsParams & { q: string },
+  opts: Opts = {},
+): Promise<WithFreshness<LeadsSearchResult>> {
+  const { q, page = 1, limit = 25, ...corpus } = params;
+  const clientId = await getSessionClientId();
+  const cached = await cachedFetch({
+    clientId,
+    endpoint: "leads-corpus",
+    params: rec(corpus),
+    tier: TIERS.leadsCorpus,
+    force: opts.force,
+    fetcher: () => api.getLeadsCorpus(clientId, corpus),
+  });
+  return {
+    data: { ...searchCorpus(cached.data.items, q, page, limit), truncated: cached.data.truncated },
+    freshness: cached.freshness,
+  };
 }
 
 /**
