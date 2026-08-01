@@ -1061,7 +1061,8 @@ export function SubmitButton({
   title,
 }: {
   children: ReactNode;
-  pendingLabel: ReactNode;
+  /** Omit for icon-only buttons — the icon stays and the disabled state carries the signal. */
+  pendingLabel?: ReactNode;
   className?: string;
   title?: string;
 }) {
@@ -1073,7 +1074,7 @@ export function SubmitButton({
       title={title}
       className={`${className ?? ""} disabled:cursor-default disabled:opacity-60`}
     >
-      {pending ? pendingLabel : children}
+      {pending ? (pendingLabel ?? children) : children}
     </button>
   );
 }
@@ -1120,27 +1121,17 @@ Apply the same pattern to each. For every one: add the `SubmitButton` import to 
 All eight of those files are **server** components, which is fine — a server component may render a client component like `SubmitButton`; it just can't call hooks itself.
 
 **The two icon-only sign-out buttons** (`components/dashboard/Sidebar.tsx:82` and
-`components/console/ConsoleSidebar.tsx:97`) have no room for a label, so the pending state is the
-disabled look plus the tooltip. Pass the same SVG for both `children` and `pendingLabel`:
+`components/console/ConsoleSidebar.tsx:97`) have no room for a label, so `pendingLabel` is omitted
+entirely — the icon stays put and the disabled state carries the signal. Keep each file's existing
+SVG exactly as it is; only the wrapper element changes:
 
 ```tsx
         <form action={signOut}>
           <SubmitButton
             title="Sign out"
-            pendingLabel={
-              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 17H5a2 2 0 01-2-2V5a2 2 0 012-2h3" />
-                <path d="M13 14l4-4-4-4" />
-                <path d="M17 10H8" />
-              </svg>
-            }
             className="cursor-pointer rounded-[8px] p-1.5 text-muted transition-colors hover:bg-lavender"
           >
-            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 17H5a2 2 0 01-2-2V5a2 2 0 012-2h3" />
-              <path d="M13 14l4-4-4-4" />
-              <path d="M17 10H8" />
-            </svg>
+            {/* the file's existing sign-out <svg>, unchanged */}
           </SubmitButton>
         </form>
 ```
