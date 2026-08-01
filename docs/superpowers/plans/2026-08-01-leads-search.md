@@ -123,8 +123,11 @@ const find = (q: string, rows: Lead[] = [maria, ana, redacted]) =>
   assert.deepEqual(find("07700900123"), [maria.id]);
   assert.deepEqual(find("(077) 0090-0123"), [maria.id]);
 
-  // 6. Phone guard — tokens under 3 digits never match a phone number.
-  assert.deepEqual(find("01"), []);
+  // 6. Phone guard — a 2-digit token must not reach the phone branch, but a 3-digit one must.
+  //    "77" IS present in maria's phone digits, so this fails if the guard is missing.
+  //    Probe digits are chosen to appear in no fixture id, so only the phone branch is under test.
+  assert.deepEqual(find("77"), []);
+  assert.deepEqual(find("077"), [maria.id]);
 
   // 7. Lead ID — full paste and fragment.
   assert.deepEqual(find(maria.id), [maria.id]);
