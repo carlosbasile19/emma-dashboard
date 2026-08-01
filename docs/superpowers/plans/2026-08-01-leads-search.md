@@ -476,6 +476,10 @@ type SP = Promise<Record<string, string | string[] | undefined>>;
 
 const LIMIT = 25;
 
+// A search triggers a corpus crawl of up to 25 sequential upstream calls during this render,
+// which can exceed the default function duration.
+export const maxDuration = 60;
+
 export default async function LeadsPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
   const range = parseRange(sp.range);
