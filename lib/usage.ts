@@ -173,6 +173,28 @@ export function yearChunks(from: string, to: string): DateWindow[] {
   return out;
 }
 
+/**
+ * Does an upstream response actually cover the window we asked for?
+ *
+ * `cachedFetch` falls back to the CLOSEST cached window (up to 7 days old) when upstream fails
+ * and the exact key is cold — correct for a KPI card, wrong for an invoice, where it would show
+ * one month's spend under another month's heading. Every analytics response echoes the period it
+ * served, so the caller can verify rather than assume.
+ *
+ * `tz` is part of the check: the same from/to on a different timezone is a different set of
+ * days, and up to ~10% different money.
+ *
+ * An absent or empty period is unverifiable and therefore untrusted — never optimistically
+ * accepted, because the failure mode of a wrong "yes" here is a wrong invoice.
+ */
+export function seriesMatchesWindow(
+  period: { from?: string; to?: string; tz?: string } | undefined | null,
+  want: { from: string; to: string; tz: string },
+): boolean {
+  if (!period) return false;
+  return period.from === want.from && period.to === want.to && period.tz === want.tz;
+}
+
 /** Inclusive day count of a window — used for cap assertions and "N days" copy. */
 export function windowDays({ from, to }: DateWindow): number {
   return (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY + 1;

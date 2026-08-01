@@ -9,6 +9,7 @@ import {
   monthLabel,
   monthsBetween,
   monthTotals,
+  seriesMatchesWindow,
   sumRange,
   toCsv,
   yearChunks,
@@ -134,11 +135,17 @@ const SERIES: DailySpend[] = [
   for (const c of span) {
     assert.ok(days(c.from, c.to) <= 366, `chunk ${c.from}..${c.to} exceeds the 366-day cap`);
   }
-  assert.equal(span[0].from, "2023-03-07");
-  assert.equal(span[span.length - 1].to, "2026-08-01");
+  const first = span[0];
+  const last = span[span.length - 1];
+  assert.ok(first && last);
+  assert.equal(first.from, "2023-03-07");
+  assert.equal(last.to, "2026-08-01");
   for (let i = 1; i < span.length; i++) {
+    const prev = span[i - 1];
+    const cur = span[i];
+    assert.ok(prev && cur);
     assert.equal(
-      days(span[i - 1].to, span[i].from),
+      days(prev.to, cur.from),
       2,
       "chunks must be contiguous — a gap loses days, an overlap double-bills them",
     );
@@ -146,7 +153,23 @@ const SERIES: DailySpend[] = [
   // A leap year is a full chunk and still inside the cap.
   const leap = yearChunks("2024-01-01", "2024-12-31");
   assert.deepEqual(leap, [{ from: "2024-01-01", to: "2024-12-31" }]);
-  assert.equal(days(leap[0].from, leap[0].to), 366);
+  const leapChunk = leap[0];
+  assert.ok(leapChunk);
+  assert.equal(days(leapChunk.from, leapChunk.to), 366);
+
+  // ---- seriesMatchesWindow: the cross-window cache fallback must never reach a bill ----
+  // cachedFetch serves the CLOSEST cached window (up to 7 days old) when upstream fails and the
+  // exact key is cold. For a KPI card that is a good degradation; for an invoice it would show
+  // June's spend labelled as July. Upstream echoes the window it actually served, so we check it.
+  const WANT = { from: "2026-07-01", to: "2026-07-31", tz: "Australia/Sydney" };
+  assert.equal(seriesMatchesWindow({ ...WANT }, WANT), true);
+  assert.equal(seriesMatchesWindow({ ...WANT, extra: 1 } as never, WANT), true);
+  assert.equal(seriesMatchesWindow({ ...WANT, from: "2026-06-01" }, WANT), false);
+  assert.equal(seriesMatchesWindow({ ...WANT, to: "2026-07-30" }, WANT), false);
+  assert.equal(seriesMatchesWindow({ ...WANT, tz: "UTC" }, WANT), false); // wrong day boundaries
+  // No echoed period at all: unverifiable, so untrusted. Never optimistically accepted.
+  assert.equal(seriesMatchesWindow(undefined, WANT), false);
+  assert.equal(seriesMatchesWindow({}, WANT), false);
 
   // ---- CSV encoding ----
   assert.equal(csvRow(["a", "b"]), "a,b");

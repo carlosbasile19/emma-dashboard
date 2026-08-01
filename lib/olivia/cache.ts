@@ -39,6 +39,9 @@ export const TIERS = {
   // Full message threads: short fresh window so an open drawer shows near-live messages.
   thread: { fresh: 15, stale: 60 },
   agencyCosts: { fresh: 120, stale: 600 },
+  // Billing usage. Closed days never change, so a longer fresh window is safe and keeps the
+  // history matrix (one chunk per client per year) from re-fetching on every filter change.
+  usage: { fresh: 300, stale: 1800 },
   discovery: { fresh: 3600, stale: 86400 },
 } as const satisfies Record<string, Tier>;
 
