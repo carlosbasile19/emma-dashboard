@@ -1,10 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { Badge } from "@/components/ui/Badge";
-import { EMPTY_COPY } from "@/lib/copy";
+import { EMPTY_COPY, LEADS_SEARCH_EMPTY } from "@/lib/copy";
 import { fmtEnum, fullName, num, relTime } from "@/lib/format";
 import { LEAD_SOURCES, LEAD_STATUSES, type Lead } from "@/lib/types";
 
@@ -23,6 +23,9 @@ export function LeadsTable({
   end,
   status,
   source,
+  q,
+  truncated,
+  searched,
 }: {
   rows: Lead[];
   total: number;
@@ -32,31 +35,68 @@ export function LeadsTable({
   end: number;
   status: string;
   source: string;
+  q: string;
+  truncated: boolean;
+  searched: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const params = useSearchParams();
 
+  // The query string of the last URL *this component* asked for, or null once the server has
+  // caught up. `window.location` is NOT a safe base to compose onto: Next only rewrites it
+  // when a navigation COMMITS, and a newer navigation marks a pending one discarded, so the
+  // loser's params would be dropped for good. That window is wide — the debounced search
+  // write lands 250ms after the last keystroke, while an RSC round trip for this route takes
+  // longer than that, and seconds on a search commit because of the corpus crawl.
+  const pendingSearchRef = useRef<string | null>(null);
+
+  // Reset once ANY navigation commits, not just one that changes our own props. Header (same
+  // layout, same route) also writes `range` and `campaign` to this URL, and neither touches
+  // status/source/q/page — so watching only our props left the ref stale after a Header write,
+  // and the next filter change composed onto a dead search instead of the live URL, silently
+  // dropping the range/campaign Header had just set. useSearchParams() updates on the same
+  // commit boundary as window.location, so this still holds the ref across the whole pending
+  // window while clearing it promptly once *any* write lands — ours or Header's.
+  const committed = useSearchParams().toString();
+  useEffect(() => {
+    pendingSearchRef.current = null;
+  }, [committed]);
+
+  // Composes onto the most recent INTENDED state (our pending write if one is in flight,
+  // otherwise the live URL) so two writes that race — "change Status mid-typing" and "change
+  // Status while a search commit is in flight" — merge instead of clobbering each other.
   const setParam = useCallback(
     (updates: Record<string, string | null>) => {
-      const next = new URLSearchParams(params.toString());
+      const next = new URLSearchParams(pendingSearchRef.current ?? window.location.search);
       for (const [k, v] of Object.entries(updates)) {
         if (v === null || v === "all" || v === "") next.delete(k);
         else next.set(k, v);
       }
       const qs = next.toString();
+      pendingSearchRef.current = qs ? `?${qs}` : "";
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [params, pathname, router],
+    [pathname, router],
   );
 
-  const filtered = status !== "all" || source !== "all";
-  const clearFilters = () => setParam({ status: null, source: null, page: null });
+  const setQuery = useCallback((v: string) => setParam({ q: v, page: null }), [setParam]);
+
+  // Bumped on "Clear filters" to remount SearchInput with a fresh key, which discards any
+  // uncommitted draft (and its pending debounce timer) even when q was already "" and so
+  // wouldn't otherwise change to trigger a re-sync.
+  const [searchNonce, setSearchNonce] = useState(0);
+
+  const filtered = status !== "all" || source !== "all" || q !== "";
+  const clearFilters = () => {
+    setParam({ status: null, source: null, q: null, page: null });
+    setSearchNonce((n) => n + 1);
+  };
 
   return (
     <>
       {/* filter bar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <SearchInput key={searchNonce} value={q} onChange={setQuery} />
         <Select
           value={status}
           onChange={(v) => setParam({ status: v, page: null })}
@@ -87,9 +127,24 @@ export function LeadsTable({
         </span>
       </div>
 
+      {/* Truncation is only ever surfaced for a real search, and only when the crawl fell
+          short. The count must be the corpus we actually covered — "truncated" can also mean
+          upstream omitted `total` or returned fewer rows than it claimed, and those can stop
+          the crawl at a single short page, so quoting the 2,500 cap would overstate it. */}
+      {truncated && q ? (
+        <p className="-mt-2 mb-4 font-mono text-[11.5px] text-muted">
+          {searched > 0
+            ? `Searched the most recent ${num(searched)} ${searched === 1 ? "lead" : "leads"} in this range.`
+            : "We couldn’t read the full lead list for this range, so this search may be incomplete."}
+        </p>
+      ) : null}
+
       {total === 0 ? (
         <div className="rounded-[16px] border border-ink/10 bg-white shadow-sm">
-          <EmptyState copy={EMPTY_COPY.leads} onAction={clearFilters} />
+          <EmptyState
+            copy={q ? LEADS_SEARCH_EMPTY(q) : EMPTY_COPY.leads}
+            onAction={clearFilters}
+          />
         </div>
       ) : (
         <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
@@ -230,5 +285,80 @@ function PageButton({
     >
       {children}
     </button>
+  );
+}
+
+const DEBOUNCE_MS = 250;
+
+function SearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Tracks the last value *this component* committed (trimmed, same as what the server
+  // stores). Comparing incoming `value` against this — instead of syncing unconditionally —
+  // is what lets the re-sync effect below tell its own echo apart from a genuine external
+  // change (browser back/forward). Without it, the URL update from our own debounced commit
+  // would come back around and clobber whatever the user typed in the meantime.
+  const committedRef = useRef(value);
+
+  useEffect(() => {
+    if (value === committedRef.current) return;
+    committedRef.current = value;
+    setDraft(value);
+  }, [value]);
+
+  // Debounce the URL write so typing doesn't fire a navigation per keystroke. Trim before
+  // comparing AND before committing: the server trims (`str(sp.q, "").trim()`), so comparing
+  // the raw draft against the trimmed committed value would leave a trailing-space draft
+  // permanently "dirty" and re-fire the write forever.
+  useEffect(() => {
+    const next = draft.trim();
+    if (next === committedRef.current) return;
+    const t = setTimeout(() => {
+      committedRef.current = next;
+      onChange(next);
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [draft, onChange]);
+
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-[11px] top-1/2 -translate-y-1/2 text-muted">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="9" cy="9" r="6" />
+          <path d="M13.5 13.5 17 17" strokeLinecap="round" />
+        </svg>
+      </span>
+      <input
+        ref={inputRef}
+        type="search"
+        aria-label="Search leads"
+        placeholder="Search leads…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        className="w-[220px] rounded-[10px] border border-ink/10 bg-white py-[9px] pl-[32px] pr-[30px] font-display text-[13px] text-ink placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+      />
+      {draft ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            setDraft("");
+            committedRef.current = "";
+            onChange("");
+            inputRef.current?.focus();
+          }}
+          className="absolute right-[9px] top-1/2 -translate-y-1/2 cursor-pointer px-1 text-[13px] leading-none text-muted hover:text-ink"
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
   );
 }

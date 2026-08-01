@@ -2,6 +2,7 @@ import "server-only";
 import { oliviaFetch, oliviaStream, type OliviaFetchOptions, type QueryParams } from "./client";
 import { fullName } from "@/lib/format";
 import { byRecencyDesc } from "@/lib/threads";
+import { hasMorePages } from "@/lib/leads-search";
 import type {
   Agent,
   CalendarResponse,
@@ -206,6 +207,67 @@ export async function getLeadDirectory(
     }
   }
   return dir;
+}
+
+const LEAD_CORPUS_PAGE_SIZE = 100; // API max per page
+const LEAD_CORPUS_MAX_PAGES = 25; // safety cap (~2500 leads); overflow is reported, not hidden
+
+/**
+ * Every lead in the window, for in-app search. Upstream /leads has no search parameter
+ * (guide §5), so the list is paged in full and filtered locally. `status`/`source` ride
+ * along so a filtered search crawls less. `truncated` is true when the crawl did not cover
+ * the whole list — callers MUST surface that rather than imply a complete result. It has
+ * three causes with very different sizes (page cap hit, `total` missing, fewer rows
+ * collected than `total` claimed), so `searched` reports how many rows were ACTUALLY
+ * collected: a caller that assumes the cap (2,500) would overstate coverage in the other
+ * two cases, which can be a single short page or even zero rows.
+ */
+export async function getLeadsCorpus(
+  clientId: string,
+  params: LeadsParams,
+  h: Hints = {},
+): Promise<{ items: Lead[]; truncated: boolean; searched: number }> {
+  const items: Lead[] = [];
+  let truncated = false;
+  let lastTotal: number | undefined;
+
+  for (let page = 1; page <= LEAD_CORPUS_MAX_PAGES; page++) {
+    const res = await getLeads(
+      clientId,
+      { ...params, page, limit: LEAD_CORPUS_PAGE_SIZE },
+      h,
+    );
+    items.push(...res.items);
+    lastTotal = res.total;
+    const pageSize = res.limit || LEAD_CORPUS_PAGE_SIZE;
+    if (!hasMorePages(items.length, res.total, res.items.length, pageSize)) break;
+    if (page === LEAD_CORPUS_MAX_PAGES) {
+      truncated = true;
+      console.warn(
+        "[olivia] lead search corpus truncated at %d leads (total=%d) — search covers newest rows only",
+        items.length,
+        res.total,
+      );
+    }
+  }
+
+  // `hasMorePages` reading a short last page as "the end" is only valid if the crawl actually
+  // reached the true end of the list. Two situations look identical to a short page but are NOT
+  // completion: (1) some locked/PII-gated responses omit `total` entirely despite its `number`
+  // type, so `fetched < total` silently evaluates to `false` and the crawl stops after page one;
+  // and (2) upstream can return a short page mid-list (a hiccup, dedup, or post-pagination
+  // filtering) while `total` says more rows exist. Neither may be read as "done" — a missing/
+  // non-finite total means the size is simply unknown, and a collected count short of a known
+  // total means rows were dropped. Both must mark the corpus truncated so a partial result is
+  // never cached and searched as if it were the whole list. Do not simplify this back to
+  // "short page = complete".
+  if (!Number.isFinite(lastTotal)) {
+    truncated = true;
+  } else if (items.length < (lastTotal as number)) {
+    truncated = true;
+  }
+
+  return { items, truncated, searched: items.length };
 }
 
 /** `lead_id` returns the lead's WHOLE history — the from/to window is not applied when set. */
