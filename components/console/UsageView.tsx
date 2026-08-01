@@ -6,6 +6,7 @@ import {
   type UsagePeriod,
 } from "@/lib/usage";
 import type { UsageRow } from "@/lib/olivia/usage";
+import { ExportButton, MonthPill } from "@/components/console/UsageControls";
 
 /**
  * What the spend figure on this page actually is. Shown verbatim rather than summarised,
@@ -77,21 +78,12 @@ export function UsageView({
           {pickerMonths.map((m) => {
             const on = m === period.month;
             return (
-              <a
-                key={m}
-                href={monthHref(m)}
-                aria-current={on ? "true" : undefined}
-                className={`rounded-[9px] border px-2.5 py-[6px] font-display text-[12.5px] transition-colors ${
-                  on
-                    ? "border-violet/40 bg-lavender font-semibold text-violet"
-                    : "border-ink/10 bg-white font-normal text-ink hover:bg-lavender"
-                }`}
-              >
+              <MonthPill key={m} href={monthHref(m)} current={on}>
                 {monthLabel(m)}
                 {m === currentMonth ? (
                   <span className="ml-1.5 font-mono text-[10px] text-muted">to date</span>
                 ) : null}
-              </a>
+              </MonthPill>
             );
           })}
         </div>
@@ -134,7 +126,7 @@ export function UsageView({
         title="This period"
         subtitle={period.label}
         badge={partial ? "month to date — still accruing" : undefined}
-        action={<ExportLink href={exportHref("period")} />}
+        action={<ExportButton href={exportHref("period")} />}
       >
         <div className="grid grid-cols-[2fr_1.2fr_1fr] gap-3 border-b border-ink/10 bg-surface-tint px-[22px] py-[11px]">
           <Th>Client</Th>
@@ -171,7 +163,7 @@ export function UsageView({
         <Panel
           title="All history"
           subtitle="every calendar month since each workspace opened"
-          action={<ExportLink href={exportHref("history")} />}
+          action={<ExportButton href={exportHref("history")} />}
         >
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px]">
@@ -292,32 +284,6 @@ function Panel({
       </div>
       {children}
     </div>
-  );
-}
-
-/** A plain anchor, not next/link: this hits a route handler that streams a file. */
-function ExportLink({ href }: { href: string }) {
-  return (
-    <a
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-[10px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender"
-    >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M10 3v10" />
-        <path d="m6 9.5 4 4 4-4" />
-        <path d="M4 16.5h12" />
-      </svg>
-      Export CSV
-    </a>
   );
 }
 
