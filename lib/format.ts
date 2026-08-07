@@ -1,6 +1,6 @@
 // Pure presentation helpers shared across views.
 
-import type { Call } from "@/lib/types";
+import type { Call, CallDisposition } from "@/lib/types";
 
 const LABEL_OVERRIDES: Record<string, string> = {
   dnc: "DNC",
@@ -26,6 +26,55 @@ export function fmtEnum(value: string): string {
   if (LABEL_OVERRIDES[value]) return LABEL_OVERRIDES[value];
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
+
+// ---- Disposition display ----
+/**
+ * Upper bound (exclusive) on a call that can only have been an answering machine.
+ *
+ * Chosen from the live corpus rather than by feel: of ~460 calls upstream itself dispositioned
+ * `voicemail_left`, 99% ran under 8s and the count falls off a cliff there, while every
+ * `not_interested` transcript at 10s+ is a real two-way exchange ("Hello? Hello?" / "From where,
+ * sorry?"). Below 8s the transcripts are machine greetings — "This is Tanya's phone, please leave
+ * a message" — that the upstream classifier reads as a refusal.
+ */
+export const MACHINE_CALL_MAX_SECONDS = 8;
+
+/**
+ * The disposition to SHOW for a call. Upstream marks a call `not_interested` whenever the lead
+ * side declines, which sweeps in answering-machine greetings and makes a wall of voicemails read
+ * as a wall of rejections. Too short to have held a conversation → show it as the voicemail it
+ * was. Every other disposition passes through untouched.
+ *
+ * Display-only: this never changes what upstream stored, and aggregate endpoints (/outcomes
+ * `call_dispositions`) still count these rows as `not_interested` — they ship no per-call
+ * durations, so there is nothing to reclassify against.
+ */
+export function displayDisposition(
+  call: Pick<Call, "disposition" | "duration_seconds">,
+): CallDisposition {
+  return isInferredVoicemail(call) ? "voicemail_left" : call.disposition;
+}
+
+/**
+ * True when `displayDisposition` overrode upstream — used to caption the badge as inferred.
+ *
+ * A missing `duration_seconds` means UNKNOWN, never zero: the slim call shape embedded in
+ * /leads/{id} can drop fields, and defaulting to 0 would relabel every one of those rows.
+ */
+export function isInferredVoicemail(
+  call: Pick<Call, "disposition" | "duration_seconds">,
+): boolean {
+  return (
+    call.disposition === "not_interested" &&
+    typeof call.duration_seconds === "number" &&
+    call.duration_seconds < MACHINE_CALL_MAX_SECONDS
+  );
+}
+
+/** Hover caption for a reclassified badge, so the inference is never passed off as upstream truth. */
+export const INFERRED_VOICEMAIL_HINT =
+  `Shown as Voicemail: the call ran under ${MACHINE_CALL_MAX_SECONDS}s, too short to be a ` +
+  `conversation. Emma logged it as “Not interested” because the answering machine picked up.`;
 
 /** Integer with thousands separators. */
 export function num(n: number): string {
