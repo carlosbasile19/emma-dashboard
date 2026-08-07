@@ -32,6 +32,10 @@ export const TIERS = {
   // trade for not re-crawling on every keystroke.
   leadsCorpus: { fresh: 120, stale: 600 },
   calls: { fresh: 30, stale: 60 },
+  // Full call corpus backing the log search. Same trade as `leadsCorpus`: paging the whole
+  // window is expensive, so a search result up to ~2 min behind live beats re-crawling on
+  // every keystroke.
+  callsCorpus: { fresh: 120, stale: 600 },
   conversations: { fresh: 30, stale: 60 },
   calendar: { fresh: 60, stale: 300 },
   leadDetail: { fresh: 30, stale: 60 },

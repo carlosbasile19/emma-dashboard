@@ -6,8 +6,9 @@ import type { Lead, ListResponse } from "@/lib/types";
  * `scripts/leads-search-selftest.ts`.
  */
 
-/** Tokens shorter than this never match a phone, so "maria" can't hit a number via stray digits. */
-const MIN_PHONE_DIGITS = 3;
+/** Tokens shorter than this never match a phone, so "maria" can't hit a number via stray digits.
+ *  Exported so the call/thread matchers in `lib/log-search.ts` share the exact same threshold. */
+export const MIN_PHONE_DIGITS = 3;
 
 /** Reduce a string to comparable form: trimmed and lowercased. */
 export function normalize(s: string): string {
