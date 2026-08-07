@@ -19,6 +19,7 @@
     "test:crawl": "tsx scripts/crawl-selftest.ts",
     "test:leadsearch": "tsx scripts/leads-search-selftest.ts",
     "test:logsearch": "tsx scripts/log-search-selftest.ts",
+    "test:disposition": "tsx scripts/disposition-selftest.ts",
     "test:usage": "tsx scripts/usage-selftest.ts",
     "test:loading": "tsx scripts/loading-states-selftest.ts"
   },

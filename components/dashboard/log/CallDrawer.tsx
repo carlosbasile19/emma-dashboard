@@ -6,8 +6,11 @@ import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import { CopyButton } from "@/components/ui/CopyButton";
 import {
+  INFERRED_VOICEMAIL_HINT,
+  displayDisposition,
   formatTranscript,
   initials,
+  isInferredVoicemail,
   parseTranscript,
   relTime,
   secToMMSS,
@@ -93,7 +96,11 @@ export function CallDrawer({
             )}
             <div className="mt-3 flex gap-2">
               <Badge kind="call" value={call.status} />
-              <Badge kind="disp" value={call.disposition} />
+              <Badge
+                kind="disp"
+                value={displayDisposition(call)}
+                title={isInferredVoicemail(call) ? INFERRED_VOICEMAIL_HINT : undefined}
+              />
             </div>
           </div>
           <button

@@ -10,7 +10,15 @@ import { useNavigate } from "@/components/ui/states/PendingNav";
 import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { LOG_SEARCH_EMPTY } from "@/lib/copy";
 import { tint } from "@/lib/design";
-import { num, relTime, secToMMSS, shortId } from "@/lib/format";
+import {
+  INFERRED_VOICEMAIL_HINT,
+  displayDisposition,
+  isInferredVoicemail,
+  num,
+  relTime,
+  secToMMSS,
+  shortId,
+} from "@/lib/format";
 import type { Call, ThreadRow } from "@/lib/types";
 
 const CALL_COLS = "grid-cols-[0.7fr_1.4fr_1.3fr_1.1fr_1.2fr_0.7fr_1fr]";
@@ -194,7 +202,11 @@ export function LogView({
                     <Badge kind="call" value={c.status} />
                   </div>
                   <div>
-                    <Badge kind="disp" value={c.disposition} />
+                    <Badge
+                      kind="disp"
+                      value={displayDisposition(c)}
+                      title={isInferredVoicemail(c) ? INFERRED_VOICEMAIL_HINT : undefined}
+                    />
                   </div>
                   <div className="text-right font-mono text-[12.5px] text-muted">
                     {secToMMSS(c.duration_seconds)}

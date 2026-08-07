@@ -11,10 +11,13 @@ import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { STAGE_COLORS, tint } from "@/lib/design";
 import { resolveStageColor } from "@/lib/pipeline/board";
 import {
+  INFERRED_VOICEMAIL_HINT,
   centsToMoney,
+  displayDisposition,
   fmtEnum,
   fullName,
   initials,
+  isInferredVoicemail,
   num,
   relTime,
   secToMMSS,
@@ -295,7 +298,11 @@ export function LeadDetailView({
                       {relTime(c.started_at)}
                     </span>
                     <Badge kind="call" value={c.status} />
-                    <Badge kind="disp" value={c.disposition} />
+                    <Badge
+                      kind="disp"
+                      value={displayDisposition(c)}
+                      title={isInferredVoicemail(c) ? INFERRED_VOICEMAIL_HINT : undefined}
+                    />
                     <span className="ml-auto font-mono text-xs text-muted">
                       {secToMMSS(c.duration_seconds ?? 0)}
                     </span>
