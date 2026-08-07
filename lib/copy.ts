@@ -110,3 +110,20 @@ export function LEADS_SEARCH_EMPTY(query: string): EmptyCopy {
     cta: "Clear filters",
   };
 }
+
+/**
+ * Zero-match copy for the log search. Per-tab because the two tabs cover different ground:
+ * calls are scoped to the date range, threads are ranked by activity and ignore it, so
+ * "widen the date range" is only useful advice on one of them.
+ */
+export function LOG_SEARCH_EMPTY(query: string, kind: "calls" | "conversations"): EmptyCopy {
+  const term = query.length > 32 ? `${query.slice(0, 32)}…` : query;
+  return {
+    title: kind === "calls" ? `No calls match “${term}”` : `No conversations match “${term}”`,
+    body:
+      kind === "calls"
+        ? "No call in this range is with a lead matching that. Try fewer words, a phone number, or widen the date range."
+        : "No thread is with a lead matching that. Try fewer words, or check the Calls tab instead.",
+    cta: "Clear search",
+  };
+}

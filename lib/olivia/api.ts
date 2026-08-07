@@ -292,6 +292,76 @@ export async function getLeadsCorpus(
   return { items, truncated, searched: items.length };
 }
 
+const CALL_CORPUS_PAGE_SIZE = 100; // API max per page
+const CALL_CORPUS_MAX_PAGES = 25; // safety cap (~2500 calls); overflow is reported, not hidden
+// Pages after the first are fetched in parallel batches. Measured on a real 10,664-call month:
+// the sequential crawl took 47s — past a comfortable margin under this route's 60s maxDuration
+// — while batches of 6 bring it into single digits. Kept well under the 500 req/min governor
+// (lib/olivia/governor.ts), which still serializes anything over the limit.
+const CALL_CORPUS_CONCURRENCY = 6;
+
+/**
+ * Every call in the window, for in-app search. Same caveats as `getLeadsCorpus`: upstream
+ * /calls has no search parameter, and (unlike /conversations) it ignores a `lead_id` filter —
+ * see `fetchCallDetail` — so the only way to find a lead's calls is to page the list in full and
+ * filter locally. `truncated` is true when the crawl did not cover the whole list, and
+ * `searched` reports how many rows were ACTUALLY collected, because the three causes (page cap
+ * hit, `total` missing, fewer rows than `total` claimed) have very different sizes and a caller
+ * that assumed the cap would overstate coverage.
+ *
+ * Unlike the leads crawl this pages in PARALLEL, which is safe here only because page 1 reports
+ * `total`: the page count is known up front rather than discovered one request at a time. When
+ * `total` is missing the parallel phase is skipped entirely and the result is marked truncated,
+ * since there is then no safe way to know how many pages to ask for.
+ */
+export async function getCallsCorpus(
+  clientId: string,
+  params: DateParams,
+  h: Hints = {},
+): Promise<{ items: Call[]; truncated: boolean; searched: number }> {
+  const page = (p: number) =>
+    getCalls(clientId, { ...params, page: p, limit: CALL_CORPUS_PAGE_SIZE }, h);
+
+  const first = await page(1);
+  const items: Call[] = [...first.items];
+  const total = first.total;
+  const pageSize = first.limit || CALL_CORPUS_PAGE_SIZE;
+  let truncated = false;
+
+  // `hasMorePages` also encodes "a short first page means we're done", so it still gates the
+  // parallel phase — a 40-row page 1 must not spawn 24 pointless requests.
+  if (Number.isFinite(total) && hasMorePages(items.length, total, first.items.length, pageSize)) {
+    const wanted = Math.ceil(total / pageSize);
+    const lastPage = Math.min(wanted, CALL_CORPUS_MAX_PAGES);
+    if (wanted > CALL_CORPUS_MAX_PAGES) {
+      truncated = true;
+      console.warn(
+        "[olivia] call search corpus truncated at %d pages (total=%d) — search covers newest rows only",
+        CALL_CORPUS_MAX_PAGES,
+        total,
+      );
+    }
+    for (let start = 2; start <= lastPage; start += CALL_CORPUS_CONCURRENCY) {
+      const batch: number[] = [];
+      for (let p = start; p < start + CALL_CORPUS_CONCURRENCY && p <= lastPage; p++) batch.push(p);
+      const results = await Promise.all(batch.map(page));
+      for (const r of results) items.push(...r.items);
+    }
+  }
+
+  // Identical reasoning to getLeadsCorpus: a short page is only "the end" if the crawl really
+  // reached it. A missing/non-finite `total` means the size is unknown, and a collected count
+  // short of a known total means rows were dropped — neither may be cached and searched as if
+  // it were the whole list. Do not simplify this back to "short page = complete".
+  if (!Number.isFinite(total)) {
+    truncated = true;
+  } else if (items.length < total) {
+    truncated = true;
+  }
+
+  return { items, truncated, searched: items.length };
+}
+
 /** `lead_id` returns the lead's WHOLE history — the from/to window is not applied when set. */
 export type ConversationsParams = DateParams &
   PageParams & { channel?: string; lead_id?: string };

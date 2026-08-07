@@ -17,6 +17,7 @@ import { OliviaError } from "./errors";
 import { cachedFetch, TIERS } from "./cache";
 import { mergeThreadRows } from "@/lib/threads";
 import { searchCorpus } from "@/lib/leads-search";
+import { searchCallCorpus } from "@/lib/log-search";
 import type {
   Agent,
   CalendarResponse,
@@ -263,6 +264,55 @@ export async function fetchCalls(
   return {
     ...res,
     data: { ...res.data, items: withLeadNames(res.data.items, dir) },
+  };
+}
+
+export type CallsSearchResult = ListResponse<Call> & {
+  /** The crawl did not cover the whole window — see api.getCallsCorpus. */
+  truncated: boolean;
+  /** Rows the crawl actually collected and searched. Only meaningful with `truncated`. */
+  searched: number;
+};
+
+/**
+ * Search calls by lead name / phone / lead id across the whole window. Upstream has no search
+ * param and ignores lead_id, so we cache the CORPUS (keyed on the window) and filter in memory.
+ * `q` is deliberately NOT part of the cache key — including it would write a cache entry per
+ * keystroke.
+ *
+ * Names are resolved BEFORE filtering: /calls carries only `lead_id`, so a search for "maria"
+ * would match nothing if `withLeadNames` ran on the already-filtered page instead.
+ */
+export async function searchCalls(
+  params: DateParams & PageParams & { q: string },
+  opts: Opts = {},
+): Promise<WithFreshness<CallsSearchResult>> {
+  const { q, page = 1, limit = 25, ...corpus } = params;
+  const clientId = await getSessionClientId();
+  const [cached, dir] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "calls-corpus",
+      params: rec(corpus),
+      tier: TIERS.callsCorpus,
+      force: opts.force,
+      fetcher: () => api.getCallsCorpus(clientId, corpus),
+    }),
+    // Best-effort, exactly as in fetchCalls: a dead directory degrades the search to
+    // lead_id / phone matching rather than breaking the tab.
+    leadDirectory(clientId, opts).catch(() => ({}) as Record<string, string>),
+  ]);
+  const { items, truncated } = cached.data;
+  const named = withLeadNames(items, dir);
+  return {
+    data: {
+      ...searchCallCorpus(named, q, page, limit),
+      truncated,
+      // Derived from the corpus we hold rather than read off the payload, so cache rows
+      // written before `searched` existed don't report `undefined` for their stale window.
+      searched: items.length,
+    },
+    freshness: cached.freshness,
   };
 }
 
