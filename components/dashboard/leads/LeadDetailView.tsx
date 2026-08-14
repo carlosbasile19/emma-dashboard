@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import { loadCall } from "@/app/dashboard/leads/[id]/actions";
+import { DoNotContactCard } from "@/components/dashboard/leads/DoNotContactCard";
 import { NotesCard } from "@/components/dashboard/leads/NotesCard";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { channelCode, channelColor, channelLabel } from "@/lib/channels";
+import { isStopped } from "@/lib/do-not-contact";
 import { STAGE_COLORS, tint } from "@/lib/design";
 import { resolveStageColor } from "@/lib/pipeline/board";
 import {
@@ -65,6 +67,9 @@ export function LeadDetailView({
   const [fullCalls, setFullCalls] = useState<Record<string, Call>>({});
   const [callLoadingId, setCallLoadingId] = useState<string | null>(null);
   const [callFailedId, setCallFailedId] = useState<string | null>(null);
+  // Held here, not in the card, so the header badge and the card can't disagree. Only ever set
+  // from a server-confirmed write — see DoNotContactCard.
+  const [stopped, setStopped] = useState(isStopped(lead));
 
   const openCall = (c: Call) => {
     const known = fullCalls[c.id];
@@ -126,6 +131,20 @@ export function LeadDetailView({
           <div className="font-mono text-[11px] text-muted">{lead.id}</div>
         </div>
         <Badge kind="lead" value={lead.status} />
+        {/* Separate from `status` on purpose: a suppressed lead can sit in any stage, so this
+            has to read as an overlay on the status rather than a replacement for it. */}
+        {stopped ? (
+          <span
+            title="Emma will not contact this lead on any channel"
+            className="inline-flex items-center gap-1 rounded-[7px] bg-danger/10 px-2 py-[3px] font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-danger"
+          >
+            <svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <circle cx="10" cy="10" r="7.25" />
+              <path d="M5.1 5.1l9.8 9.8" />
+            </svg>
+            Contact stopped
+          </span>
+        ) : null}
       </div>
 
       {/* pipeline stage bar */}
@@ -336,6 +355,13 @@ export function LeadDetailView({
           </Card>
 
           <NotesCard leadId={lead.id} initialNotes={lead.notes ?? ""} />
+
+          <DoNotContactCard
+            leadId={lead.id}
+            leadLabel={displayName}
+            stopped={stopped}
+            onStoppedChange={setStopped}
+          />
         </div>
 
         {/* right rail: dark summary card, sticky */}

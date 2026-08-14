@@ -258,3 +258,35 @@ export async function cachedFetch<T>(args: CachedFetchArgs<T>): Promise<WithFres
     if (acquired) await releaseLock(key, admin);
   }
 }
+
+/**
+ * Drop every cached row for `clientId` on the given endpoints, so the next read goes upstream.
+ *
+ * For write actions whose effect shows up on LIST views, where force-refreshing isn't an
+ * option: those endpoints mint a key per (window × filters × page), and a write has no way to
+ * know which of them the user will land on next. Deleting the endpoint's rows outright is the
+ * only way to guarantee the change is visible — `leads-corpus` in particular is fresh for 120s
+ * and stale-servable for 600s, so a stopped lead would otherwise keep rendering un-flagged in
+ * search results for minutes after the write landed.
+ *
+ * Best-effort and tenant-scoped: the `client_id` equality is the isolation guard, and the LIKE
+ * only narrows within it (endpoint names carry no `_`/`%`, so no wildcard can leak across
+ * endpoints). A failure here costs staleness, never correctness — callers ignore it.
+ */
+export async function invalidateEndpoints(
+  clientId: string,
+  endpoints: string[],
+  adminOverride?: Admin,
+): Promise<void> {
+  const admin = adminOverride ?? createAdminClient();
+  await Promise.all(
+    endpoints.map((endpoint) =>
+      admin
+        .from("response_cache")
+        .delete()
+        .eq("client_id", clientId)
+        .eq("endpoint", endpoint)
+        .like("cache_key", `${clientId}::${endpoint}::%`),
+    ),
+  );
+}

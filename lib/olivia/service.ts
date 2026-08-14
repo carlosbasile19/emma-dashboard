@@ -14,7 +14,7 @@ import type {
   ReportingStatusResponse,
 } from "./api";
 import { OliviaError } from "./errors";
-import { cachedFetch, TIERS } from "./cache";
+import { cachedFetch, invalidateEndpoints, TIERS } from "./cache";
 import { mergeThreadRows } from "@/lib/threads";
 import { searchCorpus } from "@/lib/leads-search";
 import { searchCallCorpus } from "@/lib/log-search";
@@ -413,6 +413,30 @@ export async function saveLeadNotes(
   const clientId = await getSessionClientId();
   const result = await api.putLeadNotes(clientId, leadId, notes);
   await fetchLeadDetail(leadId, { force: true }).catch(() => undefined);
+  return result;
+}
+
+/**
+ * Stop (or resume) all outbound contact for a lead. Scope `dashboard:notes`.
+ *
+ * Afterwards the lead's own cached detail is force-refreshed, and the cached LIST endpoints are
+ * dropped outright: `do_not_contact` is rendered on the leads table and the search corpus, and
+ * those are keyed per (window × filters × page) with no way to force just the pages the user
+ * will visit next. See invalidateEndpoints. Cache upkeep is best-effort — the write already
+ * landed upstream, so a failure here must not turn a successful stop into a reported error.
+ */
+export async function setLeadDoNotContact(
+  leadId: string,
+  doNotContact: boolean,
+): Promise<api.DoNotContactResult> {
+  const clientId = await getSessionClientId();
+  const result = await api.putLeadDoNotContact(clientId, leadId, doNotContact);
+  await Promise.all([
+    fetchLeadDetail(leadId, { force: true }).catch(() => undefined),
+    // Not `lead-directory`: it holds only lead_id → name, carries no do_not_contact, and costs
+    // a 25-page crawl to rebuild.
+    invalidateEndpoints(clientId, ["leads", "leads-corpus"]).catch(() => undefined),
+  ]);
   return result;
 }
 

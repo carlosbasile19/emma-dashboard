@@ -2,14 +2,17 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DoNotContactActionResult } from "@/app/dashboard/leads/actions";
+import { StopContactDialog } from "@/components/dashboard/leads/StopContactDialog";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { useNavigate } from "@/components/ui/states/PendingNav";
 import { Badge } from "@/components/ui/Badge";
 import { EMPTY_COPY, LEADS_SEARCH_EMPTY } from "@/lib/copy";
-import { fmtEnum, fullName, num, relTime } from "@/lib/format";
+import { isStopped } from "@/lib/do-not-contact";
+import { fmtEnum, fullName, num, relTime, shortId } from "@/lib/format";
 import { LEAD_SOURCES, LEAD_STATUSES, type Lead } from "@/lib/types";
 
-const COLS = "grid-cols-[1.5fr_1.7fr_1fr_1.3fr_1.2fr_0.8fr]";
+const COLS = "grid-cols-[1.5fr_1.7fr_1fr_1.3fr_1.2fr_0.8fr_30px]";
 
 function hasPii(lead: Lead): boolean {
   return Boolean(lead.first_name || lead.last_name || lead.phone || lead.email);
@@ -88,6 +91,25 @@ export function LeadsTable({
   // wouldn't otherwise change to trigger a re-sync.
   const [searchNonce, setSearchNonce] = useState(0);
 
+  // Lead awaiting confirmation in the dialog.
+  const [target, setTarget] = useState<Lead | null>(null);
+  // Server-confirmed do_not_contact for rows changed in this session. `router.refresh()` is
+  // fired too, but it has to round-trip through the cache layer, so this keeps the row honest
+  // in the meantime instead of briefly re-rendering the pre-write value.
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  // The dashboard:notes scope is a property of the key: one 403 means no row can be changed.
+  const [forbidden, setForbidden] = useState(false);
+
+  const stoppedFor = (lead: Lead) => overrides[lead.id] ?? isStopped(lead);
+
+  const onDialogResult = (lead: Lead, r: DoNotContactActionResult) => {
+    if (r.ok) {
+      setOverrides((m) => ({ ...m, [lead.id]: r.doNotContact ?? !stoppedFor(lead) }));
+      router.refresh();
+    }
+    if (r.error === "forbidden") setForbidden(true);
+  };
+
   const filtered = status !== "all" || source !== "all" || q !== "";
   const clearFilters = () => {
     setParam({ status: null, source: null, q: null, page: null });
@@ -164,11 +186,13 @@ export function LeadsTable({
             <div className="text-right font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
               Updated
             </div>
+            <div />
           </div>
 
           {rows.map((r, i) => {
             const pii = hasPii(r);
             const name = fullName(r.first_name, r.last_name);
+            const stopped = stoppedFor(r);
             return (
               <div
                 key={r.id}
@@ -177,10 +201,15 @@ export function LeadsTable({
                 }
                 className={`grid ${COLS} cursor-pointer items-center gap-3 border-b border-lavender px-[22px] py-3.5 hover:bg-lavender ${
                   i % 2 ? "bg-lavender/40" : "bg-white"
-                }`}
+                } ${stopped ? "opacity-60" : ""}`}
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{name ?? "—"}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-medium">{name ?? "—"}</span>
+                    {/* Every campaign/automation action on this row is a no-op while this is
+                        set, so it has to be legible before the user acts on the row. */}
+                    {stopped ? <StoppedPill /> : null}
+                  </div>
                   <div className="font-mono text-[11px] text-muted">{r.id}</div>
                 </div>
                 <div className="min-w-0">
@@ -214,6 +243,19 @@ export function LeadsTable({
                 >
                   {relTime(r.updated_at)}
                 </div>
+                <div>
+                  {forbidden ? null : (
+                    <RowAction
+                      stopped={stopped}
+                      onClick={(e) => {
+                        // The whole row is a navigation target; this button is the one thing
+                        // inside it that must not navigate.
+                        e.stopPropagation();
+                        setTarget(r);
+                      }}
+                    />
+                  )}
+                </div>
               </div>
             );
           })}
@@ -239,7 +281,70 @@ export function LeadsTable({
           </div>
         </div>
       )}
+
+      {target ? (
+        <StopContactDialog
+          leadId={target.id}
+          leadLabel={fullName(target.first_name, target.last_name) ?? shortId(target.id)}
+          current={stoppedFor(target)}
+          onClose={() => setTarget(null)}
+          onResult={(r) => onDialogResult(target, r)}
+        />
+      ) : null}
     </>
+  );
+}
+
+/**
+ * Per-row stop/resume. Deliberately a direct action rather than a "⋯" menu with one item —
+ * but it opens the confirm dialog, never writes on click.
+ */
+function RowAction({
+  stopped,
+  onClick,
+}: {
+  stopped: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const label = stopped ? "Allow contact again" : "Stop contacting this lead";
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-[8px] border transition-colors ${
+        stopped
+          ? "border-danger/25 bg-danger/10 text-danger hover:bg-danger/20"
+          : "border-transparent text-muted hover:border-ink/10 hover:bg-white hover:text-danger"
+      }`}
+    >
+      {stopped ? (
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 10.5l4 4 8-9" />
+        </svg>
+      ) : (
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+          <circle cx="10" cy="10" r="7.25" />
+          <path d="M5.1 5.1l9.8 9.8" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+function StoppedPill() {
+  return (
+    <span
+      title="Emma will not contact this lead on any channel"
+      className="inline-flex flex-none items-center gap-1 rounded-[6px] bg-danger/10 px-[6px] py-[2px] font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] text-danger"
+    >
+      <svg width="9" height="9" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+        <circle cx="10" cy="10" r="7.25" />
+        <path d="M5.1 5.1l9.8 9.8" />
+      </svg>
+      Stopped
+    </span>
   );
 }
 
