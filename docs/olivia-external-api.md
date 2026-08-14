@@ -38,6 +38,7 @@ The key is minted by an Olivia operator (Settings → API Keys) with these **sco
 | `clients:read` | Listing the agency's clients (§4) | Required to discover `client_id`s |
 | `dashboard:read` | All analytics endpoints (§6) | Required |
 | `dashboard:pii` | Un-redacting PII on list endpoints | **Optional.** Only granted when raw PII export is explicitly approved. Without it, names/phones/emails/transcripts/recordings/message text are omitted. |
+| `dashboard:notes` | The lead **write** endpoints — `PUT …/leads/{id}/notes` and `PUT …/leads/{id}/do-not-contact` | Required **in addition to** `dashboard:read`. Our production key **does** carry it (verified 2026-08-14 by PUTting an invalid body to `/do-not-contact` and getting `400 invalid_request` rather than `403 forbidden_scope`). |
 
 A key missing a required scope → `403 { "code": "forbidden_scope" }`.
 

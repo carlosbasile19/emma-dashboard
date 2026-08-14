@@ -226,6 +226,14 @@ export interface Lead {
   stage_entered_at?: string | null;
   stage_id?: string | null;
   pipeline_id?: string | null;
+  /**
+   * Lead is suppressed: every outbound channel (voice, SMS, DM, reactivation enrolment,
+   * workflow steps, warm-up sends) checks this before contacting. Returned on both the list
+   * and the detail payload at any PII level. Distinct from `status: "dnc"` — a lead can be
+   * suppressed while sitting in any pipeline stage. Optional so cache rows written before the
+   * field existed still typecheck; treat `undefined` as false.
+   */
+  do_not_contact?: boolean;
   // PII (present only when the key carries dashboard:pii) — null-guarded.
   first_name?: string | null;
   last_name?: string | null;

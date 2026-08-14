@@ -453,6 +453,39 @@ export function putLeadNotes(
   );
 }
 
+export interface DoNotContactResult {
+  do_not_contact: boolean;
+  updated_at: string;
+  /** Workflow runs killed by this write. 0 when the value was already set (idempotent). */
+  cancelled_runs: number;
+}
+
+/**
+ * Suppress (or un-suppress) every outbound channel for a lead. Scope `dashboard:notes` on top
+ * of `dashboard:read` — a 403 `forbidden_scope` means the key can't write. The body must be
+ * EXACTLY `{ do_not_contact: <boolean> }`; anything else is rejected 400 `invalid_request`.
+ *
+ * Idempotent, so unlike putLeadNotes this keeps the client's 429 retry. That's safe for
+ * `cancelled_runs` specifically because a 429 is a *rejection* — the write never executed, so
+ * the retry that lands is the one that does the cancelling and reports the true count. (A
+ * response lost in flight after execution would under-report, but that surfaces as a failure,
+ * not a wrong number.)
+ *
+ * Turning the flag back off does NOT restart the runs this cancelled — the cancellation is
+ * one-way.
+ */
+export function putLeadDoNotContact(
+  clientId: string,
+  leadId: string,
+  doNotContact: boolean,
+  h: Hints = {},
+) {
+  return oliviaFetch<DoNotContactResult>(
+    `${ANALYTICS}/clients/${cid(clientId)}/leads/${encodeURIComponent(leadId)}/do-not-contact`,
+    { method: "PUT", body: { do_not_contact: doNotContact }, ...h },
+  );
+}
+
 // ---- DM threads (conversations tab) ----
 export async function getDmThreads(
   clientId: string,
