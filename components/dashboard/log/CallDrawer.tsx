@@ -8,11 +8,11 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import {
   INFERRED_VOICEMAIL_HINT,
   displayDisposition,
+  fmtDateTime,
   formatTranscript,
   initials,
   isInferredVoicemail,
   parseTranscript,
-  relTime,
   secToMMSS,
   shortId,
   type TranscriptTurn,
@@ -115,7 +115,7 @@ export function CallDrawer({
           <div className="mb-6 grid grid-cols-2 gap-3.5">
             <Field label="Agent" value={call.agent ?? "—"} />
             <Field label="Duration" value={secToMMSS(call.duration_seconds ?? 0)} mono />
-            <Field label="When" value={relTime(call.started_at)} mono />
+            <Field label="When" value={fmtDateTime(call.started_at)} mono />
             <Field
               label="Direction"
               value={call.direction === "inbound" ? "Inbound" : "Outbound"}

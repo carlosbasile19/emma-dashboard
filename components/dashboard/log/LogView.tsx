@@ -13,6 +13,7 @@ import { tint } from "@/lib/design";
 import {
   INFERRED_VOICEMAIL_HINT,
   displayDisposition,
+  fmtDateTime,
   isInferredVoicemail,
   num,
   relTime,
@@ -215,7 +216,7 @@ export function LogView({
                     className="text-right font-mono text-[11px] text-muted"
                     suppressHydrationWarning
                   >
-                    {relTime(c.started_at)}
+                    {fmtDateTime(c.started_at)}
                   </div>
                 </div>
               );
