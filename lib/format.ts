@@ -115,6 +115,24 @@ export function relTime(iso: string, now: number = Date.now()): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/**
+ * ISO timestamp -> exact local date/time, e.g. "Aug 14, 3:42 PM". The year appears only when it
+ * isn't the current one, so call-log cells stay compact. Renders in the viewer's timezone —
+ * callers are client components (pair with suppressHydrationWarning where server-rendered).
+ */
+export function fmtDateTime(iso: string, now: number = Date.now()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Full name from PII parts, or null when redacted. */
 export function fullName(
   first?: string | null,

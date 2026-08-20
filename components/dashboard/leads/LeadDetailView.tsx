@@ -16,6 +16,7 @@ import {
   INFERRED_VOICEMAIL_HINT,
   centsToMoney,
   displayDisposition,
+  fmtDateTime,
   fmtEnum,
   fullName,
   initials,
@@ -314,7 +315,7 @@ export function LeadDetailView({
                     className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-ink/10 px-3.5 py-2.5 text-left transition-colors hover:bg-lavender"
                   >
                     <span className="font-mono text-[11px] text-muted" suppressHydrationWarning>
-                      {relTime(c.started_at)}
+                      {fmtDateTime(c.started_at)}
                     </span>
                     <Badge kind="call" value={c.status} />
                     <Badge
