@@ -22,9 +22,8 @@ export default async function LoginPage({ searchParams }: { searchParams: SP }) 
 
         <div className="relative flex items-center gap-3">
           <LogoMark size={34} />
-          <div className="whitespace-nowrap text-[19px] font-medium tracking-[-0.01em]">
-            <span className="text-[#9DB0B2]">Hey</span>{" "}
-            <span className="font-bold text-white">Emma</span>
+          <div className="whitespace-nowrap text-[19px] font-bold tracking-[-0.01em] text-white">
+            Get Emma<span className="align-super text-[9px] font-semibold text-[#9DB0B2]">™</span>
           </div>
         </div>
 

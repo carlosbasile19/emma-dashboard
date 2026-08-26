@@ -1,14 +1,25 @@
-// Emma gradient logo mark — a rounded square with five equalizer bars.
+// Get Emma gradient logo mark — a cluster of three four-point sparkles.
+
+const GRADIENT_FROM = "#7C3AED";
+const GRADIENT_TO = "#EC4899";
+
+// Four-point sparkle centered at (cx, cy) with radius r, edges curved
+// toward the center.
+function sparklePath(cx: number, cy: number, r: number) {
+  const a = r * 0.12;
+  const b = r * 0.38;
+  return [
+    `M ${cx} ${cy - r}`,
+    `C ${cx + a} ${cy - b} ${cx + b} ${cy - a} ${cx + r} ${cy}`,
+    `C ${cx + b} ${cy + a} ${cx + a} ${cy + b} ${cx} ${cy + r}`,
+    `C ${cx - a} ${cy + b} ${cx - b} ${cy + a} ${cx - r} ${cy}`,
+    `C ${cx - b} ${cy - a} ${cx - a} ${cy - b} ${cx} ${cy - r}`,
+    "Z",
+  ].join(" ");
+}
 
 export function LogoMark({ size = 34 }: { size?: number }) {
   const id = `emma-logo-${size}`;
-  const bars: Array<[number, number, number]> = [
-    [10, 9, 0.65],
-    [15.3, 16, 1],
-    [20.6, 22, 1],
-    [25.9, 13, 1],
-    [31.2, 8, 0.65],
-  ];
   return (
     <svg
       width={size}
@@ -18,26 +29,14 @@ export function LogoMark({ size = 34 }: { size?: number }) {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#6D4AFF" />
-          <stop offset="100%" stopColor="#FF3D77" />
+        <linearGradient id={id} x1="0.2" y1="0" x2="0.75" y2="1">
+          <stop offset="0%" stopColor={GRADIENT_FROM} />
+          <stop offset="100%" stopColor={GRADIENT_TO} />
         </linearGradient>
       </defs>
-      <rect x="1" y="1" width="38" height="38" rx="11" fill={`url(#${id})`} />
-      <g>
-        {bars.map(([x, h, o]) => (
-          <rect
-            key={x}
-            x={x}
-            y={(40 - h) / 2}
-            width={3.4}
-            height={h}
-            rx={1.7}
-            fill="#fff"
-            opacity={o}
-          />
-        ))}
-      </g>
+      <path d={sparklePath(25.5, 13.5, 12.5)} fill={`url(#${id})`} />
+      <path d={sparklePath(8.5, 21, 8)} fill={`url(#${id})`} />
+      <path d={sparklePath(18, 33, 6)} fill={`url(#${id})`} />
     </svg>
   );
 }
@@ -46,9 +45,9 @@ export function LogoWordmark({ size = 34 }: { size?: number }) {
   return (
     <div className="flex items-center gap-3">
       <LogoMark size={size} />
-      <div className="text-[17px] font-medium tracking-[-0.01em] whitespace-nowrap">
-        <span className="text-muted">Hey</span>{" "}
-        <span className="font-bold text-ink">Emma</span>
+      <div className="whitespace-nowrap text-[17px] font-bold tracking-[-0.01em] text-ink">
+        Get Emma
+        <span className="align-super text-[8px] font-semibold text-muted">™</span>
       </div>
     </div>
   );

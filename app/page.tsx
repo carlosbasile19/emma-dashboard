@@ -78,8 +78,8 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-[1180px] items-center justify-between gap-6 px-7 py-3.5">
           <div className="flex items-center gap-[11px]">
             <LogoMark size={34} />
-            <div className="text-[18px] font-medium tracking-[-0.01em]">
-              <span className="text-muted">Hey</span> <span className="font-bold text-ink">Emma</span>
+            <div className="text-[18px] font-bold tracking-[-0.01em] text-ink">
+              Get Emma<span className="align-super text-[9px] font-semibold text-muted">™</span>
             </div>
           </div>
           <nav className="hidden items-center gap-[30px] text-[14.5px] text-muted md:flex">
@@ -342,7 +342,7 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-6 px-7 py-9">
           <div className="flex items-center gap-[11px]">
             <LogoMark size={28} />
-            <div className="text-[15px]"><span className="text-muted">Hey</span> <span className="font-bold">Emma</span></div>
+            <div className="text-[15px] font-bold text-ink">Get Emma<span className="align-super text-[8px] font-semibold text-muted">™</span></div>
           </div>
           <div className="flex gap-[26px] text-[13.5px] text-muted">
             <a href="#how" className="hover:text-ink">How it works</a>
