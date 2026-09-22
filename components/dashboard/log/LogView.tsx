@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { ChatDrawer } from "@/components/dashboard/log/ChatDrawer";
 import { Badge } from "@/components/ui/Badge";
+import { LocalTime } from "@/components/ui/LocalTime";
 import { EmptyState } from "@/components/ui/states/EmptyState";
 import { useNavigate } from "@/components/ui/states/PendingNav";
 import { channelCode, channelColor, channelLabel } from "@/lib/channels";
@@ -13,7 +14,6 @@ import { tint } from "@/lib/design";
 import {
   INFERRED_VOICEMAIL_HINT,
   displayDisposition,
-  fmtDateTime,
   isInferredVoicemail,
   num,
   relTime,
@@ -212,11 +212,8 @@ export function LogView({
                   <div className="text-right font-mono text-[12.5px] text-muted">
                     {secToMMSS(c.duration_seconds)}
                   </div>
-                  <div
-                    className="text-right font-mono text-[11px] text-muted"
-                    suppressHydrationWarning
-                  >
-                    {fmtDateTime(c.started_at)}
+                  <div className="text-right font-mono text-[11px] text-muted">
+                    <LocalTime iso={c.started_at} />
                   </div>
                 </div>
               );

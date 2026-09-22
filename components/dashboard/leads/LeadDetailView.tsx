@@ -8,6 +8,7 @@ import { NotesCard } from "@/components/dashboard/leads/NotesCard";
 import { CallDrawer } from "@/components/dashboard/log/CallDrawer";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { LocalTime } from "@/components/ui/LocalTime";
 import { channelCode, channelColor, channelLabel } from "@/lib/channels";
 import { isStopped } from "@/lib/do-not-contact";
 import { STAGE_COLORS, tint } from "@/lib/design";
@@ -16,7 +17,6 @@ import {
   INFERRED_VOICEMAIL_HINT,
   centsToMoney,
   displayDisposition,
-  fmtDateTime,
   fmtEnum,
   fullName,
   initials,
@@ -314,8 +314,8 @@ export function LeadDetailView({
                     onClick={() => openCall(c)}
                     className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-ink/10 px-3.5 py-2.5 text-left transition-colors hover:bg-lavender"
                   >
-                    <span className="font-mono text-[11px] text-muted" suppressHydrationWarning>
-                      {fmtDateTime(c.started_at)}
+                    <span className="font-mono text-[11px] text-muted">
+                      <LocalTime iso={c.started_at} />
                     </span>
                     <Badge kind="call" value={c.status} />
                     <Badge
@@ -478,13 +478,8 @@ function BookingGroup({
             className="flex items-center gap-3 rounded-[10px] border border-ink/10 px-3.5 py-2.5"
           >
             <span className="text-[13px] font-medium">{b.service ?? "Appointment"}</span>
-            <span className="font-mono text-[11.5px] text-muted" suppressHydrationWarning>
-              {new Date(b.scheduled_at).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              })}
+            <span className="font-mono text-[11.5px] text-muted">
+              <LocalTime iso={b.scheduled_at} />
             </span>
             <span className="ml-auto">
               <Badge kind="booking" value={b.status} />

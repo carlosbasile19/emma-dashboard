@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/Badge";
 import { CopyButton } from "@/components/ui/CopyButton";
+import { LocalTime } from "@/components/ui/LocalTime";
 import {
   INFERRED_VOICEMAIL_HINT,
   displayDisposition,
-  fmtDateTime,
   formatTranscript,
   initials,
   isInferredVoicemail,
@@ -115,7 +115,7 @@ export function CallDrawer({
           <div className="mb-6 grid grid-cols-2 gap-3.5">
             <Field label="Agent" value={call.agent ?? "—"} />
             <Field label="Duration" value={secToMMSS(call.duration_seconds ?? 0)} mono />
-            <Field label="When" value={fmtDateTime(call.started_at)} mono />
+            <Field label="When" value={<LocalTime iso={call.started_at} />} mono />
             <Field
               label="Direction"
               value={call.direction === "inbound" ? "Inbound" : "Outbound"}
@@ -413,16 +413,19 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) {
   return (
     <div>
       <div className="mb-1 text-[11px] text-muted">{label}</div>
-      <div
-        className={`text-[13.5px] ${mono ? "font-mono" : "font-medium"}`}
-        suppressHydrationWarning
-      >
-        {value}
-      </div>
+      <div className={`text-[13.5px] ${mono ? "font-mono" : "font-medium"}`}>{value}</div>
     </div>
   );
 }
