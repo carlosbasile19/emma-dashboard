@@ -116,15 +116,25 @@ export function relTime(iso: string, now: number = Date.now()): string {
 }
 
 /**
- * ISO timestamp -> exact local date/time, e.g. "Aug 14, 3:42 PM". The year appears only when it
- * isn't the current one, so call-log cells stay compact. Renders in the viewer's timezone —
- * callers are client components (pair with suppressHydrationWarning where server-rendered).
+ * ISO timestamp -> exact date/time, e.g. "Aug 14, 3:42 PM". The year appears only when it
+ * isn't the current one, so call-log cells stay compact.
+ *
+ * `timeZone` is an IANA zone. Pass it explicitly: without one the string is computed in the
+ * PROCESS timezone, which on Vercel is UTC — that is how "UK times" leaked into server HTML.
+ * In UI, render through `<LocalTime>` (components/ui/LocalTime), which supplies the viewer's zone.
  */
-export function fmtDateTime(iso: string, now: number = Date.now()): string {
+export function fmtDateTime(
+  iso: string,
+  now: number = Date.now(),
+  timeZone?: string,
+): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  const opts: Intl.DateTimeFormatOptions = timeZone ? { timeZone } : {};
+  const year = Number(d.toLocaleString("en-US", { ...opts, year: "numeric" }));
+  const sameYear = year === Number(new Date(now).toLocaleString("en-US", { ...opts, year: "numeric" }));
   return d.toLocaleString("en-US", {
+    ...opts,
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
