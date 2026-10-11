@@ -23,11 +23,15 @@ export interface BillingClientViewProps {
   client: { id: string; name: string; timezone: string | null };
   cb: ClientBilling | null;
   settings: BillingSettings;
+  /** Markup is unreleased: when false, no markup field, figure or billed-usage line is shown. */
+  markupEnabled: boolean;
+  /** Pre-fills a link's email box when the client has no billing contact yet. */
+  suggestedEmail: string | null;
   status: ClientBillingStatus;
   links: SetupLink[];
   baseUrl: string;
   invoices: InvoiceRow[];
-  /** Last closed month, raw → billed. null when billing is off. */
+  /** Last closed month: usage + fee (raw → billed once markup is released). null when billing is off. */
   preview: MonthFigure | null;
   chargeableMonths: string[];
   nextCharge: string | null;
@@ -76,16 +80,14 @@ function noticeText(p: BillingClientViewProps): string | null {
   }
 }
 
-function errorText(code: string | null, storedBillFrom: string | null): string | null {
+function errorText(code: string | null, storedBillFrom: string | null, markupEnabled: boolean): string | null {
   switch (code) {
     case "bill_from_reenable":
       return `Billing was off since ${storedBillFrom ? monthLabel(storedBillFrom) : "an earlier month"}. Set the bill-from month you want to start charging from, then save again.`;
     case "invalid":
-      return "Check the values: markup 0–300%, fee in dollars, anchor day 1–28, month as YYYY-MM.";
+      return `Check the values: ${markupEnabled ? "markup 0–300%, " : ""}fee in dollars, anchor day 1–28, month as YYYY-MM.`;
     case "email":
       return "Enter a valid email address.";
-    case "disabled":
-      return "Switch billing on for this client first.";
     case "send":
       return "The email could not be sent — copy the link instead.";
     case "save":
@@ -114,7 +116,7 @@ function errorText(code: string | null, storedBillFrom: string | null): string |
 export function BillingClientView(p: BillingClientViewProps) {
   const { client, cb, settings } = p;
   const notice = noticeText(p);
-  const error = errorText(p.error, cb?.billFromMonth ?? null);
+  const error = errorText(p.error, cb?.billFromMonth ?? null, p.markupEnabled);
   const now = new Date();
 
   return (
@@ -159,14 +161,17 @@ export function BillingClientView(p: BillingClientViewProps) {
             </label>
             <Field label="Billing email" name="billingEmail" type="email" defaultValue={cb?.billingEmail ?? ""} placeholder="billing@client.com" />
             <Field label="Bill from month" name="billFromMonth" type="month" defaultValue={cb?.billFromMonth ?? ""} placeholder="" hint="Months from here on are invoiced; earlier months are never touched." />
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Markup %" name="markup" defaultValue={cb?.overrides.markupBps == null ? "" : bpsToPercent(cb.overrides.markupBps)} placeholder={`Default ${bpsToPercent(settings.markupBps)}`} />
+            <div className={`grid gap-3 ${p.markupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+              {p.markupEnabled ? (
+                <Field label="Markup %" name="markup" defaultValue={cb?.overrides.markupBps == null ? "" : bpsToPercent(cb.overrides.markupBps)} placeholder={`Default ${bpsToPercent(settings.markupBps)}`} />
+              ) : null}
               <Field label="Monthly fee (USD)" name="fee" defaultValue={cb?.overrides.feeCents == null ? "" : centsToDollarsInput(cb.overrides.feeCents)} placeholder={`Default ${centsToDollarsInput(settings.feeCents)}`} />
               <Field label="Anchor day" name="anchorDay" defaultValue={cb?.overrides.anchorDay == null ? "" : String(cb.overrides.anchorDay)} placeholder={`Default ${settings.anchorDay}`} />
             </div>
             <div className="flex items-center justify-between gap-3 pt-1">
               <span className="font-mono text-[11px] text-muted">
-                Effective: {cb ? `${bpsToPercent(cb.effective.markupBps)}% · ${centsToMoneyExact(cb.effective.feeCents)} · day ${cb.effective.anchorDay}` : "—"}
+                Effective: {p.markupEnabled ? `${bpsToPercent(cb?.effective.markupBps ?? settings.markupBps)}% · ` : ""}
+                {centsToMoneyExact(cb?.effective.feeCents ?? settings.feeCents)} · day {cb?.effective.anchorDay ?? settings.anchorDay}
               </span>
               <SubmitButton pendingLabel="Saving…" className="bg-gradient-brand rounded-[10px] px-4 py-2 font-display text-[13px] font-semibold text-white transition-transform active:scale-95">
                 Save
@@ -202,8 +207,14 @@ export function BillingClientView(p: BillingClientViewProps) {
           <Panel title="Last closed month" subtitle={p.preview ? p.preview.label : "billing off"}>
             {p.preview ? (
               <div className="flex flex-col">
-                <Line label="Usage (raw)" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.rawUsageCents) : "Unavailable"} />
-                <Line label={p.preview.lines ? `Billed usage (+${bpsToPercent(p.preview.lines.markupBps)}%)` : "Billed usage"} value={p.preview.lines ? centsToMoneyExact(p.preview.lines.billedUsageCents) : "Unavailable"} />
+                {p.markupEnabled ? (
+                  <>
+                    <Line label="Usage (raw)" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.rawUsageCents) : "Unavailable"} />
+                    <Line label={p.preview.lines ? `Billed usage (+${bpsToPercent(p.preview.lines.markupBps)}%)` : "Billed usage"} value={p.preview.lines ? centsToMoneyExact(p.preview.lines.billedUsageCents) : "Unavailable"} />
+                  </>
+                ) : (
+                  <Line label="Usage" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.billedUsageCents) : "Unavailable"} />
+                )}
                 <Line label="Monthly fee" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.feeCents) : "Unavailable"} />
                 <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
                   <span className="text-[12.5px] font-semibold">Total</span>
@@ -266,7 +277,7 @@ export function BillingClientView(p: BillingClientViewProps) {
                     <form action={emailSetupLink} className="mt-2.5 flex flex-wrap items-center gap-2">
                       <input type="hidden" name="clientId" value={client.id} />
                       <input type="hidden" name="linkId" value={l.id} />
-                      <input type="email" name="email" required defaultValue={l.sentTo ?? cb?.billingEmail ?? ""} placeholder="billing@client.com" className="min-w-[220px] flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60" />
+                      <input type="email" name="email" required defaultValue={l.sentTo ?? cb?.billingEmail ?? p.suggestedEmail ?? ""} placeholder="billing@client.com" className="min-w-[220px] flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60" />
                       <SubmitButton pendingLabel="Sending…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
                         {l.sentTo ? "Email again" : "Email link"}
                       </SubmitButton>

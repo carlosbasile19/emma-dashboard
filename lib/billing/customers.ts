@@ -7,6 +7,7 @@ import {
   updateClientBillingColumns,
   upsertClientBilling,
   type CardOnFile,
+  type ClientBilling,
 } from "./config";
 import { notifyCardRemoved } from "./notify";
 
@@ -102,6 +103,20 @@ export async function writeCardMirror(clientId: string, card: CardOnFile | null)
           card_removed_at: new Date().toISOString(),
         },
   );
+}
+
+/**
+ * Keep the Stripe customer's email equal to the billing contact, so Stripe's receipts follow it.
+ * Best effort and never throws: the local contact is already saved. A customer created under the
+ * other key mode is left alone.
+ */
+export async function syncCustomerEmail(cb: ClientBilling, email: string | null): Promise<void> {
+  if (!email || !cb.stripeCustomerId || cb.stripeLivemode !== stripeLivemode()) return;
+  try {
+    await getStripe().customers.update(cb.stripeCustomerId, { email });
+  } catch (e) {
+    console.warn("[billing] customer email update failed:", e);
+  }
 }
 
 /**

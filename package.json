@@ -25,6 +25,7 @@
     "test:dnc": "tsx scripts/dnc-selftest.ts",
     "test:localtime": "tsx --tsconfig scripts/tsconfig.json scripts/local-time-selftest.ts",
     "test:billing": "tsx scripts/billing-selftest.ts",
+    "test:billing-config": "NODE_OPTIONS=--conditions=react-server tsx scripts/billing-config-selftest.ts",
     "billing:livecheck": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env scripts/billing-livecheck.ts"
   },
   "dependencies": {

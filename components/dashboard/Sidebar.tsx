@@ -21,7 +21,7 @@ export function Sidebar({
   billingEnabled = false,
 }: {
   workspace: Pick<Workspace, "name" | "user" | "initials" | "role" | "isAdmin">;
-  /** Billing is per-workspace; its nav item exists only where it is switched on. */
+  /** The billing feature is on: every workspace gets the Billing nav item. */
   billingEnabled?: boolean;
 }) {
   const pathname = usePathname();

@@ -2,8 +2,16 @@
 
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { loadClientBilling, saveBillingSettings, upsertClientBilling } from "@/lib/billing/config";
-import { removeCard } from "@/lib/billing/customers";
+import {
+  billingMarkupEnabled,
+  chargeTerms,
+  defaultBillingEmail,
+  loadBillingSettings,
+  loadClientBilling,
+  saveBillingSettings,
+  upsertClientBilling,
+} from "@/lib/billing/config";
+import { removeCard, syncCustomerEmail } from "@/lib/billing/customers";
 import { invoiceMonth, retryInvoice, runBilling, tzOf, listInvoices } from "@/lib/billing/invoices";
 import { parseAnchorDay, parseDollarsToCents, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
 import { sendSetupLinkEmail } from "@/lib/billing/notify";
@@ -21,14 +29,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 
-/** Platform-admin only: the defaults every client inherits unless overridden. */
+/**
+ * Platform-admin only: the defaults every client inherits unless overridden. Markup is unreleased:
+ * while it is off the form has no markup field and the stored default is left untouched.
+ */
 export async function saveBillingDefaults(formData: FormData) {
   const ctx = await requireAdmin();
-  const markupBps = parsePercentToBps(str(formData, "markup"));
+  const markupBps = billingMarkupEnabled() ? parsePercentToBps(str(formData, "markup")) : undefined;
   const feeCents = parseDollarsToCents(str(formData, "fee"));
   const anchorDay = parseAnchorDay(str(formData, "anchorDay"));
   const alertEmail = str(formData, "alertEmail").toLowerCase();
-  if (markupBps == null || feeCents == null || anchorDay == null) redirect("/console/billing?error=invalid");
+  if (markupBps === null || feeCents == null || anchorDay == null) redirect("/console/billing?error=invalid");
   if (alertEmail && !alertEmail.includes("@")) redirect("/console/billing?error=invalid");
   let failed = false;
   try {
@@ -81,21 +92,6 @@ async function knownClient(clientId: string): Promise<{ id: string; name: string
     : null;
 }
 
-/** Earliest-mapped member's email, for the first billing contact. */
-async function defaultBillingEmail(clientId: string): Promise<string | null> {
-  const admin = createAdminClient();
-  const { data: member } = await admin
-    .from("workspace_members")
-    .select("user_id")
-    .eq("olivia_client_id", clientId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (!member) return null;
-  const { data } = await admin.auth.admin.getUserById(member.user_id as string);
-  return data.user?.email?.toLowerCase() ?? null;
-}
-
 /** Platform-admin only: enable/disable and the per-client overrides. Blank override = default. */
 export async function saveClientBilling(formData: FormData) {
   const ctx = await requireAdmin();
@@ -115,7 +111,9 @@ export async function saveClientBilling(formData: FormData) {
     for (let i = 0; i < 12; i++) earliest = prevMonth(earliest);
     if (billFromMonth < earliest) redirect(`${back}?error=bill_from`);
   }
-  const markupRaw = str(formData, "markup");
+  // Markup is unreleased: while it is off there is no field, and the stored override is untouched.
+  const markupOn = billingMarkupEnabled();
+  const markupRaw = markupOn ? str(formData, "markup") : "";
   const markupBps = markupRaw ? parsePercentToBps(markupRaw) : null;
   if (markupRaw && markupBps == null) redirect(`${back}?error=invalid`);
   const feeRaw = str(formData, "fee");
@@ -155,11 +153,13 @@ export async function saveClientBilling(formData: FormData) {
     const billFrom = billFromMonth ?? existing?.billFromMonth ?? monthOf(localDate(new Date(), tzOf(client.timezone)));
     const billingEmail = emailRaw || existing?.billingEmail || (await defaultBillingEmail(client.id));
     // A blank override is an explicit null: it clears the override back to the platform default.
-    await upsertClientBilling(
+    const saved = await upsertClientBilling(
       client.id,
-      { enabled, billingEmail, billFromMonth: billFrom, markupBps, feeCents, anchorDay },
+      { enabled, billingEmail, billFromMonth: billFrom, markupBps: markupOn ? markupBps : undefined, feeCents, anchorDay },
       ctx.userId,
     );
+    // The card may have been saved before billing was configured: Stripe's receipts follow the contact.
+    if (saved.billingEmail !== (existing?.billingEmail ?? null)) await syncCustomerEmail(saved, saved.billingEmail);
   } catch (e) {
     console.error("[billing] save client billing failed", e);
     failed = true;
@@ -167,7 +167,10 @@ export async function saveClientBilling(formData: FormData) {
   redirect(failed ? `${back}?error=save` : `${back}?notice=saved`);
 }
 
-/** Platform-admin only: a fresh card-setup link (7 days, reusable until completed). */
+/**
+ * Platform-admin only: a fresh card-setup link (7 days, reusable until completed). Works whether
+ * or not automatic billing is on — saving a card never charges anything by itself.
+ */
 export async function generateSetupLink(formData: FormData) {
   const ctx = await requireAdmin();
   const client = await knownClient(str(formData, "clientId"));
@@ -175,9 +178,7 @@ export async function generateSetupLink(formData: FormData) {
   const back = `/console/billing/${client.id}`;
   let target = `${back}?notice=link`;
   try {
-    const cb = await loadClientBilling(client.id);
-    if (!cb?.enabled) target = `${back}?error=disabled`;
-    else await createSetupLink(client.id, ctx.userId);
+    await createSetupLink(client.id, ctx.userId);
   } catch (e) {
     console.error("[billing] create setup link failed", e);
     target = `${back}?error=link`;
@@ -203,14 +204,15 @@ export async function emailSetupLink(formData: FormData) {
     if (!link) {
       target = `${back}?error=no_valid_link`;
     } else {
-      const cb = await loadClientBilling(client.id);
+      const [cb, settings] = await Promise.all([loadClientBilling(client.id), loadBillingSettings()]);
+      const terms = chargeTerms(cb, settings);
       const { error } = await sendSetupLinkEmail({
         clientId: client.id,
         clientName: client.name,
         to,
         setupUrl: setupLinkUrl(await getRequestOrigin(), link.token),
-        feeCents: cb?.effective.feeCents ?? 0,
-        anchorDay: cb?.effective.anchorDay ?? 3,
+        feeCents: terms.feeCents,
+        anchorDay: terms.anchorDay,
         expiresInDays: Math.max(1, Math.ceil((Date.parse(link.expiresAt) - now.getTime()) / 86_400_000)),
       });
       if (error) {

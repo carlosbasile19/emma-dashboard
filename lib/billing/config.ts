@@ -1,8 +1,8 @@
 import "server-only";
 import { cache } from "react";
-import { getSessionClientId } from "@/lib/auth";
+import { getSessionClientId, PLATFORM_ADMIN_ROLE } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isValidAnchorDay, isValidBps, isValidFeeCents } from "./money";
+import { effectiveMarkupBps, isValidAnchorDay, isValidBps, isValidFeeCents } from "./money";
 
 /**
  * Billing configuration: the platform defaults row and one row per client, read through the
@@ -13,6 +13,14 @@ import { isValidAnchorDay, isValidBps, isValidFeeCents } from "./money";
 
 export function billingFeatureEnabled(): boolean {
   return process.env.BILLING_ENABLED === "true";
+}
+
+/**
+ * Markup is a future feature. While this is off, the effective markup is 0 everywhere (invoices,
+ * estimates, dashboard spend) and the console shows no markup controls; stored values are kept.
+ */
+export function billingMarkupEnabled(): boolean {
+  return process.env.BILLING_MARKUP_ENABLED === "true";
 }
 
 export interface BillingSettings {
@@ -108,7 +116,7 @@ export function rowToClientBilling(r: Row, s: BillingSettings): ClientBilling {
     billFromMonth: text(r.bill_from_month),
     overrides,
     effective: {
-      markupBps: overrides.markupBps ?? s.markupBps,
+      markupBps: effectiveMarkupBps(overrides.markupBps, s.markupBps, billingMarkupEnabled()),
       feeCents: overrides.feeCents ?? s.feeCents,
       anchorDay: overrides.anchorDay ?? s.anchorDay,
       currency: s.currency,
@@ -140,6 +148,36 @@ export async function loadClientBilling(clientId: string): Promise<ClientBilling
 }
 
 export const getClientBilling = cache(loadClientBilling);
+
+/**
+ * The fee and charge day a client is on: its effective values, or the platform defaults while it
+ * has no billing row yet (a card can be saved before an admin configures anything).
+ */
+export function chargeTerms(cb: ClientBilling | null, s: BillingSettings): { feeCents: number; anchorDay: number } {
+  return cb
+    ? { feeCents: cb.effective.feeCents, anchorDay: cb.effective.anchorDay }
+    : { feeCents: s.feeCents, anchorDay: s.anchorDay };
+}
+
+/**
+ * The default billing contact: the workspace's earliest-mapped CLIENT member. Platform admins
+ * are mapped to a home workspace too, so they are skipped — an agency email must never become
+ * a client's billing contact.
+ */
+export async function defaultBillingEmail(clientId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("olivia_client_id", clientId)
+    .neq("role", PLATFORM_ADMIN_ROLE)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!member) return null;
+  const { data } = await admin.auth.admin.getUserById(member.user_id as string);
+  return data.user?.email?.toLowerCase() ?? null;
+}
 
 export async function listClientBilling(): Promise<ClientBilling[]> {
   const admin = createAdminClient();
@@ -214,6 +252,22 @@ export async function upsertClientBilling(
   return row;
 }
 
+/**
+ * Set the billing contact only when the client has none: a conditional update, so a contact a
+ * member or admin already chose is never overwritten. Returns the row when this call set it.
+ */
+export async function claimBillingContact(clientId: string, email: string): Promise<ClientBilling | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("client_billing")
+    .update({ billing_email: email.toLowerCase(), updated_at: new Date().toISOString() })
+    .eq("olivia_client_id", clientId)
+    .is("billing_email", null)
+    .select("olivia_client_id");
+  if (error) throw new Error(`client_billing contact claim failed: ${error.message}`);
+  return data && data.length > 0 ? loadClientBilling(clientId) : null;
+}
+
 /** Raw column update for the card mirror / customer id. customers.ts owns these column names. */
 export async function updateClientBillingColumns(clientId: string, cols: Row): Promise<void> {
   const admin = createAdminClient();
@@ -242,12 +296,12 @@ export async function saveBillingSettings(
 }
 
 /**
- * The multiplier for the ACTIVE client's dashboard figures: 0 unless the feature is on and
- * billing is enabled for that workspace. Never throws — a billing lookup must not take the
- * overview page down.
+ * The multiplier for the ACTIVE client's dashboard figures: 0 unless billing and markup are both
+ * on and billing is enabled for that workspace. Never throws — a billing lookup must not take
+ * the overview page down.
  */
 export async function activeMarkupBps(): Promise<number> {
-  if (!billingFeatureEnabled()) return 0;
+  if (!billingFeatureEnabled() || !billingMarkupEnabled()) return 0;
   try {
     const cb = await getClientBilling(await getSessionClientId());
     return cb?.enabled ? cb.effective.markupBps : 0;

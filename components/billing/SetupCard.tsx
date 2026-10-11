@@ -17,7 +17,6 @@ export function SetupCard({
   cancelled,
   incomplete,
   failed,
-  disabled,
 }: {
   token: string;
   clientName: string;
@@ -26,7 +25,6 @@ export function SetupCard({
   cancelled: boolean;
   incomplete: boolean;
   failed: boolean;
-  disabled: boolean;
 }) {
   return (
     <div>
@@ -70,22 +68,15 @@ export function SetupCard({
         </div>
       ) : null}
 
-      {disabled ? (
-        <div className="mt-4 rounded-[10px] border border-danger/30 bg-danger/8 px-3.5 py-2.5 text-[13px] text-danger">
-          Billing is switched off for this workspace. Ask your Hey Emma administrator for a new
-          link once it&apos;s on.
-        </div>
-      ) : (
-        <form action={startLinkCheckout} className="mt-6">
-          <input type="hidden" name="token" value={token} />
-          <SubmitButton
-            pendingLabel="Opening secure checkout…"
-            className="bg-gradient-brand w-full rounded-[12px] py-3 font-display text-[14px] font-semibold text-white shadow-[0_4px_14px_rgba(109,74,255,0.35)] transition-transform active:scale-[0.99]"
-          >
-            Add card with Stripe
-          </SubmitButton>
-        </form>
-      )}
+      <form action={startLinkCheckout} className="mt-6">
+        <input type="hidden" name="token" value={token} />
+        <SubmitButton
+          pendingLabel="Opening secure checkout…"
+          className="bg-gradient-brand w-full rounded-[12px] py-3 font-display text-[14px] font-semibold text-white shadow-[0_4px_14px_rgba(109,74,255,0.35)] transition-transform active:scale-[0.99]"
+        >
+          Add card with Stripe
+        </SubmitButton>
+      </form>
 
       <p className="mt-4 text-[12px] leading-[1.55] text-muted">{mandateText(anchorDay)}</p>
     </div>

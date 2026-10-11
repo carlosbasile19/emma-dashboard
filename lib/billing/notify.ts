@@ -81,9 +81,21 @@ async function sendTo(
 
 const consoleUrl = (origin: string, clientId: string) => `${origin}/console/billing/${clientId}`;
 
+/** Whether automatic billing is on, for the card emails; null when the lookup fails (never blocks the email). */
+async function billingOnFor(clientId: string): Promise<boolean | null> {
+  return loadClientBilling(clientId).then(
+    (cb) => cb?.enabled === true,
+    () => null,
+  );
+}
+
 export async function notifyCardAdded(clientId: string, card: CardOnFile, origin: string): Promise<void> {
-  const [to, clientName] = await Promise.all([adminRecipients(), clientDisplayName(clientId)]);
-  await sendTo(to, billingCardAdded({ clientName, cardLabel: cardLabel(card), consoleUrl: consoleUrl(origin, clientId) }), "card-added");
+  const [to, clientName, billingOn] = await Promise.all([adminRecipients(), clientDisplayName(clientId), billingOnFor(clientId)]);
+  await sendTo(
+    to,
+    billingCardAdded({ clientName, cardLabel: cardLabel(card), consoleUrl: consoleUrl(origin, clientId), billingOn }),
+    "card-added",
+  );
 }
 
 export async function notifyCardRemoved(
@@ -91,14 +103,14 @@ export async function notifyCardRemoved(
   reason: "removed" | "detached" | "customer_deleted",
   origin: string,
 ): Promise<void> {
-  const [to, clientName] = await Promise.all([adminRecipients(), clientDisplayName(clientId)]);
+  const [to, clientName, billingOn] = await Promise.all([adminRecipients(), clientDisplayName(clientId), billingOnFor(clientId)]);
   const detail =
     reason === "removed"
       ? "removed from the Billing page"
       : reason === "detached"
         ? "removed in Stripe"
         : "the Stripe customer was deleted";
-  await sendTo(to, billingCardRemoved({ clientName, detail, consoleUrl: consoleUrl(origin, clientId) }), "card-removed");
+  await sendTo(to, billingCardRemoved({ clientName, detail, consoleUrl: consoleUrl(origin, clientId), billingOn }), "card-removed");
 }
 
 export interface PaymentFailedArgs {

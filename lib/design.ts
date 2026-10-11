@@ -124,7 +124,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", group: "Performance", hidden: true },
   { key: "leads", label: "Leads", href: "/dashboard/leads", group: "Records" },
   { key: "logs", label: "Calls & Conversations", href: "/dashboard/log", group: "Records" },
-  // Shown only when billing is enabled for the active workspace (Sidebar filters on the flag).
+  // Shown on every workspace while the billing feature is on (Sidebar filters on the flag): a card
+  // can be saved before automatic billing is switched on for that workspace.
   { key: "billing", label: "Billing", href: "/dashboard/billing", group: "Account" },
   { key: "design", label: "Design System", href: "/dashboard/design", group: "Reference", hidden: true },
 ];

@@ -128,6 +128,8 @@ export interface BillingCardAddedArgs {
   clientName: string;
   cardLabel: string;
   consoleUrl: string;
+  /** Automatic billing is on for the client (a card can be saved before it is); null = unknown. */
+  billingOn: boolean | null;
 }
 
 export function billingCardAdded(
@@ -138,7 +140,11 @@ export function billingCardAdded(
     eyebrow: "Billing",
     heading: "A card was added",
     bodyParagraphs: [
-      `${a.clientName} now has ${a.cardLabel} on file. Automatic billing will charge it on the next charge date.`,
+      a.billingOn === true
+        ? `${a.clientName} now has ${a.cardLabel} on file. Automatic billing will charge it on the next charge date.`
+        : a.billingOn === false
+          ? `${a.clientName} now has ${a.cardLabel} on file. Automatic billing is off for this client, so nothing is charged until you switch it on in the console.`
+          : `${a.clientName} now has ${a.cardLabel} on file.`,
     ],
     cta: { label: "Open billing", url: a.consoleUrl },
   });
@@ -150,6 +156,8 @@ export interface BillingCardRemovedArgs {
   /** "removed from the Billing page" / "removed in Stripe" / "the Stripe customer was deleted" */
   detail: string;
   consoleUrl: string;
+  /** Automatic billing is on for the client; null = unknown. */
+  billingOn: boolean | null;
 }
 
 export function billingCardRemoved(
@@ -160,7 +168,11 @@ export function billingCardRemoved(
     eyebrow: "Billing",
     heading: "A card was removed",
     bodyParagraphs: [
-      `${a.clientName} no longer has a card on file (${a.detail}). Their next charge will be skipped until a new card is added — send them a setup link from the console.`,
+      a.billingOn === true
+        ? `${a.clientName} no longer has a card on file (${a.detail}). Their next charge will be skipped until a new card is added — send them a setup link from the console.`
+        : a.billingOn === false
+          ? `${a.clientName} no longer has a card on file (${a.detail}). Automatic billing is off for this client; send them a setup link from the console before you switch it on.`
+          : `${a.clientName} no longer has a card on file (${a.detail}).`,
     ],
     cta: { label: "Open billing", url: a.consoleUrl },
   });

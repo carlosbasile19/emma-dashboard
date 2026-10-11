@@ -2,9 +2,9 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, stripeLivemode } from "@/lib/stripe/client";
-import { loadClientBilling, type CardOnFile } from "./config";
+import { claimBillingContact, loadClientBilling, type CardOnFile } from "./config";
 import { CHECKOUT_SUBMIT_MESSAGE } from "./copy";
-import { ensureCustomer, setDefaultCard, writeCardMirror } from "./customers";
+import { ensureCustomer, setDefaultCard, syncCustomerEmail, writeCardMirror } from "./customers";
 import { notifyCardAdded } from "./notify";
 import { setupLinkState, type SetupLinkState } from "./status";
 
@@ -125,12 +125,15 @@ export async function completeSetupLink(token: string): Promise<void> {
  * redirect the browser to. `successUrl` must contain the literal `{CHECKOUT_SESSION_ID}`
  * placeholder — Stripe substitutes it, and the return page uses it to reconcile.
  * A `setupToken` must be a valid (pending, unexpired) link belonging to `clientId`.
+ * `contactEmail` (the signed-in member, never an admin) becomes the billing contact once the
+ * card is adopted, if the client has none yet.
  */
 export async function createCheckoutSession(args: {
   clientId: string;
   successUrl: string;
   cancelUrl: string;
   setupToken?: string | null;
+  contactEmail?: string | null;
 }): Promise<string> {
   if (args.setupToken) {
     const found = await getSetupLink(args.setupToken);
@@ -144,6 +147,7 @@ export async function createCheckoutSession(args: {
     emma_origin: args.setupToken ? "link" : "dashboard",
   };
   if (args.setupToken) metadata.emma_setup_token = args.setupToken;
+  if (args.contactEmail) metadata.emma_contact_email = args.contactEmail.toLowerCase();
   const session = await getStripe().checkout.sessions.create({
     mode: "setup",
     customer: customerId,
@@ -267,6 +271,17 @@ export async function reconcileCheckoutSession(
     } catch (e) {
       // The link stays reusable until a later adoption attempt marks it.
       console.error("[billing] setup link not marked completed", { sessionId, clientId, setupToken }, e);
+    }
+  }
+  // The member who saved the card becomes the billing contact when there is none yet, so Stripe's
+  // receipts have somewhere to go. Whichever caller adopted the card does this, once.
+  const contactEmail = session.metadata?.emma_contact_email || null;
+  if (contactEmail) {
+    try {
+      const withContact = await claimBillingContact(clientId, contactEmail);
+      if (withContact) await syncCustomerEmail(withContact, withContact.billingEmail);
+    } catch (e) {
+      console.error("[billing] billing contact not set after card adoption", { sessionId, clientId }, e);
     }
   }
   try {

@@ -1,7 +1,7 @@
 import { removeMyCard, saveBillingEmail, startCardSetup } from "@/app/dashboard/billing/actions";
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import type { CardOnFile } from "@/lib/billing/config";
-import { BILLING_DISABLED_COPY, mandateText, ordinal } from "@/lib/billing/copy";
+import { BILLING_NOT_STARTED_COPY, BILLING_PAUSED_COPY, chargeTermsText, mandateText, ordinal } from "@/lib/billing/copy";
 import type { InvoiceRow } from "@/lib/billing/invoices";
 import { INVOICE_STATUS_LABEL, type InvoiceStatus } from "@/lib/billing/status";
 import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
@@ -9,24 +9,27 @@ import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
 export interface BillingEstimate {
   label: string;
   usageCents: number | null;
-  feeCents: number;
   totalCents: number | null;
   nextChargeDate: string;
 }
 
 export interface BillingViewProps {
   clientName: string;
+  /** Automatic monthly charging is on. Off: the card can still be saved, and nothing is charged. */
+  automatic: boolean;
   card: CardOnFile | null;
   billingEmail: string | null;
   anchorDay: number;
-  estimate: BillingEstimate;
+  feeCents: number;
+  /** This month so far; null while automatic billing is off. */
+  estimate: BillingEstimate | null;
   invoices: InvoiceRow[];
   notice: string | null;
   error: string | null;
 }
 
 const NOTICE: Record<string, string> = {
-  card_added: "Your card is on file. Automatic billing will use it from the next charge date.",
+  card_added: "Your card is on file.",
   card_removed: "Your card was removed. Nothing will be charged until a new card is added.",
   email_saved: "Billing contact saved.",
   setup_cancelled: "No changes were made to your payment method.",
@@ -56,23 +59,19 @@ function cardTitle(card: CardOnFile): string {
   return `${brand} ····${card.last4 ?? "????"}`;
 }
 
-export function BillingDisabled() {
-  return (
-    <div className="flex min-h-[380px] flex-col items-center justify-center px-5 py-16 text-center">
-      <div className="mb-2 text-[22px] font-bold tracking-[-0.01em]">{BILLING_DISABLED_COPY.title}</div>
-      <div className="max-w-[420px] text-[15px] leading-[1.55] text-muted">{BILLING_DISABLED_COPY.body}</div>
-    </div>
-  );
-}
-
 export function BillingView(p: BillingViewProps) {
   const noticeText = p.notice && Object.hasOwn(NOTICE, p.notice) ? NOTICE[p.notice] : null;
   const errorText = p.error && Object.hasOwn(ERROR, p.error) ? ERROR[p.error] : null;
+  // Off with earlier invoices = billing ran before and was switched off; off without = never started.
+  const paused = !p.automatic && p.invoices.length > 0;
+  const offCopy = paused ? BILLING_PAUSED_COPY : BILLING_NOT_STARTED_COPY;
 
   return (
     <div className="mx-auto max-w-[1000px]">
       <div className="mb-5 text-[14px] text-muted">
-        Automatic monthly billing for {p.clientName} · charged on the {ordinal(p.anchorDay)} of each month
+        {p.automatic
+          ? `Automatic monthly billing for ${p.clientName} · charged on the ${ordinal(p.anchorDay)} of each month`
+          : `Billing for ${p.clientName} · ${paused ? "automatic billing is paused" : "automatic billing hasn't started yet"}`}
       </div>
 
       {noticeText ? (
@@ -127,7 +126,11 @@ export function BillingView(p: BillingViewProps) {
             <div className="px-5 py-4">
               <div className="text-[14px] font-medium">No card on file</div>
               <div className="mt-1 text-[13px] text-muted">
-                Add a card to be billed automatically. Until then nothing is charged.
+                {p.automatic
+                  ? "Add a card to be billed automatically. Until then nothing is charged."
+                  : paused
+                    ? "Save a card for your monthly Emma billing."
+                    : "Save a card for your monthly Emma billing. Nothing is charged until automatic billing starts."}
               </div>
               <form action={startCardSetup} className="mt-4">
                 <SubmitButton
@@ -144,87 +147,101 @@ export function BillingView(p: BillingViewProps) {
           </div>
         </Panel>
 
-        {/* next charge */}
-        <Panel title="Next charge" subtitle={`${p.estimate.label} · estimate`}>
-          <div className="flex flex-col">
-            <Line label="Emma usage so far" value={p.estimate.usageCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.usageCents)} />
-            <Line label="Monthly fee" value={centsToMoneyExact(p.estimate.feeCents)} />
-            <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
-              <span className="text-[12.5px] font-semibold">Estimated total</span>
-              <span className="font-mono text-[14px] font-bold text-violet tabular-nums">
-                {p.estimate.totalCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.totalCents)}
-              </span>
+        {/* next charge, or how billing will work before it starts */}
+        {p.automatic && p.estimate ? (
+          <Panel title="Next charge" subtitle={`${p.estimate.label} · estimate`}>
+            <div className="flex flex-col">
+              <Line label="Emma usage so far" value={p.estimate.usageCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.usageCents)} />
+              <Line label="Monthly fee" value={centsToMoneyExact(p.feeCents)} />
+              <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
+                <span className="text-[12.5px] font-semibold">Estimated total</span>
+                <span className="font-mono text-[14px] font-bold text-violet tabular-nums">
+                  {p.estimate.totalCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.totalCents)}
+                </span>
+              </div>
+              <div className="px-5 py-3 text-[12px] text-muted">
+                Charged on <span className="font-medium text-ink">{dayLabel(p.estimate.nextChargeDate)}</span> for the
+                full month. Usage accrues until the month closes, so the final amount can be higher.
+                {p.estimate.usageCents == null ? " Usage could not be loaded just now; this is not a zero." : ""}
+              </div>
             </div>
-            <div className="px-5 py-3 text-[12px] text-muted">
-              Charged on <span className="font-medium text-ink">{dayLabel(p.estimate.nextChargeDate)}</span> for the
-              full month. Usage accrues until the month closes, so the final amount can be higher.
-              {p.estimate.usageCents == null ? " Usage could not be loaded just now; this is not a zero." : ""}
+          </Panel>
+        ) : (
+          <Panel title="Automatic billing" subtitle={paused ? "paused" : "not started yet"}>
+            <div className="px-5 py-4">
+              <div className="text-[14px] font-medium">{offCopy.title}</div>
+              <div className="mt-1 text-[13px] leading-relaxed text-muted">{offCopy.body}</div>
             </div>
-          </div>
-        </Panel>
+            <div className="border-t border-lavender px-5 py-3 text-[12.5px] leading-relaxed text-ink/80">
+              {chargeTermsText(p.anchorDay, p.feeCents)}
+            </div>
+          </Panel>
+        )}
       </div>
 
-      {/* invoices */}
-      <Panel title="Invoices" subtitle="one per calendar month">
-        {p.invoices.length === 0 ? (
-          <div className="px-5 py-8 text-center text-[13px] text-muted">
-            No invoices yet. Your first one appears after the first charge date.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px]">
-              <thead>
-                <tr className="bg-surface-tint">
-                  {["Period", "Usage", "Fee", "Total", "Status", ""].map((h, i) => (
-                    <th
-                      key={h || i}
-                      className={`px-5 py-[11px] font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted ${i >= 1 && i <= 3 ? "text-right" : "text-left"}`}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {p.invoices.map((inv, i) => (
-                  <tr key={inv.id} className={i % 2 ? "bg-lavender/40" : "bg-white"}>
-                    <td className="border-b border-lavender px-5 py-2.5 font-medium">{monthLabel(inv.periodMonth)}</td>
-                    <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
-                      {inv.billedUsageCents == null ? "—" : centsToMoneyExact(inv.billedUsageCents)}
-                    </td>
-                    <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
-                      {inv.feeCents == null ? "—" : centsToMoneyExact(inv.feeCents)}
-                    </td>
-                    <td className="border-b border-lavender px-5 py-2.5 text-right font-mono font-semibold tabular-nums">
-                      {inv.totalCents == null ? "—" : centsToMoneyExact(inv.totalCents)}
-                    </td>
-                    <td className="border-b border-lavender px-5 py-2.5">
-                      <span className={`inline-flex rounded-full border px-2 py-[2px] font-mono text-[10.5px] ${PILL[inv.status]}`}>
-                        {INVOICE_STATUS_LABEL[inv.status]}
-                      </span>
-                      {inv.status === "failed" && inv.failureMessage ? (
-                        <div className="mt-1 max-w-[260px] text-[11px] text-muted">{inv.failureMessage}</div>
-                      ) : null}
-                    </td>
-                    <td className="border-b border-lavender px-5 py-2.5 text-right">
-                      {inv.hostedInvoiceUrl ? (
-                        <a
-                          href={inv.hostedInvoiceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-display text-[12.5px] font-medium text-violet hover:underline"
-                        >
-                          {inv.status === "action_required" ? "Complete payment" : inv.status === "paid" ? "Receipt" : "View invoice"}
-                        </a>
-                      ) : null}
-                    </td>
+      {/* invoices — once billing is on, or when earlier invoices exist */}
+      {p.automatic || p.invoices.length > 0 ? (
+        <Panel title="Invoices" subtitle="one per calendar month">
+          {p.invoices.length === 0 ? (
+            <div className="px-5 py-8 text-center text-[13px] text-muted">
+              No invoices yet. Your first one appears after the first charge date.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[13px]">
+                <thead>
+                  <tr className="bg-surface-tint">
+                    {["Period", "Usage", "Fee", "Total", "Status", ""].map((h, i) => (
+                      <th
+                        key={h || i}
+                        className={`px-5 py-[11px] font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted ${i >= 1 && i <= 3 ? "text-right" : "text-left"}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </thead>
+                <tbody>
+                  {p.invoices.map((inv, i) => (
+                    <tr key={inv.id} className={i % 2 ? "bg-lavender/40" : "bg-white"}>
+                      <td className="border-b border-lavender px-5 py-2.5 font-medium">{monthLabel(inv.periodMonth)}</td>
+                      <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
+                        {inv.billedUsageCents == null ? "—" : centsToMoneyExact(inv.billedUsageCents)}
+                      </td>
+                      <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
+                        {inv.feeCents == null ? "—" : centsToMoneyExact(inv.feeCents)}
+                      </td>
+                      <td className="border-b border-lavender px-5 py-2.5 text-right font-mono font-semibold tabular-nums">
+                        {inv.totalCents == null ? "—" : centsToMoneyExact(inv.totalCents)}
+                      </td>
+                      <td className="border-b border-lavender px-5 py-2.5">
+                        <span className={`inline-flex rounded-full border px-2 py-[2px] font-mono text-[10.5px] ${PILL[inv.status]}`}>
+                          {INVOICE_STATUS_LABEL[inv.status]}
+                        </span>
+                        {inv.status === "failed" && inv.failureMessage ? (
+                          <div className="mt-1 max-w-[260px] text-[11px] text-muted">{inv.failureMessage}</div>
+                        ) : null}
+                      </td>
+                      <td className="border-b border-lavender px-5 py-2.5 text-right">
+                        {inv.hostedInvoiceUrl ? (
+                          <a
+                            href={inv.hostedInvoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-display text-[12.5px] font-medium text-violet hover:underline"
+                          >
+                            {inv.status === "action_required" ? "Complete payment" : inv.status === "paid" ? "Receipt" : "View invoice"}
+                          </a>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      ) : null}
 
       {/* billing contact */}
       <div className="mt-6">
