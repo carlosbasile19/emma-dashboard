@@ -5904,9 +5904,62 @@ Then merge per the repo's shipping workflow (`git checkout master && git merge -
 
 Nothing here runs during implementation. It is the ordered checklist for the day billing goes live, kept with the plan so it is not reinvented.
 
+- [ ] **Step 0: Reset sandbox state in the shared database**
+
+Preview/local (sandbox key) and Production share one Supabase project, so everything the sandbox walkthrough and the livecheck wrote is still there. Before switching Production to the live key, run this once in the Supabase SQL editor (one transaction; it only touches sandbox-tagged rows and the livecheck fixtures):
+
+```sql
+begin;
+
+-- 1. Sandbox-only history: invoices, setup links, webhook idempotency rows, run summaries.
+delete from public.billing_invoices    where livemode = false;
+delete from public.billing_setup_links where livemode = false;
+delete from public.billing_events      where livemode = false;
+delete from public.billing_runs        where livemode = false;
+
+-- 2. Unlink every sandbox Stripe customer/card and switch those clients off. They are re-enabled
+--    deliberately (with a chosen bill-from month) once live, and get a fresh live customer then.
+update public.client_billing
+set stripe_customer_id        = null,
+    stripe_livemode           = null,
+    default_payment_method_id = null,
+    card_brand                = null,
+    card_last4                = null,
+    card_exp_month            = null,
+    card_exp_year             = null,
+    card_added_at             = null,
+    no_card_alerted_month     = null,
+    enabled                   = false,
+    updated_at                = now()
+where stripe_livemode = false;
+
+-- 3. Livecheck fixtures (billing rows first: client_billing references olivia_clients).
+delete from public.billing_invoices    where olivia_client_id like 'livecheck-%';
+delete from public.billing_setup_links where olivia_client_id like 'livecheck-%';
+delete from public.client_billing      where olivia_client_id like 'livecheck-%';
+delete from public.olivia_clients      where olivia_client_id like 'livecheck-%';
+
+-- 4. Platform defaults: confirm these are the intended LIVE defaults (the walkthrough left
+--    20% markup / $300 fee / day 3). Change them in /console/billing if not.
+select markup_bps, fee_cents, anchor_day, currency, alert_email from public.billing_settings where id = 1;
+
+-- 5. Verify nothing sandbox-tagged is left (all zeros), then commit.
+select
+  (select count(*) from public.billing_invoices    where livemode = false) as invoices,
+  (select count(*) from public.billing_setup_links where livemode = false) as links,
+  (select count(*) from public.billing_events      where livemode = false) as events,
+  (select count(*) from public.billing_runs        where livemode = false) as runs,
+  (select count(*) from public.client_billing      where stripe_livemode = false) as clients,
+  (select count(*) from public.olivia_clients      where olivia_client_id like 'livecheck-%') as livecheck;
+
+commit;
+```
+
+**Note — Preview after go-live:** Preview (sandbox key) and Production share this Supabase project. After go-live, Preview must either keep `BILLING_ENABLED` off, or point at its own database. Otherwise a sandbox card setup on Preview can collide with live client rows (the code refuses to replace a card held under the other mode, and listings filter by mode, but sandbox runs would still write rows and send emails against real clients).
+
 - [ ] **Step 1: Vercel environment**
 
-Production: `STRIPE_SECRET_KEY` = the LIVE secret key (`sk_live_…`, from the live account's Developers → API keys), `BILLING_ENABLED=true`, `CRON_SECRET` = a fresh random value (`openssl rand -base64 24`). Preview: `STRIPE_SECRET_KEY` = the sandbox key, `BILLING_ENABLED=true`, its own `CRON_SECRET`. Set them in the Vercel dashboard (Project → Settings → Environment Variables) or with `vercel env add <NAME> production`.
+Production: `STRIPE_SECRET_KEY` = the LIVE secret key (`sk_live_…`, from the live account's Developers → API keys), `BILLING_ENABLED=true`, `CRON_SECRET` = a fresh random value (`openssl rand -base64 24`). Preview: `STRIPE_SECRET_KEY` = the sandbox key, its own `CRON_SECRET`, and `BILLING_ENABLED` left unset unless Preview has its own database (see the note in Step 0). Set them in the Vercel dashboard (Project → Settings → Environment Variables) or with `vercel env add <NAME> production`.
 
 - [ ] **Step 2: Live webhook endpoint**
 
