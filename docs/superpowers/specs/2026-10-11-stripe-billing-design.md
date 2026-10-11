@@ -111,9 +111,9 @@ policies** (service-role only), matching `invites`.
 | Table | Columns (type) | Notes |
 |---|---|---|
 | `billing_settings` | `id int pk check (id = 1)`, `markup_bps int not null default 0`, `fee_cents int not null default 0`, `anchor_day int not null default 3 check 1..28`, `currency text not null default 'usd'`, `alert_email text`, `updated_at`, `updated_by uuid` | Single row of platform defaults. Seeded by the migration. |
-| `client_billing` | `olivia_client_id text pk`, `enabled bool not null default false`, `stripe_customer_id text unique`, `billing_email text`, `bill_from_month text` (`YYYY-MM`), `markup_bps int`, `fee_cents int`, `anchor_day int` (each null = use default), `default_payment_method_id text`, `card_brand text`, `card_last4 text`, `card_exp_month int`, `card_exp_year int`, `card_added_at`, `card_removed_at`, `no_card_alerted_month text`, `created_at`, `updated_at`, `updated_by uuid` | One row per workspace, created on first configure. Card columns are a **mirror** of Stripe kept current by the return page and webhooks; Stripe stays the source of truth. |
-| `billing_invoices` | `id uuid pk`, `olivia_client_id text not null`, `period_month text not null`, `period_from date`, `period_to date`, `tz text`, `raw_usage_cents int`, `markup_bps int`, `billed_usage_cents int`, `fee_cents int`, `total_cents int`, `currency text`, `stripe_invoice_id text unique`, `hosted_invoice_url text`, `invoice_pdf_url text`, `status text not null`, `failure_code text`, `failure_message text`, `trigger text` (`cron`/`manual`), `created_by uuid`, `created_at`, `finalized_at`, `paid_at`, `updated_at`; **unique (`olivia_client_id`, `period_month`)** | The unique pair is the idempotency guard: a month can never be invoiced twice. Statuses: `reserved`, `open`, `paid`, `failed`, `action_required`, `void`, `uncollectible`, `skipped_zero`. |
-| `billing_setup_links` | `id uuid pk`, `token text unique`, `olivia_client_id text not null`, `created_by uuid`, `sent_to text`, `created_at`, `expires_at`, `status text` (`pending`/`completed`/`revoked`), `completed_at` | Same shape as `invites`. 32 random bytes, base64url. 7-day TTL. Reusable until completed, so a cancelled Checkout can be retried from the same link. |
+| `client_billing` | `olivia_client_id text pk`, `enabled bool not null default false`, `stripe_customer_id text unique`, `billing_email text`, `bill_from_month text` (`YYYY-MM`), `markup_bps int`, `fee_cents int`, `anchor_day int` (each null = use default), `default_payment_method_id text`, `card_brand text`, `card_last4 text`, `card_exp_month int`, `card_exp_year int`, `card_added_at`, `card_removed_at`, `no_card_alerted_month text`, `created_at`, `updated_at`, `updated_by uuid`, `livemode boolean` — the key mode the row was written under. | One row per workspace, created on first configure. Card columns are a **mirror** of Stripe kept current by the return page and webhooks; Stripe stays the source of truth. |
+| `billing_invoices` | `id uuid pk`, `olivia_client_id text not null`, `period_month text not null`, `period_from date`, `period_to date`, `tz text`, `raw_usage_cents int`, `markup_bps int`, `billed_usage_cents int`, `fee_cents int`, `total_cents int`, `currency text`, `stripe_invoice_id text unique`, `hosted_invoice_url text`, `invoice_pdf_url text`, `status text not null`, `failure_code text`, `failure_message text`, `trigger text` (`cron`/`manual`), `created_by uuid`, `created_at`, `finalized_at`, `paid_at`, `updated_at`, `livemode boolean` — the key mode the row was written under.; **unique (`olivia_client_id`, `period_month`)** | The unique pair is the idempotency guard: a month can never be invoiced twice. Statuses: `reserved`, `open`, `paid`, `failed`, `action_required`, `void`, `uncollectible`, `skipped_zero`. |
+| `billing_setup_links` | `id uuid pk`, `token text unique`, `olivia_client_id text not null`, `created_by uuid`, `sent_to text`, `created_at`, `expires_at`, `status text` (`pending`/`completed`/`revoked`), `completed_at`, `livemode boolean` — the key mode the row was written under. | Same shape as `invites`. 32 random bytes, base64url. 7-day TTL. Reusable until completed, so a cancelled Checkout can be retried from the same link. |
 | `billing_events` | `stripe_event_id text pk`, `type text`, `received_at`, `processed_at`, `error text` | Webhook idempotency. A row with `processed_at` set is a no-op on redelivery; a row without it is reprocessed. |
 | `billing_runs` | `id uuid pk`, `trigger text`, `started_at`, `finished_at`, `summary jsonb` | One row per cron/manual run: invoiced, skipped, failed, per client. Drives "Last run" in the console. |
 
@@ -144,9 +144,7 @@ mark the setup link completed when one was used. `checkout.session.completed` ru
 reconcile asynchronously, so a closed browser tab is still handled. Both paths are idempotent.
 
 **Remove card.** Member (dashboard) or admin (console) → `paymentMethods.detach`, mirror
-cleared, `card_removed_at` set. The `payment_method.detached` webhook — which also fires when
-someone removes the card inside the Stripe dashboard — is the single place that emails the admins,
-so every removal notifies exactly once.
+cleared, `card_removed_at` set. In-app removal clears the mirror before the detach and emails the admins itself, so the resulting webhook is silent; a removal made inside the Stripe dashboard still has the mirror set, so the webhook clears it and emails. Each removal notifies exactly once.
 
 **Setup link.** Admin generates it from `/console/billing/[id]`: inserts a `billing_setup_links`
 row, shows the URL with a copy button, and optionally emails it (branded template, fail-soft like
@@ -266,6 +264,7 @@ created at go-live. Each has its own signing secret.
 | `billingCardRemoved` | admins | `payment_method.detached` of the default card, or customer deleted. |
 | `billingPaymentFailedAdmin` | admins | `invoice.payment_failed` / `payment_action_required` / finalization failed. |
 | `billingPaymentFailedClient` | client billing email | Same events; carries a fresh setup link (or the hosted invoice URL for action required). |
+| `billingNoCard` | admins | A due month skipped for no card (once per month). |
 | `billingUsageUnavailable` | admins | A due month could not be computed; will retry tomorrow. |
 | `billingRunSummary` | admins | Any run that invoiced or failed. |
 

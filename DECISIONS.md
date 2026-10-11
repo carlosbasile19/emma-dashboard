@@ -493,3 +493,46 @@ banner discloses it. Matching logic is pure (`lib/olivia/fallback.ts`) and cover
 `npm run test:cache` (needs `server-only` as a real devDep + `--conditions=react-server`,
 since Next aliases `server-only` only inside its own build). Overview error copy no longer
 claims a timeout — upstream 500s are the common case.
+
+## Stripe billing (automatic monthly charging)
+
+Design: `docs/superpowers/specs/2026-10-11-stripe-billing-design.md`; plan:
+`docs/superpowers/plans/2026-10-11-stripe-billing.md`.
+
+- **Own scheduler + Stripe Invoices + Checkout setup mode.** A daily cron (`/api/cron/billing`,
+  03:00 UTC) computes due client-months (calendar month in the client's timezone, charged on the
+  anchor day), reads usage through `getUsageSeries` (null is never $0) and creates an itemised
+  Stripe Invoice charged to the card on file. Stripe Subscriptions were rejected (UTC-anchored
+  cycles, 35-day meter backdating limit); bare PaymentIntents were rejected (no hosted invoice,
+  receipts or retries).
+- **USD only**; the Stripe account settles in AUD. **No tax line** in v1.
+- **Markup applied once in the service layer** (`fetchOverview`, `fetchTimeseries`,
+  `fetchLeadDetail`) after the cache, so every client-visible spend figure equals what is
+  billed; console figures stay raw.
+- **Billing-safety rules:** the (client, month) row is reserved before Stripe is called and is
+  unique; every Stripe create carries an idempotency key built from the reservation id; the
+  current month is never billed; a failed usage read skips, alerts and retries tomorrow.
+- **Card removal notifies exactly once:** in-app removal emails directly (mirror cleared before
+  the detach, so the webhook is silent); removal inside Stripe emails via the webhook.
+- **`livemode` columns** tag every Stripe-linked row; a customer created under the other key
+  mode is treated as absent, so sandbox state never leaks into live billing.
+- **Env:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_ENABLED`, `CRON_SECRET`.
+  Local + Preview run on the sandbox (`acct_1TZzk5GwOpbR9yqS`); Production on the live account
+  (`acct_1TZzjsGqvtgNWUUX`, "Skilled Coaching").
+- **Tests:** `npm run test:billing` (pure: money, schedule, status, templates);
+  `npm run billing:livecheck` (sandbox, end-to-end invoice path).
+
+### Implementation rulings (2026-10-11)
+
+- Config read loaders (`lib/billing/config.ts`) and setup-link loaders threw on Supabase errors instead of failing open to defaults/null, so a failed settings read can never bill with markup 0 / fee 0.
+- `getUsageSeries(..., { fresh: true })` returned null when the cache layer could only offer a stale row, so invoicing never bills a stale month.
+- Invoices were created with `auto_advance: false`; `stripe_invoice_id` is written to the row right after create; finalize then pay run explicitly; the catch path deletes a draft or voids a finalized-unpaid invoice; a non-decline error during `pay` leaves the invoice open for retry (never voided once pay was attempted).
+- Stale-reservation recovery fails closed (any Stripe lookup error leaves the row untouched); `reserved` rows and `failed` rows without a Stripe id are excluded from "invoiced months" so they resurface on the next run; idempotency keys are per attempt.
+- `invoiceMonth` refuses the current month and any month before the client's bill-from month; admin "Charge now" only offers closed, un-invoiced months at or after bill-from; bill-from cannot be set earlier than 12 months before the current month.
+- A decline is only `StripeCardError` (or the authentication codes, which map to `action_required`); everything else is a Stripe error; the payment-outcome write is conditional so the synchronous pay and the webhook notify at most once between them.
+- Webhook: terminal statuses (`paid`, `void`) are never moved by a differing event; the invoice transition is one conditional update; `customer.updated` re-retrieves the customer and uses its live default payment method; `customer.*` events must match the stored customer id; the idempotency row is insert-first with a 60-second in-flight guard; every notification is wrapped so it can never fail an event.
+- Card adoption on Checkout return is an atomic conditional update on `client_billing` (return page and webhook race safely); a revoked or expired link cannot adopt a card through an already-open session; `revokeSetupLink` is scoped by client id; `removeCard` surfaces a failed Stripe detach instead of reporting success (the mirror is still cleared first, so the client is never charged).
+- stripe@23 renamed Checkout's `payment_method_types` to `allowed_payment_method_types`.
+- Customers are created without a fixed idempotency key (the DB unique constraint on the customer id is the guard).
+- Every `notify*` call on the money path is wrapped so a notification failure never aborts a charge or a status write.
+- Sandbox walkthrough 2026-10-11: defaults, enable, setup link, card on file, paid invoice, in-app card removal (one email, silent webhook), declined charge (one email pair), event redelivery (no change), retry to paid, manual run and cron all verified against the Stripe sandbox; the hosted Checkout form itself was not driven in a browser (extension permission), so the Checkout return path and `checkout.session.completed` remain to be exercised once by hand.

@@ -34,5 +34,5 @@ npm install
 npm run dev
 ```
 
-Required environment variables are documented in [`.env.example`](.env.example).
+Required environment variables are documented in [`.env.example`](.env.example). Billing additionally needs `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `BILLING_ENABLED` and `CRON_SECRET` (see `.env.example`).
 `OLIVIA_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are **server-only** secrets.
