@@ -9,6 +9,9 @@ import { clientDisplayName, notifyCardRemoved, notifyPaymentFailed } from "./not
 import { reconcileCheckoutSession } from "./setup";
 import { eventSubject, planTransition, type BillingTransition, type WebhookEventShape } from "./status";
 
+/** A concurrent delivery younger than this is presumed still running. */
+const IN_FLIGHT_MS = 60_000;
+
 /**
  * Stripe → us. Idempotent by event id (`billing_events`): a processed event is a no-op on
  * redelivery; an event whose handler threw stays unprocessed so Stripe's retry runs it again.
@@ -16,29 +19,46 @@ import { eventSubject, planTransition, type BillingTransition, type WebhookEvent
  */
 export async function handleStripeEvent(event: Stripe.Event, origin: string): Promise<void> {
   const admin = createAdminClient();
-  const { data: existing } = await admin
+  const { data: existing, error: selErr } = await admin
     .from("billing_events")
-    .select("processed_at")
+    .select("processed_at, received_at")
     .eq("stripe_event_id", event.id)
     .maybeSingle();
+  if (selErr) throw new Error(`billing_events lookup: ${selErr.message}`);
   if (existing?.processed_at) return;
   if (!existing) {
-    // A concurrent delivery may win the insert (unique event id); either way the row exists.
-    await admin
+    const { error: insErr } = await admin
       .from("billing_events")
       .insert({ stripe_event_id: event.id, type: event.type, livemode: event.livemode });
+    if (insErr) {
+      if (insErr.code !== "23505") throw new Error(`billing_events insert: ${insErr.message}`);
+      // A concurrent delivery of the same event won the insert.
+      const { data: other, error: reErr } = await admin
+        .from("billing_events")
+        .select("processed_at, received_at")
+        .eq("stripe_event_id", event.id)
+        .maybeSingle();
+      if (reErr) throw new Error(`billing_events re-lookup: ${reErr.message}`);
+      if (other?.processed_at) return;
+      const age = other?.received_at ? Date.now() - Date.parse(String(other.received_at)) : Infinity;
+      // Still being handled by the other delivery: have Stripe retry later. Older: it died; proceed.
+      if (age < IN_FLIGHT_MS) throw new Error("event in flight");
+    }
   }
   try {
     await applyEvent(event as unknown as WebhookEventShape, origin);
-    await admin
+    const { error: doneErr } = await admin
       .from("billing_events")
       .update({ processed_at: new Date().toISOString(), error: null })
       .eq("stripe_event_id", event.id);
+    if (doneErr) throw new Error(`billing_events mark processed: ${doneErr.message}`);
   } catch (e) {
-    await admin
+    // Log-only: recording the failure must not mask the original error.
+    const { error: recErr } = await admin
       .from("billing_events")
       .update({ error: e instanceof Error ? e.message : String(e) })
       .eq("stripe_event_id", event.id);
+    if (recErr) console.error("[stripe-webhook] could not record event error:", recErr.message);
     throw e;
   }
 }
@@ -50,8 +70,15 @@ async function applyEvent(ev: WebhookEventShape, origin: string): Promise<void> 
   if (!clientId && subject.customerId) clientId = await clientIdForCustomer(subject.customerId);
   const cb = clientId ? await loadClientBilling(clientId) : null;
   const mirroredPaymentMethodId = cb?.card?.paymentMethodId ?? null;
+  // Metadata can name a client whose Stripe customer has since been replaced: a customer.* event
+  // only counts when it is about the customer we currently have on file.
+  let ours = cb !== null;
+  if (cb && ev.type.startsWith("customer.") && cb.stripeCustomerId !== subject.customerId) {
+    console.error("[stripe-webhook] %s for customer %s is not the client's current customer; ignoring", ev.type, subject.customerId);
+    ours = false;
+  }
   const plan = planTransition(ev, {
-    clientId: cb ? cb.clientId : null,
+    clientId: cb && ours ? cb.clientId : null,
     mirroredPaymentMethodId,
   });
   switch (plan.kind) {
@@ -125,35 +152,48 @@ type InvoiceStatusPlan = Extract<BillingTransition, { kind: "invoice_status" }>;
  */
 async function applyInvoiceStatus(plan: InvoiceStatusPlan, origin: string): Promise<void> {
   const admin = createAdminClient();
-  const { data: row } = await admin
+  const { data: row, error: rowErr } = await admin
     .from("billing_invoices")
     .select("id, status, total_cents, hosted_invoice_url")
     .eq("stripe_invoice_id", plan.stripeInvoiceId)
     .maybeSingle();
+  if (rowErr) throw new Error(`billing_invoices lookup: ${rowErr.message}`);
   if (!row) return; // Not one of ours, or the run that created it has not written the id yet.
   // Terminal rows never move: a redelivered or out-of-order event must not flip paid back to failed.
   if ((row.status === "paid" || row.status === "void") && row.status !== plan.status) return;
-  const changed = row.status !== plan.status;
-  let failureCode: string | null = null;
-  let failureMessage = plan.failureMessage;
-  if (plan.lookupFailure && changed) {
-    const f = await lookupFailure(plan.stripeInvoiceId);
-    failureCode = f.code;
-    failureMessage = f.message;
-  }
+  if (row.status === plan.status) return; // Nothing to change; no fields differ worth a write.
   const hostedInvoiceUrl = plan.hostedInvoiceUrl ?? (row.hosted_invoice_url as string | null) ?? null;
-  await admin
+  // The conditional update is the guarantee: only one writer moves the row into this status, and
+  // a terminal row is never touched. Failure detail is looked up after, in a second small update.
+  const { data: changedRows, error: updErr } = await admin
     .from("billing_invoices")
     .update({
       status: plan.status,
       hosted_invoice_url: hostedInvoiceUrl,
       invoice_pdf_url: plan.invoicePdfUrl ?? undefined,
       paid_at: plan.paidAt ?? undefined,
-      failure_code: changed ? failureCode : undefined,
-      failure_message: changed ? failureMessage : undefined,
+      failure_message: plan.failureMessage ?? undefined,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .neq("status", plan.status)
+    .not("status", "in", "(paid,void)")
+    .select("id");
+  if (updErr) throw new Error(`billing_invoices update: ${updErr.message}`);
+  const changed = (changedRows?.length ?? 0) > 0;
+  if (!changed) return;
+
+  let failureMessage = plan.failureMessage;
+  if (plan.lookupFailure) {
+    const f = await lookupFailure(plan.stripeInvoiceId);
+    failureMessage = f.message;
+    const { error: failErr } = await admin
+      .from("billing_invoices")
+      .update({ failure_code: f.code, failure_message: f.message, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    // Log-only: the status is already moved, and a retry would see no change and skip the emails.
+    if (failErr) console.error("[stripe-webhook] could not record failure detail:", failErr.message);
+  }
 
   if (changed && (plan.notifyAdmins || plan.notifyClient) && (plan.status === "failed" || plan.status === "action_required")) {
     const kind = plan.status;
