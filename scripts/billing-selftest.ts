@@ -24,6 +24,14 @@ import {
   prevMonth,
 } from "../lib/billing/schedule";
 import { mandateText, ordinal } from "../lib/billing/copy";
+import {
+  deriveStatus,
+  eventSubject,
+  invoiceStatusFromStripe,
+  planTransition,
+  setupLinkState,
+  type WebhookEventShape,
+} from "../lib/billing/status";
 
 // ---- applyMarkup: one rounding, on the total ----
 assert.equal(applyMarkup(67791, 0), 67791);
@@ -235,3 +243,147 @@ assert.match(mandateText(3), /on the 3rd of each month/);
 assert.doesNotMatch(mandateText(3), /Olivia/);
 
 console.log("billing-selftest: schedule + copy OK");
+
+// ---- deriveStatus ----
+assert.equal(deriveStatus({ enabled: false, hasCard: true, lastInvoiceStatus: "paid" }), "off");
+assert.equal(deriveStatus({ enabled: true, hasCard: false, lastInvoiceStatus: null }), "no_card");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: null }), "active");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "paid" }), "active");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "open" }), "active");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "failed" }), "payment_failed");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "uncollectible" }), "payment_failed");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "action_required" }), "action_required");
+assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "skipped_zero" }), "active");
+
+// ---- invoiceStatusFromStripe ----
+assert.equal(invoiceStatusFromStripe("paid"), "paid");
+assert.equal(invoiceStatusFromStripe("open"), "open");
+assert.equal(invoiceStatusFromStripe("void"), "void");
+assert.equal(invoiceStatusFromStripe("uncollectible"), "uncollectible");
+assert.equal(invoiceStatusFromStripe("draft"), "reserved");
+assert.equal(invoiceStatusFromStripe(undefined), "open");
+
+// ---- setupLinkState ----
+const NOW = new Date("2026-10-11T10:00:00Z");
+assert.equal(setupLinkState({ status: "pending", expiresAt: "2026-10-18T10:00:00Z" }, NOW), "valid");
+assert.equal(setupLinkState({ status: "pending", expiresAt: "2026-10-10T10:00:00Z" }, NOW), "expired");
+assert.equal(setupLinkState({ status: "revoked", expiresAt: "2026-10-18T10:00:00Z" }, NOW), "revoked");
+assert.equal(setupLinkState({ status: "completed", expiresAt: "2026-10-18T10:00:00Z" }, NOW), "completed");
+assert.equal(setupLinkState({ status: "weird", expiresAt: "2026-10-18T10:00:00Z" }, NOW), "invalid");
+assert.equal(setupLinkState({ status: "pending", expiresAt: "not a date" }, NOW), "invalid");
+
+// ---- webhook events ----
+const ev = (type: string, object: Record<string, unknown>): WebhookEventShape => ({
+  id: `evt_${type}`,
+  type,
+  data: { object },
+});
+const CTX_NONE = { clientId: null, mirroredPaymentMethodId: null };
+const CTX_C1 = { clientId: "c1", mirroredPaymentMethodId: "pm_on_file" };
+
+// eventSubject pulls the ids the server needs to resolve a client.
+assert.deepEqual(eventSubject(ev("payment_method.detached", { id: "pm_1", customer: null })), {
+  customerId: null,
+  paymentMethodId: "pm_1",
+  clientIdFromMetadata: null,
+});
+assert.deepEqual(eventSubject(ev("customer.updated", { id: "cus_1", metadata: { emma_client_id: "c1" } })), {
+  customerId: "cus_1",
+  paymentMethodId: null,
+  clientIdFromMetadata: "c1",
+});
+assert.deepEqual(
+  eventSubject(ev("invoice.paid", { id: "in_1", customer: "cus_1", metadata: { emma_client_id: "c1", emma_period: "2026-09" } })),
+  { customerId: "cus_1", paymentMethodId: null, clientIdFromMetadata: "c1" },
+);
+assert.deepEqual(eventSubject(ev("checkout.session.completed", { id: "cs_1", customer: { id: "cus_1" }, metadata: { emma_client_id: "c1" } })), {
+  customerId: "cus_1",
+  paymentMethodId: null,
+  clientIdFromMetadata: "c1",
+});
+
+// checkout.session.completed → reconcile; non-setup or non-Emma sessions are ignored.
+assert.deepEqual(
+  planTransition(ev("checkout.session.completed", { id: "cs_1", mode: "setup", metadata: { emma_client_id: "c1" } }), CTX_C1),
+  { kind: "reconcile_checkout", sessionId: "cs_1", clientId: "c1" },
+);
+assert.equal(planTransition(ev("checkout.session.completed", { id: "cs_2", mode: "payment", metadata: { emma_client_id: "c1" } }), CTX_C1).kind, "ignore");
+assert.equal(planTransition(ev("checkout.session.completed", { id: "cs_3", mode: "setup", metadata: {} }), CTX_NONE).kind, "ignore");
+
+// payment_method.detached: only the card on file clears + notifies. Review Focus 3: a card
+// detached during a replacement (no longer the mirror) and a card we never knew are ignored.
+assert.deepEqual(planTransition(ev("payment_method.detached", { id: "pm_on_file" }), CTX_C1), {
+  kind: "card_cleared",
+  clientId: "c1",
+  notify: true,
+});
+assert.equal(planTransition(ev("payment_method.detached", { id: "pm_old" }), CTX_C1).kind, "ignore");
+assert.equal(planTransition(ev("payment_method.detached", { id: "pm_x" }), CTX_NONE).kind, "ignore");
+
+// payment_method.automatically_updated refreshes the mirror for the card on file only.
+assert.deepEqual(planTransition(ev("payment_method.automatically_updated", { id: "pm_on_file" }), CTX_C1), {
+  kind: "card_refresh",
+  clientId: "c1",
+  paymentMethodId: "pm_on_file",
+});
+assert.equal(planTransition(ev("payment_method.automatically_updated", { id: "pm_other" }), CTX_C1).kind, "ignore");
+
+// customer.updated: unchanged default → ignore; new default → refresh; null → clear WITHOUT notify.
+assert.equal(
+  planTransition(ev("customer.updated", { id: "cus_1", invoice_settings: { default_payment_method: "pm_on_file" } }), CTX_C1).kind,
+  "ignore",
+);
+assert.deepEqual(
+  planTransition(ev("customer.updated", { id: "cus_1", invoice_settings: { default_payment_method: "pm_new" } }), CTX_C1),
+  { kind: "card_refresh", clientId: "c1", paymentMethodId: "pm_new" },
+);
+assert.deepEqual(
+  planTransition(ev("customer.updated", { id: "cus_1", invoice_settings: { default_payment_method: null } }), CTX_C1),
+  { kind: "card_cleared", clientId: "c1", notify: false },
+);
+assert.equal(planTransition(ev("customer.updated", { id: "cus_other" }), CTX_NONE).kind, "ignore");
+
+assert.deepEqual(planTransition(ev("customer.deleted", { id: "cus_1" }), CTX_C1), { kind: "customer_deleted", clientId: "c1" });
+assert.equal(planTransition(ev("customer.deleted", { id: "cus_other" }), CTX_NONE).kind, "ignore");
+
+// invoice.* events are scoped by metadata; the status and the notification flags are data.
+const INV = { id: "in_1", status: "paid", hosted_invoice_url: "https://inv", invoice_pdf: "https://pdf", metadata: { emma_client_id: "c1", emma_period: "2026-09" } };
+const paid = planTransition(ev("invoice.paid", { ...INV, status_transitions: { paid_at: 1_790_000_000 } }), CTX_NONE);
+assert.equal(paid.kind, "invoice_status");
+if (paid.kind === "invoice_status") {
+  assert.equal(paid.status, "paid");
+  assert.equal(paid.paidAt, new Date(1_790_000_000 * 1000).toISOString());
+  assert.equal(paid.hostedInvoiceUrl, "https://inv");
+  assert.equal(paid.notifyAdmins, false);
+  assert.equal(paid.clientId, "c1");
+  assert.equal(paid.periodMonth, "2026-09");
+}
+const failed = planTransition(ev("invoice.payment_failed", { ...INV, status: "open" }), CTX_NONE);
+if (failed.kind === "invoice_status") {
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.lookupFailure, true, "the server looks up the decline reason");
+  assert.equal(failed.notifyAdmins, true);
+  assert.equal(failed.notifyClient, true);
+} else assert.fail("expected invoice_status");
+const action = planTransition(ev("invoice.payment_action_required", INV), CTX_NONE);
+if (action.kind === "invoice_status") assert.equal(action.status, "action_required");
+else assert.fail("expected invoice_status");
+const fin = planTransition(ev("invoice.finalization_failed", { ...INV, last_finalization_error: { message: "no default payment method" } }), CTX_NONE);
+if (fin.kind === "invoice_status") {
+  assert.equal(fin.status, "failed");
+  assert.equal(fin.failureMessage, "no default payment method");
+  assert.equal(fin.notifyAdmins, true);
+  assert.equal(fin.notifyClient, false);
+} else assert.fail("expected invoice_status");
+const voided = planTransition(ev("invoice.voided", INV), CTX_NONE);
+if (voided.kind === "invoice_status") assert.equal(voided.status, "void");
+else assert.fail("expected invoice_status");
+const unc = planTransition(ev("invoice.marked_uncollectible", INV), CTX_NONE);
+if (unc.kind === "invoice_status") assert.equal(unc.status, "uncollectible");
+else assert.fail("expected invoice_status");
+// Review Focus 3: an invoice without Emma metadata (another product on the account) is ignored.
+assert.equal(planTransition(ev("invoice.paid", { id: "in_other", metadata: {} }), CTX_NONE).kind, "ignore");
+// Unknown event types are ignored, never thrown.
+assert.equal(planTransition(ev("charge.refunded", { id: "ch_1" }), CTX_C1).kind, "ignore");
+
+console.log("billing-selftest: status + transitions OK");
