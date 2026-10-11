@@ -2,10 +2,22 @@
 
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { saveBillingSettings } from "@/lib/billing/config";
-import { runBilling } from "@/lib/billing/invoices";
-import { parseAnchorDay, parseDollarsToCents, parsePercentToBps } from "@/lib/billing/money";
+import { loadClientBilling, saveBillingSettings, upsertClientBilling } from "@/lib/billing/config";
+import { removeCard } from "@/lib/billing/customers";
+import { invoiceMonth, retryInvoice, runBilling, tzOf, listInvoices } from "@/lib/billing/invoices";
+import { parseAnchorDay, parseDollarsToCents, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
+import { sendSetupLinkEmail } from "@/lib/billing/notify";
+import { localDate, monthOf, prevMonth } from "@/lib/billing/schedule";
+import {
+  SETUP_LINK_TTL_DAYS,
+  createSetupLink,
+  listSetupLinks,
+  markSetupLinkSent,
+  revokeSetupLink,
+  setupLinkUrl,
+} from "@/lib/billing/setup";
 import { getRequestOrigin } from "@/lib/origin";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 
@@ -38,6 +50,229 @@ export async function runBillingNow() {
   } catch (e) {
     console.error("[billing] manual run failed", e);
     target = "/console/billing?error=run_failed";
+  }
+  redirect(target);
+}
+
+// ---- Per-client actions (/console/billing/[id]) ----
+// Every one: requireAdmin() first, then the client id is re-checked against olivia_clients
+// (never trusted from the form alone). Stripe/DB work is wrapped; redirect() stays outside catches.
+
+/** The client must be one of ours; a client id is never trusted from the form alone. */
+async function knownClient(clientId: string): Promise<{ id: string; name: string; timezone: string | null } | null> {
+  if (!clientId) return null;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("olivia_clients")
+    .select("olivia_client_id, name, timezone")
+    .eq("olivia_client_id", clientId)
+    .maybeSingle();
+  return data
+    ? {
+        id: data.olivia_client_id as string,
+        name: (data.name as string | null) ?? clientId,
+        timezone: (data.timezone as string | null) ?? null,
+      }
+    : null;
+}
+
+/** Earliest-mapped member's email, for the first billing contact. */
+async function defaultBillingEmail(clientId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("olivia_client_id", clientId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!member) return null;
+  const { data } = await admin.auth.admin.getUserById(member.user_id as string);
+  return data.user?.email?.toLowerCase() ?? null;
+}
+
+/** Platform-admin only: enable/disable and the per-client overrides. Blank override = default. */
+export async function saveClientBilling(formData: FormData) {
+  const ctx = await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+
+  const enabled = formData.get("enabled") === "on";
+  const emailRaw = str(formData, "billingEmail").toLowerCase();
+  if (emailRaw && !emailRaw.includes("@")) redirect(`${back}?error=email`);
+  const billFromRaw = str(formData, "billFromMonth");
+  const billFromMonth = billFromRaw ? parseMonthKey(billFromRaw) : null;
+  if (billFromRaw && !billFromMonth) redirect(`${back}?error=invalid`);
+  const markupRaw = str(formData, "markup");
+  const markupBps = markupRaw ? parsePercentToBps(markupRaw) : null;
+  if (markupRaw && markupBps == null) redirect(`${back}?error=invalid`);
+  const feeRaw = str(formData, "fee");
+  const feeCents = feeRaw ? parseDollarsToCents(feeRaw) : null;
+  if (feeRaw && feeCents == null) redirect(`${back}?error=invalid`);
+  const anchorRaw = str(formData, "anchorDay");
+  const anchorDay = anchorRaw ? parseAnchorDay(anchorRaw) : null;
+  if (anchorRaw && anchorDay == null) redirect(`${back}?error=invalid`);
+
+  let failed = false;
+  try {
+    const existing = await loadClientBilling(client.id);
+    // First configure: bill from the current month in the client's timezone, and default the
+    // billing contact to the earliest member, so switching billing on never bills the past by
+    // accident and always has somewhere to send receipts.
+    const billFrom = billFromMonth ?? existing?.billFromMonth ?? monthOf(localDate(new Date(), tzOf(client.timezone)));
+    const billingEmail = emailRaw || existing?.billingEmail || (await defaultBillingEmail(client.id));
+    // A blank override is an explicit null: it clears the override back to the platform default.
+    await upsertClientBilling(
+      client.id,
+      { enabled, billingEmail, billFromMonth: billFrom, markupBps, feeCents, anchorDay },
+      ctx.userId,
+    );
+  } catch (e) {
+    console.error("[billing] save client billing failed", e);
+    failed = true;
+  }
+  redirect(failed ? `${back}?error=save` : `${back}?notice=saved`);
+}
+
+/** Platform-admin only: a fresh card-setup link (7 days, reusable until completed). */
+export async function generateSetupLink(formData: FormData) {
+  const ctx = await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  let target = `${back}?notice=link`;
+  try {
+    const cb = await loadClientBilling(client.id);
+    if (!cb?.enabled) target = `${back}?error=disabled`;
+    else await createSetupLink(client.id, ctx.userId);
+  } catch (e) {
+    console.error("[billing] create setup link failed", e);
+    target = `${back}?error=link`;
+  }
+  redirect(target);
+}
+
+/** Platform-admin only: email an existing link. Fail-soft — the copy-link UI remains the fallback. */
+export async function emailSetupLink(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  const linkId = str(formData, "linkId");
+  const to = str(formData, "email").toLowerCase();
+  if (!linkId || !to.includes("@")) redirect(`${back}?error=email`);
+
+  let target = `${back}?notice=sent`;
+  try {
+    // The token comes from the stored link for THIS client, never from the form.
+    const link = (await listSetupLinks(client.id)).find((l) => l.id === linkId && l.status === "pending");
+    if (!link) {
+      target = `${back}?error=link`;
+    } else {
+      const cb = await loadClientBilling(client.id);
+      const { error } = await sendSetupLinkEmail({
+        clientId: client.id,
+        clientName: client.name,
+        to,
+        setupUrl: setupLinkUrl(await getRequestOrigin(), link.token),
+        feeCents: cb?.effective.feeCents ?? 0,
+        anchorDay: cb?.effective.anchorDay ?? 3,
+        expiresInDays: SETUP_LINK_TTL_DAYS,
+      });
+      if (error) {
+        console.error("[billing] setup link email failed:", error);
+        target = `${back}?error=send`;
+      } else {
+        await markSetupLinkSent(link.id, to);
+      }
+    }
+  } catch (e) {
+    console.error("[billing] setup link email failed", e);
+    target = `${back}?error=send`;
+  }
+  redirect(target);
+}
+
+export async function revokeLink(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  let target = `${back}?notice=revoked`;
+  try {
+    await revokeSetupLink(str(formData, "linkId"), client.id);
+  } catch (e) {
+    console.error("[billing] revoke setup link failed", e);
+    target = `${back}?error=link`;
+  }
+  redirect(target);
+}
+
+export async function adminRemoveCard(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  let target = `${back}?notice=card_removed`;
+  try {
+    const removed = await removeCard(client.id, await getRequestOrigin());
+    if (!removed) target = `${back}?notice=no_card`;
+  } catch (e) {
+    // The local mirror is already cleared (nothing will be charged); Stripe's detach failed.
+    console.error("[billing] remove card failed", e);
+    target = `${back}?error=remove`;
+  }
+  redirect(target);
+}
+
+/** Platform-admin only: invoice one closed month now, ignoring the anchor day. Never the current month. */
+export async function chargeNow(formData: FormData) {
+  const ctx = await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  const month = parseMonthKey(str(formData, "month"));
+  const lastClosed = prevMonth(monthOf(localDate(new Date(), tzOf(client.timezone))));
+  if (!month || month > lastClosed) redirect(`${back}?error=month`);
+
+  let target: string;
+  try {
+    const r = await invoiceMonth(client.id, month, "manual", {
+      createdBy: ctx.userId,
+      origin: await getRequestOrigin(),
+    });
+    target =
+      r.outcome === "error"
+        ? `${back}?error=charge`
+        : `${back}?notice=charged&outcome=${encodeURIComponent(r.outcome)}&status=${encodeURIComponent(r.status ?? "")}`;
+  } catch (e) {
+    console.error("[billing] charge now failed", e);
+    target = `${back}?error=charge`;
+  }
+  redirect(target);
+}
+
+export async function retryCharge(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  const invoiceId = str(formData, "invoiceId");
+
+  let target: string;
+  try {
+    // The invoice row must belong to this client (retryInvoice takes only a row id).
+    const owned = (await listInvoices(client.id)).some((i) => i.id === invoiceId);
+    if (!owned) {
+      target = `${back}?error=retry`;
+    } else {
+      const r = await retryInvoice(invoiceId);
+      target = `${back}?notice=retried&ok=${r.ok ? 1 : 0}&status=${encodeURIComponent(r.status ?? "")}`;
+    }
+  } catch (e) {
+    console.error("[billing] retry charge failed", e);
+    target = `${back}?error=retry`;
   }
   redirect(target);
 }

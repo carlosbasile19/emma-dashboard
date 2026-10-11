@@ -13,7 +13,20 @@ const ROLE_LABEL: Record<string, string> = {
   member: "Member",
 };
 
-export function ClientDetailView({ detail }: { detail: ClientDetail }) {
+export interface ClientBillingSummary {
+  statusLabel: string;
+  cardLabel: string;
+  nextCharge: string | null;
+}
+
+export function ClientDetailView({
+  detail,
+  billing = null,
+}: {
+  detail: ClientDetail;
+  /** null when the billing feature is off. */
+  billing?: ClientBillingSummary | null;
+}) {
   const { client, stats, costs, members } = detail;
 
   return (
@@ -124,6 +137,7 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
           </form>
         </div>
 
+        <div className="flex flex-col gap-5">
         {/* workspace details */}
         <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
           <div className="border-b border-ink/10 bg-surface-tint px-5 py-3.5 font-display text-[14px] font-semibold">
@@ -164,6 +178,23 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
               </>
             ) : null}
           </div>
+        </div>
+
+        {billing ? (
+          <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-ink/10 bg-surface-tint px-5 py-3.5">
+              <div className="font-display text-[14px] font-semibold">Billing</div>
+              <Link href={`/console/billing/${client.id}`} className="font-display text-[12.5px] font-medium text-violet hover:underline">
+                Configure →
+              </Link>
+            </div>
+            <div className="flex flex-col">
+              <Detail label="Status" value={billing.statusLabel} />
+              <Detail label="Card" value={billing.cardLabel} mono />
+              <Detail label="Next charge" value={billing.nextCharge ?? "—"} mono />
+            </div>
+          </div>
+        ) : null}
         </div>
       </div>
     </div>
