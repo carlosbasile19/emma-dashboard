@@ -22,6 +22,8 @@ import {
   nextChargeDate,
   nextMonth,
   prevMonth,
+  reenableNeedsBillFrom,
+  shouldAlertNoCard,
 } from "../lib/billing/schedule";
 import { mandateText, ordinal } from "../lib/billing/copy";
 import {
@@ -423,3 +425,20 @@ assert.match(tpl[4]!.html, /Update your card/);
 assert.match(tpl[7]!.html, /SOLVI · Sep 2026/);
 
 console.log("billing-selftest: templates OK");
+
+// ---- shouldAlertNoCard: one no-card alert per client per newly-due month, none on repeat runs ----
+assert.equal(shouldAlertNoCard("2026-09", null), true);
+assert.equal(shouldAlertNoCard("2026-09", "2026-09"), false);
+assert.equal(shouldAlertNoCard("2026-08", "2026-09"), false);
+assert.equal(shouldAlertNoCard("2026-10", "2026-09"), true);
+
+// ---- reenableNeedsBillFrom: re-enabling never back-charges the disabled months silently ----
+const RE = { wasEnabled: false, nowEnabled: true, storedBillFrom: "2026-05", submittedBillFrom: "2026-05", currentMonth: "2026-10" };
+assert.equal(reenableNeedsBillFrom(RE), true);
+assert.equal(reenableNeedsBillFrom({ ...RE, wasEnabled: true }), false);
+assert.equal(reenableNeedsBillFrom({ ...RE, submittedBillFrom: "2026-09" }), false);
+assert.equal(reenableNeedsBillFrom({ ...RE, storedBillFrom: "2026-10", submittedBillFrom: "2026-10" }), false);
+assert.equal(reenableNeedsBillFrom({ ...RE, storedBillFrom: "2026-11", submittedBillFrom: "2026-11" }), false);
+assert.equal(reenableNeedsBillFrom({ ...RE, storedBillFrom: null }), false);
+
+console.log("billing-selftest: no-card alert + re-enable guards OK");

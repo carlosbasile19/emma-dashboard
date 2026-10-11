@@ -98,3 +98,40 @@ export function nextChargeDate(today: string, anchorDay: number): string {
   const m = monthOf(today);
   return dayOfMonth(today) <= anchorDay ? `${m}-${day}` : `${nextMonth(m)}-${day}`;
 }
+
+/**
+ * Whether to send the "no card on file" alert for `month`. `runBilling` walks due months oldest
+ * first, so alerting only on a month newer than the last alerted one gives one alert per client
+ * per newly-due month, and none on repeat runs.
+ */
+export function shouldAlertNoCard(month: MonthKey, alertedMonth: MonthKey | null): boolean {
+  return alertedMonth == null || month > alertedMonth;
+}
+
+export interface ReenableArgs {
+  wasEnabled: boolean;
+  nowEnabled: boolean;
+  storedBillFrom: MonthKey | null;
+  submittedBillFrom: MonthKey | null;
+  currentMonth: MonthKey;
+}
+
+/**
+ * Re-enabling a client with its old (past) bill-from month unchanged would back-charge every month
+ * billing was off. True means the admin must pick the bill-from month explicitly before saving.
+ */
+export function reenableNeedsBillFrom({
+  wasEnabled,
+  nowEnabled,
+  storedBillFrom,
+  submittedBillFrom,
+  currentMonth,
+}: ReenableArgs): boolean {
+  return (
+    !wasEnabled &&
+    nowEnabled &&
+    submittedBillFrom != null &&
+    submittedBillFrom === storedBillFrom &&
+    submittedBillFrom < currentMonth
+  );
+}
