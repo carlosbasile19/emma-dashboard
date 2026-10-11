@@ -9,7 +9,8 @@ import { SubmitButton } from "@/components/ui/states/SubmitButton";
 const NAV = [
   { href: "/console", label: "Overview", key: "overview", group: "Agency" },
   { href: "/console/clients", label: "Clients", key: "clients", group: "Agency" },
-  { href: "/console/usage", label: "Usage & billing", key: "usage", group: "Agency" },
+  { href: "/console/billing", label: "Billing", key: "billing", group: "Agency" },
+  { href: "/console/usage", label: "Usage report", key: "usage", group: "Agency" },
   { href: "/console/invites", label: "Invites & members", key: "invites", group: "Agency" },
   { href: "/console/team", label: "Agency team", key: "team", group: "Organisation" },
 ] as const;
