@@ -53,6 +53,16 @@ assert.equal(parseDollarsToCents("1.999"), null);
 assert.equal(parseDollarsToCents("-5"), null);
 assert.equal(parseDollarsToCents(""), null);
 assert.equal(parseDollarsToCents("100000.01"), null); // over the $100,000 cap
+assert.equal(parseDollarsToCents("1,200"), 120000);
+assert.equal(parseDollarsToCents("1,000,000"), null); // grouped, but over the $100,000 cap
+// Mis-grouped commas return null; they are never stripped into a wrong amount.
+assert.equal(parseDollarsToCents("300,00"), null);
+assert.equal(parseDollarsToCents("12,50"), null);
+assert.equal(parseDollarsToCents("1,20"), null);
+assert.equal(parseDollarsToCents("1,2,3"), null);
+assert.equal(parseDollarsToCents(",5"), null);
+assert.equal(parseDollarsToCents("5,"), null);
+assert.equal(parseDollarsToCents("$,1"), null);
 assert.equal(centsToDollarsInput(30000), "300");
 assert.equal(centsToDollarsInput(29999), "299.99");
 assert.equal(centsToDollarsInput(5), "0.05");

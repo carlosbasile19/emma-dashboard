@@ -64,13 +64,16 @@ export function bpsToPercent(bps: number): string {
   return `${whole}.${String(frac).padStart(2, "0").replace(/0$/, "")}`;
 }
 
-const DOLLARS_RE = /^\d{1,7}(\.\d{1,2})?$/;
+const DOLLARS_RE = /^(?:\d{1,7}|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/;
 
-/** "$1,200.50" → 120050. At most two decimals. */
+/**
+ * "$1,200.50" → 120050. At most two decimals. Commas are accepted only as thousands grouping
+ * ("1,200", "1,000,000"); any other comma placement ("300,00", "12,50") returns null.
+ */
 export function parseDollarsToCents(input: string): number | null {
-  const s = input.trim().replace(/^\$/, "").replace(/,/g, "").trim();
+  const s = input.trim().replace(/^\$/, "").trim();
   if (!DOLLARS_RE.test(s)) return null;
-  const [whole = "0", frac = ""] = s.split(".");
+  const [whole = "0", frac = ""] = s.replace(/,/g, "").split(".");
   const cents = Number(whole) * 100 + Number(`${frac}00`.slice(0, 2));
   return isValidFeeCents(cents) ? cents : null;
 }
