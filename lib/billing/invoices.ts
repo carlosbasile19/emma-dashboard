@@ -425,6 +425,9 @@ export async function invoiceMonth(
   if (month >= monthOf(localDate(new Date(), tz))) {
     return result("error", { error: "The current month cannot be invoiced until it closes" });
   }
+  if (!cb.billFromMonth || month < cb.billFromMonth) {
+    return result("error", { error: "Month is before this client's bill-from month" });
+  }
   const { from, to } = monthBounds(month);
   const reserveCols: Row = {
     olivia_client_id: clientId,
