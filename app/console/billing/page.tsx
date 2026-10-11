@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { BillingOverview, type BillingOverviewRow } from "@/components/console/BillingOverview";
-import { billingFeatureEnabled, getBillingSettings, listClientBilling } from "@/lib/billing/config";
+import { billingFeatureEnabled, billingMarkupEnabled, getBillingSettings, listClientBilling } from "@/lib/billing/config";
 import { lastBillingRun, latestInvoiceByClient, tzOf } from "@/lib/billing/invoices";
 import { localDate, nextChargeDate } from "@/lib/billing/schedule";
 import { deriveStatus } from "@/lib/billing/status";
@@ -43,6 +43,7 @@ export default async function ConsoleBillingPage({ searchParams }: { searchParam
   return (
     <BillingOverview
       settings={settings}
+      markupEnabled={billingMarkupEnabled()}
       rows={rows}
       lastRun={lastRun}
       livemode={stripeLivemode()}

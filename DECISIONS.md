@@ -509,6 +509,20 @@ Design: `docs/superpowers/specs/2026-10-11-stripe-billing-design.md`; plan:
 - **Markup applied once in the service layer** (`fetchOverview`, `fetchTimeseries`,
   `fetchLeadDetail`) after the cache, so every client-visible spend figure equals what is
   billed; console figures stay raw.
+- **Markup is unreleased (2026-10-11, Carlos).** `BILLING_MARKUP_ENABLED` (off) gates it in one
+  place (`effectiveMarkupBps`, read by `rowToClientBilling` and `activeMarkupBps`): while off,
+  clients are charged usage at cost + the monthly fee, dashboard spend is raw, and the console
+  shows no markup field, column or figure. Stored markup values are kept, and the live default
+  was reset from 20% to 0 so switching the flag on later can't silently bring 20% back. No
+  per-client override existed at the time, and none can be set while the flag is off; still,
+  check `client_billing.markup_bps` before switching it on.
+- **A card can be saved before automatic billing is on (2026-10-11, Carlos).** Every workspace
+  gets the dashboard Billing page while `BILLING_ENABLED` is on, and console setup links work
+  for any client; `enabled` now only means "charge automatically". Saving a card never charges.
+  The member who saves the first card becomes the billing contact (never a platform admin; set on
+  card adoption via Checkout metadata, only if no contact exists), and a billing-contact change in
+  the console is pushed to the Stripe customer for receipts. A workspace switched off after it was
+  billed shows as "paused" rather than "not started".
 - **Billing-safety rules:** the (client, month) row is reserved before Stripe is called and is
   unique; every Stripe create carries an idempotency key built from the reservation id; the
   current month is never billed; a failed usage read skips, alerts and retries tomorrow.

@@ -4,6 +4,7 @@ import {
   bpsToPercent,
   centsToDollarsInput,
   composeInvoice,
+  effectiveMarkupBps,
   MARKUP_BPS_MAX,
   markupLeadDetail,
   markupOverview,
@@ -25,7 +26,7 @@ import {
   reenableNeedsBillFrom,
   shouldAlertNoCard,
 } from "../lib/billing/schedule";
-import { mandateText, ordinal } from "../lib/billing/copy";
+import { chargeTermsText, mandateText, ordinal } from "../lib/billing/copy";
 import {
   billingCardAdded,
   billingCardRemoved,
@@ -125,6 +126,15 @@ assert.equal(composeInvoice(0, 2000, 30000).totalCents, 30000);
 assert.equal(composeInvoice(5000, 0, 0).totalCents, 5000);
 assert.equal(composeInvoice(0, 0, 0).totalCents, 0);
 assert.throws(() => composeInvoice(100, 0, -1), RangeError);
+
+// ---- effectiveMarkupBps: markup is unreleased, so it is 0 whatever is stored until switched on ----
+assert.equal(effectiveMarkupBps(null, 2000, false), 0, "unreleased: the platform default is ignored");
+assert.equal(effectiveMarkupBps(1500, 2000, false), 0, "unreleased: a client override is ignored");
+assert.equal(effectiveMarkupBps(null, 2000, true), 2000, "released: the platform default applies");
+assert.equal(effectiveMarkupBps(1500, 2000, true), 1500, "released: the client override wins");
+assert.equal(effectiveMarkupBps(0, 2000, true), 0, "released: an explicit 0% override is honoured");
+// What a client pays while markup is unreleased: usage at cost plus the fee, nothing more.
+assert.equal(composeInvoice(67791, effectiveMarkupBps(null, 2000, false), 30000).totalCents, 97791);
 
 // ---- dashboard payloads ----
 const overview = {
@@ -253,6 +263,11 @@ assert.equal(ordinal(22), "22nd");
 assert.equal(ordinal(23), "23rd");
 assert.match(mandateText(3), /on the 3rd of each month/);
 assert.doesNotMatch(mandateText(3), /Olivia/);
+// The plan line on the client's Billing page: charge day, usage, and the fee only when there is one.
+assert.match(chargeTermsText(3, 30000), /on the 3rd of each month/);
+assert.match(chargeTermsText(3, 30000), /plus a \$300\.00 monthly fee/);
+assert.match(chargeTermsText(15, 0), /on the 15th of each month for the previous month's Emma usage\.$/);
+assert.doesNotMatch(chargeTermsText(15, 0), /fee/, "no fee clause when the fee is 0");
 
 console.log("billing-selftest: schedule + copy OK");
 
@@ -403,8 +418,8 @@ console.log("billing-selftest: status + transitions OK");
 // Every billing email: branded shell, the CTA url present in html + text, never the vendor name.
 const tpl = [
   billingSetupLink({ clientName: "Freedom Boat Club", setupUrl: "https://x.test/billing/setup/tok", feeLabel: "$300.00", anchorLabel: "3rd", expiresInDays: 7 }),
-  billingCardAdded({ clientName: "Freedom Boat Club", cardLabel: "Visa ····4242 (exp 12/30)", consoleUrl: "https://x.test/console/billing/c1" }),
-  billingCardRemoved({ clientName: "Freedom Boat Club", detail: "removed from the Billing page", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingCardAdded({ clientName: "Freedom Boat Club", cardLabel: "Visa ····4242 (exp 12/30)", consoleUrl: "https://x.test/console/billing/c1", billingOn: true }),
+  billingCardRemoved({ clientName: "Freedom Boat Club", detail: "removed from the Billing page", consoleUrl: "https://x.test/console/billing/c1", billingOn: true }),
   billingPaymentFailedAdmin({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", amount: "$1,113.49", reason: "Your card has insufficient funds.", kind: "failed", consoleUrl: "https://x.test/console/billing/c1" }),
   billingPaymentFailedClient({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", amount: "$1,113.49", reason: "Your card has insufficient funds.", kind: "failed", actionLabel: "Update your card", actionUrl: "https://x.test/billing/setup/tok" }),
   billingUsageUnavailable({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", consoleUrl: "https://x.test/console/billing/c1" }),
@@ -423,6 +438,20 @@ assert.match(tpl[0]!.html, /3rd/);
 assert.match(tpl[3]!.subject, /Payment failed/);
 assert.match(tpl[4]!.html, /Update your card/);
 assert.match(tpl[7]!.html, /SOLVI · Sep 2026/);
+
+// A card saved before automatic billing is on: admins learn nothing is charged until they switch it on.
+const cardArgs = { clientName: "Freedom Boat Club", cardLabel: "Visa ····4242 (exp 12/30)", consoleUrl: "https://x.test/console/billing/c1" };
+assert.match(billingCardAdded({ ...cardArgs, billingOn: true }).text, /will charge it on the next charge date/);
+assert.match(billingCardAdded({ ...cardArgs, billingOn: false }).text, /automatic billing is off/i);
+assert.doesNotMatch(billingCardAdded({ ...cardArgs, billingOn: false }).text, /next charge date/);
+// Billing state unknown (the lookup failed): the email still goes out, and claims nothing either way.
+assert.doesNotMatch(billingCardAdded({ ...cardArgs, billingOn: null }).text, /next charge date|billing is off/i);
+// A card removed from a client whose billing is off: no "next charge" to skip.
+const removedArgs = { clientName: "Freedom Boat Club", detail: "removed from the Billing page", consoleUrl: "https://x.test/console/billing/c1" };
+assert.match(billingCardRemoved({ ...removedArgs, billingOn: true }).text, /next charge will be skipped/);
+assert.match(billingCardRemoved({ ...removedArgs, billingOn: false }).text, /automatic billing is off/i);
+assert.doesNotMatch(billingCardRemoved({ ...removedArgs, billingOn: false }).text, /next charge/);
+assert.doesNotMatch(billingCardRemoved({ ...removedArgs, billingOn: null }).text, /next charge|billing is off/i);
 
 console.log("billing-selftest: templates OK");
 

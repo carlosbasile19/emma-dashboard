@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
 import { BillingClientView } from "@/components/console/BillingClientView";
-import { billingFeatureEnabled, getBillingSettings, getClientBilling } from "@/lib/billing/config";
+import {
+  billingFeatureEnabled,
+  billingMarkupEnabled,
+  defaultBillingEmail,
+  getBillingSettings,
+  getClientBilling,
+} from "@/lib/billing/config";
 import { listInvoices, previewLastClosedMonth, tzOf } from "@/lib/billing/invoices";
 import { closedMonthsWithoutInvoice, localDate, nextChargeDate } from "@/lib/billing/schedule";
 import { listSetupLinks } from "@/lib/billing/setup";
@@ -34,7 +40,11 @@ export default async function ConsoleBillingClientPage({
   ]);
   const tz = tzOf(client.timezone);
   const today = localDate(new Date(), tz);
-  const preview = cb?.enabled ? await previewLastClosedMonth(cb, tz) : null;
+  const [preview, suggestedEmail] = await Promise.all([
+    cb?.enabled ? previewLastClosedMonth(cb, tz) : null,
+    // Who a setup link goes to when there is no billing contact yet. Only a suggestion: never fatal.
+    cb?.billingEmail ? null : defaultBillingEmail(id).catch(() => null),
+  ]);
   const status = deriveStatus({
     enabled: cb?.enabled ?? false,
     hasCard: Boolean(cb?.card),
@@ -46,6 +56,8 @@ export default async function ConsoleBillingClientPage({
       client={{ id: client.id, name: client.name, timezone: client.timezone }}
       cb={cb}
       settings={settings}
+      markupEnabled={billingMarkupEnabled()}
+      suggestedEmail={suggestedEmail}
       status={status}
       links={links}
       baseUrl={baseUrl}

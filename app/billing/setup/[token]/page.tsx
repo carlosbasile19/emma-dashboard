@@ -3,7 +3,13 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { SetupCard } from "@/components/billing/SetupCard";
 import { LogoWordmark } from "@/components/brand/Logo";
-import { billingFeatureEnabled, loadClientBilling, type CardOnFile } from "@/lib/billing/config";
+import {
+  billingFeatureEnabled,
+  chargeTerms,
+  loadBillingSettings,
+  loadClientBilling,
+  type CardOnFile,
+} from "@/lib/billing/config";
 import { cardLabel, clientDisplayName } from "@/lib/billing/notify";
 import { getSetupLink, reconcileCheckoutSession } from "@/lib/billing/setup";
 import { getRequestOrigin } from "@/lib/origin";
@@ -86,17 +92,18 @@ export default async function BillingSetupPage({
       } else if (state !== "valid") {
         body = <Unavailable reason={COPY.invalid} />;
       } else {
-        const cb = await loadClientBilling(link.clientId);
+        // Before an admin configures the client there is no billing row: the platform defaults apply.
+        const [cb, settings] = await Promise.all([loadClientBilling(link.clientId), loadBillingSettings()]);
+        const terms = chargeTerms(cb, settings);
         body = (
           <SetupCard
             token={token}
             clientName={clientName}
-            feeCents={cb?.effective.feeCents ?? 0}
-            anchorDay={cb?.effective.anchorDay ?? 3}
+            feeCents={terms.feeCents}
+            anchorDay={terms.anchorDay}
             cancelled={one(sp.setup) === "cancelled"}
             incomplete={incomplete}
             failed={one(sp.error) === "failed"}
-            disabled={!cb?.enabled || one(sp.error) === "disabled"}
           />
         );
       }
@@ -135,7 +142,7 @@ function Done({ clientName, card }: { clientName: string; card: CardOnFile | nul
         ) : (
           <>A card is on file for {clientName}.</>
         )}{" "}
-        Automatic billing will use it from the next charge date. You can close this page.
+        It will be used for your monthly Emma billing. You can close this page.
       </p>
     </div>
   );

@@ -19,6 +19,8 @@ export interface BillingOverviewRow {
 
 export interface BillingOverviewProps {
   settings: BillingSettings;
+  /** Markup is unreleased: when false, no markup field or column is shown. */
+  markupEnabled: boolean;
   rows: BillingOverviewRow[];
   lastRun: BillingRunInfo | null;
   livemode: boolean;
@@ -35,9 +37,12 @@ const STATUS_CLASS: Record<ClientBillingStatus, string> = {
   action_required: "border-warning/40 bg-warning/10 text-warning",
 };
 
-const COLS = "grid-cols-[1.8fr_1fr_1.3fr_0.8fr_0.7fr_0.6fr_1fr_1.3fr_0.9fr]";
+// Literal class strings (Tailwind only generates classes it can see in the source).
+const COLS_WITH_MARKUP = "grid-cols-[1.8fr_1fr_1.3fr_0.8fr_0.7fr_0.6fr_1fr_1.3fr_0.9fr]";
+const COLS = "grid-cols-[1.8fr_1fr_1.3fr_0.8fr_0.6fr_1fr_1.3fr_0.9fr]";
 
 export function BillingOverview(p: BillingOverviewProps) {
+  const cols = p.markupEnabled ? COLS_WITH_MARKUP : COLS;
   const counts = {
     active: p.rows.filter((r) => r.status === "active").length,
     noCard: p.rows.filter((r) => r.status === "no_card").length,
@@ -51,7 +56,7 @@ export function BillingOverview(p: BillingOverviewProps) {
         : null;
   const error =
     p.error === "invalid"
-      ? "Check the values: markup 0–300%, fee in dollars, anchor day 1–28."
+      ? `Check the values: ${p.markupEnabled ? "markup 0–300%, " : ""}fee in dollars, anchor day 1–28.`
       : p.error === "save_failed"
         ? "Could not save the defaults. Try again."
         : p.error === "client"
@@ -103,7 +108,9 @@ export function BillingOverview(p: BillingOverviewProps) {
         className="mb-6 flex flex-wrap items-end gap-3 rounded-[16px] border border-ink/10 bg-white px-5 py-4 shadow-sm"
       >
         <div className="w-full font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">Platform defaults</div>
-        <Field label="Markup %" name="markup" defaultValue={bpsToPercent(p.settings.markupBps)} placeholder="0" />
+        {p.markupEnabled ? (
+          <Field label="Markup %" name="markup" defaultValue={bpsToPercent(p.settings.markupBps)} placeholder="0" />
+        ) : null}
         <Field label="Monthly fee (USD)" name="fee" defaultValue={centsToDollarsInput(p.settings.feeCents)} placeholder="0" />
         <Field label="Anchor day" name="anchorDay" defaultValue={String(p.settings.anchorDay)} placeholder="3" type="number" />
         <Field label="Alerts email (optional)" name="alertEmail" defaultValue={p.settings.alertEmail ?? ""} placeholder="billing@agency.com" type="email" wide />
@@ -129,8 +136,8 @@ export function BillingOverview(p: BillingOverviewProps) {
 
       {/* clients */}
       <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
-        <div className={`grid ${COLS} gap-3 border-b border-ink/10 bg-surface-tint px-[22px] py-[13px]`}>
-          {["Client", "Status", "Card", "Fee", "Markup", "Anchor", "Next charge", "Last invoice", ""].map((h, i) => (
+        <div className={`grid ${cols} gap-3 border-b border-ink/10 bg-surface-tint px-[22px] py-[13px]`}>
+          {["Client", "Status", "Card", "Fee", ...(p.markupEnabled ? ["Markup"] : []), "Anchor", "Next charge", "Last invoice", ""].map((h, i) => (
             <div key={h || i} className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
               {h}
             </div>
@@ -139,7 +146,7 @@ export function BillingOverview(p: BillingOverviewProps) {
         {p.rows.map((r, i) => (
           <div
             key={r.client.id}
-            className={`grid ${COLS} items-center gap-3 border-b border-lavender px-[22px] py-3 text-[13px] ${i % 2 ? "bg-lavender/40" : "bg-white"}`}
+            className={`grid ${cols} items-center gap-3 border-b border-lavender px-[22px] py-3 text-[13px] ${i % 2 ? "bg-lavender/40" : "bg-white"}`}
           >
             <div className="min-w-0 truncate font-medium">{r.client.name}</div>
             <div>
@@ -148,9 +155,12 @@ export function BillingOverview(p: BillingOverviewProps) {
               </span>
             </div>
             <div className="truncate font-mono text-[12px] text-muted">{r.cb?.card ? cardLabel(r.cb.card) : "—"}</div>
-            <div className="font-mono text-[12.5px] tabular-nums">{r.cb ? centsToMoneyExact(r.cb.effective.feeCents) : "—"}</div>
-            <div className="font-mono text-[12.5px] tabular-nums">{r.cb ? `${bpsToPercent(r.cb.effective.markupBps)}%` : "—"}</div>
-            <div className="font-mono text-[12.5px] tabular-nums">{r.cb ? r.cb.effective.anchorDay : "—"}</div>
+            {/* A client with no billing row yet is on the platform defaults (what its Billing page and links quote). */}
+            <div className="font-mono text-[12.5px] tabular-nums">{centsToMoneyExact(r.cb?.effective.feeCents ?? p.settings.feeCents)}</div>
+            {p.markupEnabled ? (
+              <div className="font-mono text-[12.5px] tabular-nums">{bpsToPercent(r.cb?.effective.markupBps ?? p.settings.markupBps)}%</div>
+            ) : null}
+            <div className="font-mono text-[12.5px] tabular-nums">{r.cb?.effective.anchorDay ?? p.settings.anchorDay}</div>
             <div className="font-mono text-[12px] text-muted">{r.nextCharge ? dayLabel(r.nextCharge) : "—"}</div>
             <div className="min-w-0 truncate font-mono text-[12px]">
               {r.lastInvoice ? (

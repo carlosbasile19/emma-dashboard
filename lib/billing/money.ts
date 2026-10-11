@@ -41,6 +41,15 @@ export function applyMarkup(cents: number, bps: number): number {
   return Math.round((cents * (BPS_SCALE + bps)) / BPS_SCALE);
 }
 
+/**
+ * The markup a client is actually charged. Markup is not released yet: until `released`
+ * (`BILLING_MARKUP_ENABLED`), it is 0 whatever is stored, so every invoice and every figure is
+ * usage at cost plus the fee. Once released, a client override (0 included) beats the default.
+ */
+export function effectiveMarkupBps(override: number | null, platformDefault: number, released: boolean): number {
+  return released ? (override ?? platformDefault) : 0;
+}
+
 // ---- Admin form inputs ----
 // Decorated numbers ("20 %", "$1,200.50") parse; anything else is null so a form can show an
 // error instead of silently saving 0.
