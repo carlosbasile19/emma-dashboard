@@ -25,6 +25,16 @@ import {
 } from "../lib/billing/schedule";
 import { mandateText, ordinal } from "../lib/billing/copy";
 import {
+  billingCardAdded,
+  billingCardRemoved,
+  billingNoCard,
+  billingPaymentFailedAdmin,
+  billingPaymentFailedClient,
+  billingRunSummary,
+  billingSetupLink,
+  billingUsageUnavailable,
+} from "../lib/email/templates";
+import {
   deriveStatus,
   eventSubject,
   invoiceStatusFromStripe,
@@ -387,3 +397,29 @@ assert.equal(planTransition(ev("invoice.paid", { id: "in_other", metadata: {} })
 assert.equal(planTransition(ev("charge.refunded", { id: "ch_1" }), CTX_C1).kind, "ignore");
 
 console.log("billing-selftest: status + transitions OK");
+
+// Every billing email: branded shell, the CTA url present in html + text, never the vendor name.
+const tpl = [
+  billingSetupLink({ clientName: "Freedom Boat Club", setupUrl: "https://x.test/billing/setup/tok", feeLabel: "$300.00", anchorLabel: "3rd", expiresInDays: 7 }),
+  billingCardAdded({ clientName: "Freedom Boat Club", cardLabel: "Visa ····4242 (exp 12/30)", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingCardRemoved({ clientName: "Freedom Boat Club", detail: "removed from the Billing page", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingPaymentFailedAdmin({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", amount: "$1,113.49", reason: "Your card has insufficient funds.", kind: "failed", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingPaymentFailedClient({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", amount: "$1,113.49", reason: "Your card has insufficient funds.", kind: "failed", actionLabel: "Update your card", actionUrl: "https://x.test/billing/setup/tok" }),
+  billingUsageUnavailable({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingNoCard({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingRunSummary({ headline: "2 invoiced, 1 failed", dateLabel: "11 Oct 2026", lines: ["SOLVI · Sep 2026: invoiced $813.49 — paid"], consoleUrl: "https://x.test/console/billing" }),
+];
+for (const t of tpl) {
+  assert.ok(t.subject.length > 0);
+  assert.match(t.html, /https:\/\/x\.test\//);
+  assert.match(t.text, /https:\/\/x\.test\//);
+  assert.doesNotMatch(t.html, /Olivia/);
+  assert.doesNotMatch(t.subject, /Olivia/);
+}
+assert.match(tpl[0]!.subject, /Freedom Boat Club/);
+assert.match(tpl[0]!.html, /3rd/);
+assert.match(tpl[3]!.subject, /Payment failed/);
+assert.match(tpl[4]!.html, /Update your card/);
+assert.match(tpl[7]!.html, /SOLVI · Sep 2026/);
+
+console.log("billing-selftest: templates OK");
