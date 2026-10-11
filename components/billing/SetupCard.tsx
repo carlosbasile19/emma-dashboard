@@ -16,6 +16,7 @@ export function SetupCard({
   anchorDay,
   cancelled,
   incomplete,
+  failed,
   disabled,
 }: {
   token: string;
@@ -24,6 +25,7 @@ export function SetupCard({
   anchorDay: number;
   cancelled: boolean;
   incomplete: boolean;
+  failed: boolean;
   disabled: boolean;
 }) {
   return (
@@ -58,6 +60,13 @@ export function SetupCard({
       {incomplete ? (
         <div className="mt-4 rounded-[10px] border border-warning/40 bg-warning/10 px-3.5 py-2.5 text-[13px] text-ink/80">
           Your card setup wasn&apos;t completed, so no card was added. Please try again.
+        </div>
+      ) : null}
+
+      {failed ? (
+        <div className="mt-4 rounded-[10px] border border-danger/30 bg-danger/8 px-3.5 py-2.5 text-[13px] text-danger">
+          We couldn&apos;t open the secure card form. Please try again in a moment or contact Hey
+          Emma.
         </div>
       ) : null}
 

@@ -19,11 +19,22 @@ export async function startLinkCheckout(formData: FormData) {
   const cb = await loadClientBilling(found.link.clientId);
   if (!cb?.enabled) redirect(`${path}?error=disabled`);
   const origin = await getRequestOrigin();
-  const url = await createCheckoutSession({
-    clientId: found.link.clientId,
-    setupToken: token,
-    successUrl: `${origin}${path}?session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${origin}${path}?setup=cancelled`,
-  });
+  let url: string;
+  try {
+    url = await createCheckoutSession({
+      clientId: found.link.clientId,
+      setupToken: token,
+      successUrl: `${origin}${path}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${origin}${path}?setup=cancelled`,
+    });
+  } catch (e) {
+    // Stripe outage or the link being revoked mid-click: show a retry banner, not the error page.
+    // Never log the token.
+    console.error("[billing] checkout start failed", {
+      clientId: found.link.clientId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    redirect(`${path}?error=failed`);
+  }
   redirect(url);
 }

@@ -95,6 +95,7 @@ export default async function BillingSetupPage({
             anchorDay={cb?.effective.anchorDay ?? 3}
             cancelled={one(sp.setup) === "cancelled"}
             incomplete={incomplete}
+            failed={one(sp.error) === "failed"}
             disabled={!cb?.enabled || one(sp.error) === "disabled"}
           />
         );
