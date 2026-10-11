@@ -58,6 +58,8 @@ export function BillingOverview(p: BillingOverviewProps) {
           ? "That workspace was not found."
           : p.error === "run_failed"
           ? "The billing run could not complete. Try again, or check the run log."
+          : p.error === "run_unconfirmed"
+          ? "Tick the confirmation box to run billing."
           : null;
 
   return (
@@ -71,7 +73,11 @@ export function BillingOverview(p: BillingOverviewProps) {
             </span>
           ) : null}
         </div>
-        <form action={runBillingNow}>
+        <form action={runBillingNow} className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[12.5px] text-muted">
+            <input type="checkbox" name="confirm" required className="h-4 w-4 accent-violet" />
+            I understand this charges every client with a closed, unbilled month now
+          </label>
           <SubmitButton
             pendingLabel="Running…"
             className="inline-flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender"

@@ -76,8 +76,10 @@ function noticeText(p: BillingClientViewProps): string | null {
   }
 }
 
-function errorText(code: string | null): string | null {
+function errorText(code: string | null, storedBillFrom: string | null): string | null {
   switch (code) {
+    case "bill_from_reenable":
+      return `Billing was off since ${storedBillFrom ? monthLabel(storedBillFrom) : "an earlier month"}. Set the bill-from month you want to start charging from, then save again.`;
     case "invalid":
       return "Check the values: markup 0–300%, fee in dollars, anchor day 1–28, month as YYYY-MM.";
     case "email":
@@ -112,7 +114,7 @@ function errorText(code: string | null): string | null {
 export function BillingClientView(p: BillingClientViewProps) {
   const { client, cb, settings } = p;
   const notice = noticeText(p);
-  const error = errorText(p.error);
+  const error = errorText(p.error, cb?.billFromMonth ?? null);
   const now = new Date();
 
   return (

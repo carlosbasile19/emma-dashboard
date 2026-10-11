@@ -5,6 +5,7 @@ import { PendingContent } from "@/components/ui/states/PendingContent";
 import { PendingNavProvider } from "@/components/ui/states/PendingNav";
 import { RouteProgress } from "@/components/ui/states/RouteProgress";
 import { AuthError, requireAdmin } from "@/lib/auth";
+import { billingFeatureEnabled } from "@/lib/billing/config";
 import { initials as toInitials } from "@/lib/format";
 
 // Agency-admin console. Gated to platform admins; everyone else is bounced to their dashboard.
@@ -19,7 +20,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
 
   return (
     <div className="flex min-h-screen bg-warm">
-      <ConsoleSidebar userName={ctx.userName} initials={toInitials(ctx.userName)} />
+      <ConsoleSidebar userName={ctx.userName} initials={toInitials(ctx.userName)} billingEnabled={billingFeatureEnabled()} />
       <PendingNavProvider>
         <RouteProgress />
         <main className="min-w-0 flex-1 animate-fade-up px-8 pb-16 pt-7">

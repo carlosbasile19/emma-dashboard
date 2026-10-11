@@ -7,7 +7,7 @@ import { removeCard } from "@/lib/billing/customers";
 import { invoiceMonth, retryInvoice, runBilling, tzOf, listInvoices } from "@/lib/billing/invoices";
 import { parseAnchorDay, parseDollarsToCents, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
 import { sendSetupLinkEmail } from "@/lib/billing/notify";
-import { closedMonthsWithoutInvoice, localDate, monthOf, prevMonth } from "@/lib/billing/schedule";
+import { closedMonthsWithoutInvoice, localDate, monthOf, prevMonth, reenableNeedsBillFrom } from "@/lib/billing/schedule";
 import { setupLinkState } from "@/lib/billing/status";
 import {
   createSetupLink,
@@ -40,9 +40,13 @@ export async function saveBillingDefaults(formData: FormData) {
   redirect(failed ? "/console/billing?error=save_failed" : "/console/billing?notice=saved");
 }
 
-/** Platform-admin only: the daily job, on demand. Only months that are due are touched. */
-export async function runBillingNow() {
+/**
+ * Platform-admin only: the daily job, on demand. Only months that are due are touched. Charges
+ * real cards, so the form's confirmation box must be ticked.
+ */
+export async function runBillingNow(formData: FormData) {
   await requireAdmin();
+  if (formData.get("confirm") !== "on") redirect("/console/billing?error=run_unconfirmed");
   let target: string;
   try {
     const summary = await runBilling("manual", { origin: await getRequestOrigin() });
@@ -121,9 +125,30 @@ export async function saveClientBilling(formData: FormData) {
   const anchorDay = anchorRaw ? parseAnchorDay(anchorRaw) : null;
   if (anchorRaw && anchorDay == null) redirect(`${back}?error=invalid`);
 
+  let existing: Awaited<ReturnType<typeof loadClientBilling>>;
+  try {
+    existing = await loadClientBilling(client.id);
+  } catch (e) {
+    console.error("[billing] save client billing: load failed", e);
+    redirect(`${back}?error=save`);
+  }
+  // Re-enabling with the old, past bill-from would back-charge every month billing was off. Make
+  // the admin choose the month explicitly; never change the submitted data silently. A blank
+  // field falls back to the stored month below, so it counts as "the stored month submitted".
+  if (
+    reenableNeedsBillFrom({
+      wasEnabled: existing?.enabled ?? false,
+      nowEnabled: enabled,
+      storedBillFrom: existing?.billFromMonth ?? null,
+      submittedBillFrom: billFromMonth ?? existing?.billFromMonth ?? null,
+      currentMonth: monthOf(localDate(new Date(), tzOf(client.timezone))),
+    })
+  ) {
+    redirect(`${back}?error=bill_from_reenable`);
+  }
+
   let failed = false;
   try {
-    const existing = await loadClientBilling(client.id);
     // First configure: bill from the current month in the client's timezone, and default the
     // billing contact to the earliest member, so switching billing on never bills the past by
     // accident and always has somewhere to send receipts.

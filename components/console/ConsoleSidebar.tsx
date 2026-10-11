@@ -24,9 +24,12 @@ function active(pathname: string, href: string): boolean {
 export function ConsoleSidebar({
   userName,
   initials,
+  billingEnabled = false,
 }: {
   userName: string;
   initials: string;
+  /** BILLING_ENABLED (server-side): the Billing entry 404s while the feature is off. */
+  billingEnabled?: boolean;
 }) {
   const pathname = usePathname();
   return (
@@ -62,7 +65,7 @@ export function ConsoleSidebar({
               {group}
             </div>
             <div className="flex flex-col gap-0.5">
-              {NAV.filter((n) => n.group === group).map((item) => {
+              {NAV.filter((n) => n.group === group && (n.key !== "billing" || billingEnabled)).map((item) => {
                 const on = active(pathname, item.href);
                 return (
                   <Link
