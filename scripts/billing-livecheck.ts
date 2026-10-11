@@ -20,6 +20,14 @@ import { getStripe, stripeLivemode } from "../lib/stripe/client";
 import { createAdminClient } from "../lib/supabase/admin";
 
 (async () => {
+  // Never email real admins: lib/email/send.ts reads the key at call time.
+  process.env.RESEND_API_KEY = "";
+  console.log("billing-livecheck: email sending disabled for this run");
+  const key = process.env.STRIPE_SECRET_KEY ?? "";
+  if (!key.startsWith("sk_test_") && !key.startsWith("rk_test_")) {
+    console.error("billing-livecheck: STRIPE_SECRET_KEY is not a sandbox key (sk_test_/rk_test_); aborting");
+    process.exit(1);
+  }
   assert.equal(stripeLivemode(), false, "refusing to run the livecheck against a LIVE key");
   assert.equal(process.env.BILLING_ENABLED, "true", "BILLING_ENABLED=true is required");
   const admin = createAdminClient();
@@ -57,6 +65,11 @@ import { createAdminClient } from "../lib/supabase/admin";
     const stripeJan = await stripe.invoices.retrieve(jan.stripeInvoiceId!);
     assert.equal(stripeJan.total, 111349, "Stripe's total equals ours");
     assert.equal(stripeJan.metadata?.emma_period, "2026-01");
+    const janLines = (await stripe.invoices.listLineItems(jan.stripeInvoiceId!, { limit: 100 })).data;
+    assert.equal(janLines.length, 2, "exactly two invoice lines");
+    const lineAmounts = new Map(janLines.map((l) => [l.description, l.amount]));
+    assert.equal(lineAmounts.get("Emma usage · Jan 2026"), 81349, "usage line");
+    assert.equal(lineAmounts.get("Monthly fee · Jan 2026"), 30000, "fee line");
 
     // 4. The same month again is refused — never billed twice.
     const again = await invoiceMonth(clientId, "2026-01", "manual", { usage: async () => 67791 });
@@ -98,12 +111,19 @@ import { createAdminClient } from "../lib/supabase/admin";
 
     console.log("billing-livecheck: OK");
   } finally {
-    for (const id of openInvoices) await stripe.invoices.voidInvoice(id).catch(() => undefined);
-    await admin.from("billing_invoices").delete().eq("olivia_client_id", clientId);
-    await admin.from("billing_setup_links").delete().eq("olivia_client_id", clientId);
-    await admin.from("client_billing").delete().eq("olivia_client_id", clientId);
-    await admin.from("olivia_clients").delete().eq("olivia_client_id", clientId);
-    if (customerId) await stripe.customers.del(customerId).catch(() => undefined);
+    for (const id of openInvoices) {
+      await stripe.invoices.voidInvoice(id).catch((e) => console.warn("void failed", id, e?.message));
+    }
+    for (const table of ["billing_invoices", "billing_setup_links", "client_billing", "olivia_clients"] as const) {
+      const { error } = await admin.from(table).delete().eq("olivia_client_id", clientId);
+      if (error) {
+        console.error(`LEFTOVER ROWS: ${table} ${clientId}: ${error.message}`);
+        process.exitCode = 1;
+      }
+    }
+    if (customerId) {
+      await stripe.customers.del(customerId).catch((e) => console.warn("customer delete failed", customerId, e?.message));
+    }
   }
 })().catch((e) => {
   console.error(e);
