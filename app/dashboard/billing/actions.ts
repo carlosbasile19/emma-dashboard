@@ -53,7 +53,12 @@ export async function saveBillingEmail(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!email || !email.includes("@")) redirect("/dashboard/billing?error=email");
   const user = await getSessionUser();
-  await upsertClientBilling(cb.clientId, { billingEmail: email }, user?.id ?? null);
+  try {
+    await upsertClientBilling(cb.clientId, { billingEmail: email }, user?.id ?? null);
+  } catch (e) {
+    console.error("[billing] billing email save failed:", e);
+    redirect("/dashboard/billing?error=email_save");
+  }
   if (cb.stripeCustomerId) {
     await getStripe()
       .customers.update(cb.stripeCustomerId, { email })

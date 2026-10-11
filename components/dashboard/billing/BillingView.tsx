@@ -37,6 +37,7 @@ const ERROR: Record<string, string> = {
   setup_start: "We couldn't open the secure card form just now. Please try again in a moment.",
   remove: "We couldn't remove the card cleanly. Please check it below and try again, or contact your Emma strategist.",
   email: "Enter a valid email address.",
+  email_save: "We couldn't save the billing contact just now. Please try again.",
 };
 
 const PILL: Record<InvoiceStatus, string> = {
@@ -65,8 +66,8 @@ export function BillingDisabled() {
 }
 
 export function BillingView(p: BillingViewProps) {
-  const noticeText = p.notice ? NOTICE[p.notice] : null;
-  const errorText = p.error ? ERROR[p.error] : null;
+  const noticeText = p.notice && Object.hasOwn(NOTICE, p.notice) ? NOTICE[p.notice] : null;
+  const errorText = p.error && Object.hasOwn(ERROR, p.error) ? ERROR[p.error] : null;
 
   return (
     <div className="mx-auto max-w-[1000px]">

@@ -1,9 +1,11 @@
 import { notFound, redirect } from "next/navigation";
+import { ErrorState } from "@/components/ui/states/ErrorState";
 import { BillingDisabled, BillingView } from "@/components/dashboard/billing/BillingView";
 import { getWorkspace } from "@/lib/auth";
 import { billingFeatureEnabled, getClientBilling } from "@/lib/billing/config";
 import { estimateCurrentMonth, listInvoices, tzOf } from "@/lib/billing/invoices";
 import { reconcileCheckoutSession } from "@/lib/billing/setup";
+import { ERROR_COPY } from "@/lib/copy";
 import { getRequestOrigin } from "@/lib/origin";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
@@ -18,7 +20,13 @@ export default async function BillingPage({ searchParams }: { searchParams: SP }
   if (!billingFeatureEnabled()) notFound();
   const sp = await searchParams;
   const ws = await getWorkspace();
-  const cb = await getClientBilling(ws.clientId);
+  let cb;
+  try {
+    cb = await getClientBilling(ws.clientId);
+  } catch (e) {
+    console.error("[billing] could not load billing config:", e);
+    return <ErrorState copy={ERROR_COPY.billing} />;
+  }
   if (!cb?.enabled) return <BillingDisabled />;
 
   const sessionId = one(sp.session_id);
@@ -35,7 +43,13 @@ export default async function BillingPage({ searchParams }: { searchParams: SP }
   }
 
   const tz = tzOf(ws.timezone);
-  const [invoices, figure] = await Promise.all([listInvoices(ws.clientId), estimateCurrentMonth(cb, tz)]);
+  let invoices, figure;
+  try {
+    [invoices, figure] = await Promise.all([listInvoices(ws.clientId), estimateCurrentMonth(cb, tz)]);
+  } catch (e) {
+    console.error("[billing] could not load invoices/estimate:", e);
+    return <ErrorState copy={ERROR_COPY.billing} />;
+  }
   const notice = one(sp.notice) ?? (one(sp.setup) === "cancelled" ? "setup_cancelled" : null);
 
   return (
