@@ -123,7 +123,7 @@ Append to the end of `.env.example`:
 # --- Stripe billing (SERVER-ONLY — never expose to the browser) ---
 # Spec: docs/superpowers/specs/2026-10-11-stripe-billing-design.md
 # Local + Preview use the SANDBOX secret key (sk_test_…); Production uses the live key (sk_live_…).
-STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
+STRIPE_SECRET_KEY=sk_test_YOUR_SANDBOX_KEY_HERE
 # Signing secret of the webhook endpoint that points at THIS environment.
 # Local dev: printed by `stripe listen --forward-to localhost:3000/api/stripe/webhook`.
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
