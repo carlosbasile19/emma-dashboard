@@ -545,6 +545,7 @@ export async function invoiceMonth(
   // Everything below owns the row. Stripe-side id once we have one:
   let stripeInvoiceId: string | null = adopted?.id ?? null;
   let payReturned: PayOutcome | null = null;
+  let payAttempted = false;
 
   try {
     let finalized: { id: string; hosted_invoice_url?: string | null; invoice_pdf?: string | null };
@@ -643,6 +644,7 @@ export async function invoiceMonth(
     }
 
     // 6. Pay now so the run reports a real outcome.
+    payAttempted = true;
     const outcome = await payInvoice(stripe, finalized.id, `emma:inv:${rowId}:${attemptId}:pay`);
     payReturned = outcome;
     const hostedInvoiceUrl = outcome.hostedInvoiceUrl ?? finalized.hosted_invoice_url ?? null;
@@ -691,6 +693,22 @@ export async function invoiceMonth(
           payReturned.status === "paid"
             ? `Paid on Stripe (${stripeInvoiceId}) but the local write failed; the invoice.paid webhook will correct it`
             : `Payment attempted on Stripe (${stripeInvoiceId}) but the local write failed; webhooks will correct it`,
+      });
+    }
+
+    // A non-decline error from the pay call is ambiguous (the charge may have gone through): never
+    // delete or void. Leave the invoice open for retry; the invoice.paid webhook corrects a paid one.
+    if (payAttempted && stripeInvoiceId) {
+      console.error("[billing] non-decline error during pay", { rowId, stripeInvoiceId }, e);
+      const { error: openErr } = await admin
+        .from("billing_invoices")
+        .update({ status: "open", stripe_invoice_id: stripeInvoiceId, failure_code: "pay_error", failure_message: message, updated_at: now() })
+        .eq("id", rowId);
+      if (openErr) console.error("[billing] could not record pay_error", rowId, openErr.message);
+      return result("error", {
+        status: "open",
+        stripeInvoiceId,
+        error: "Payment attempt failed with a non-decline error; invoice left open for retry",
       });
     }
 
