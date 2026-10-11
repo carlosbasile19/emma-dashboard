@@ -649,23 +649,26 @@ export async function invoiceMonth(
     payReturned = outcome;
     const hostedInvoiceUrl = outcome.hostedInvoiceUrl ?? finalized.hosted_invoice_url ?? null;
     const totalCents = lines?.totalCents ?? adopted?.total ?? null;
-    must(
-      "record payment outcome",
-      await admin
-        .from("billing_invoices")
-        .update({
-          status: outcome.status,
-          failure_code: outcome.failureCode,
-          failure_message: outcome.failureMessage,
-          paid_at: outcome.paidAt,
-          hosted_invoice_url: hostedInvoiceUrl,
-          invoice_pdf_url: outcome.invoicePdfUrl ?? finalized.invoice_pdf ?? null,
-          updated_at: now(),
-        })
-        .eq("id", rowId),
-    );
+    // Conditional: if the invoice.payment_failed webhook already recorded this status (and sent
+    // the emails), this write changes nothing and must not notify a second time.
+    const outcomeWrite = await admin
+      .from("billing_invoices")
+      .update({
+        status: outcome.status,
+        failure_code: outcome.failureCode,
+        failure_message: outcome.failureMessage,
+        paid_at: outcome.paidAt,
+        hosted_invoice_url: hostedInvoiceUrl,
+        invoice_pdf_url: outcome.invoicePdfUrl ?? finalized.invoice_pdf ?? null,
+        updated_at: now(),
+      })
+      .eq("id", rowId)
+      .neq("status", outcome.status)
+      .select("id");
+    must("record payment outcome", outcomeWrite);
+    const outcomeChanged = (outcomeWrite.data?.length ?? 0) > 0;
 
-    if (outcome.status === "failed" || outcome.status === "action_required") {
+    if (outcomeChanged && (outcome.status === "failed" || outcome.status === "action_required")) {
       const failedKind = outcome.status;
       await safeNotify("payment-failed", async () =>
         notifyPaymentFailed({
