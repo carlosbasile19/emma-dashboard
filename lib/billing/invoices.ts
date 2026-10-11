@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import { getUsageSeries } from "@/lib/olivia/usage";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -99,6 +100,11 @@ const num = (v: unknown): number | null => (typeof v === "number" ? v : v == nul
 const text = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const now = () => new Date().toISOString();
 
+/** supabase-js reports write failures in `{ error }` rather than throwing. */
+function must(label: string, res: { error: { message: string } | null }): void {
+  if (res.error) throw new Error(`${label}: ${res.error.message}`);
+}
+
 /** A notification must never abort or reject a money path that has already charged or written status. */
 async function safeNotify(what: string, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -147,13 +153,20 @@ export async function listInvoices(clientId?: string): Promise<InvoiceRow[]> {
   return (data ?? []).map((r) => rowToInvoice(r));
 }
 
-/** Every month that has a row, in any status, per client. */
+/**
+ * Months that count as "done" for scheduling, this Stripe mode only. A `reserved` row (a crashed
+ * run) and a `failed` row with no Stripe invoice are NOT done: they resurface so recovery runs.
+ */
 export async function invoicedMonthsByClient(): Promise<Map<string, string[]>> {
   const admin = createAdminClient();
-  const { data, error } = await admin.from("billing_invoices").select("olivia_client_id, period_month");
+  const { data, error } = await admin
+    .from("billing_invoices")
+    .select("olivia_client_id, period_month, status, stripe_invoice_id")
+    .eq("livemode", stripeLivemode());
   if (error) throw new Error(`invoicedMonthsByClient: ${error.message}`);
   const out = new Map<string, string[]>();
   for (const r of data ?? []) {
+    if (r.status === "reserved" || (r.status === "failed" && !r.stripe_invoice_id)) continue;
     const id = r.olivia_client_id as string;
     out.set(id, [...(out.get(id) ?? []), r.period_month as string]);
   }
@@ -237,7 +250,11 @@ export interface PayOutcome {
 
 const AUTH_CODES = new Set(["authentication_required", "invoice_payment_intent_requires_action"]);
 
-/** Pay a finalised invoice now. A decline is an outcome, not an exception; anything else throws. */
+/**
+ * Pay a finalised invoice now. A card decline or an authentication request is an outcome, not an
+ * exception; EVERYTHING else (bad request, network, auth, rate limit) rethrows so the caller records
+ * a `stripe_error` instead of mistaking it for a decline.
+ */
 export async function payInvoice(stripe: Stripe, invoiceId: string, idempotencyKey: string): Promise<PayOutcome> {
   try {
     const paid = await stripe.invoices.pay(invoiceId, {}, { idempotencyKey });
@@ -251,55 +268,66 @@ export async function payInvoice(stripe: Stripe, invoiceId: string, idempotencyK
       invoicePdfUrl: paid.invoice_pdf ?? null,
     };
   } catch (e) {
-    if (e instanceof Stripe.errors.StripeCardError || e instanceof Stripe.errors.StripeInvalidRequestError) {
+    if (e instanceof Stripe.errors.StripeError) {
       const code = e.code ?? null;
-      return {
-        status: code && AUTH_CODES.has(code) ? "action_required" : "failed",
-        failureCode: ("decline_code" in e && typeof e.decline_code === "string" ? e.decline_code : null) ?? code ?? "payment_failed",
-        failureMessage: e.message,
-        paidAt: null,
-        hostedInvoiceUrl: null,
-        invoicePdfUrl: null,
-      };
+      const decline = typeof e.decline_code === "string" ? e.decline_code : null;
+      const needsAuth = (code != null && AUTH_CODES.has(code)) || (decline != null && AUTH_CODES.has(decline));
+      if (needsAuth || e.type === "StripeCardError") {
+        return {
+          status: needsAuth ? "action_required" : "failed",
+          failureCode: decline ?? code ?? "payment_failed",
+          failureMessage: e.message,
+          paidAt: null,
+          hostedInvoiceUrl: null,
+          invoicePdfUrl: null,
+        };
+      }
     }
     throw e;
   }
 }
 
-async function findStripeInvoice(stripe: Stripe, clientId: string, month: string): Promise<Stripe.Invoice | null> {
-  try {
-    const res = await stripe.invoices.search({
-      query: `metadata['emma_client_id']:'${clientId}' AND metadata['emma_period']:'${month}'`,
-      limit: 1,
-    });
-    return res.data[0] ?? null;
-  } catch {
-    return null;
-  }
+/** Throws on any Stripe error: recovery must fail CLOSED, never read an outage as "nothing exists". */
+async function lookupExistingInvoice(
+  stripe: Stripe,
+  stripeInvoiceId: string | null,
+  clientId: string,
+  month: string,
+): Promise<Stripe.Invoice | null> {
+  if (stripeInvoiceId) return stripe.invoices.retrieve(stripeInvoiceId);
+  const res = await stripe.invoices.search({
+    query: `metadata['emma_client_id']:'${clientId}' AND metadata['emma_period']:'${month}'`,
+    limit: 1,
+  });
+  return res.data[0] ?? null;
 }
 
 type Admin = ReturnType<typeof createAdminClient>;
 
+interface ExistingRow {
+  id: string;
+  status: string;
+  createdAt: string;
+  stripeInvoiceId: string | null;
+  livemode: boolean;
+}
+
 type Reservation =
   | { kind: "reserved"; rowId: string }
-  | { kind: "exists"; row: { id: string; status: string; createdAt: string; stripeInvoiceId: string | null } }
+  | { kind: "exists"; row: ExistingRow }
   | { kind: "error"; message: string };
 
-async function reserveMonth(
-  admin: Admin,
-  cols: Row,
-  clientId: string,
-  month: string,
-): Promise<Reservation> {
+async function reserveMonth(admin: Admin, cols: Row, clientId: string, month: string): Promise<Reservation> {
   const { data, error } = await admin.from("billing_invoices").insert(cols).select("id").single();
   if (!error && data) return { kind: "reserved", rowId: String(data.id) };
   if (error?.code !== "23505") return { kind: "error", message: error?.message ?? "reserve failed" };
-  const { data: row } = await admin
+  const { data: row, error: readErr } = await admin
     .from("billing_invoices")
-    .select("id, status, created_at, stripe_invoice_id")
+    .select("id, status, created_at, stripe_invoice_id, livemode")
     .eq("olivia_client_id", clientId)
     .eq("period_month", month)
     .maybeSingle();
+  if (readErr) return { kind: "error", message: readErr.message };
   if (!row) return { kind: "error", message: "reservation vanished" };
   return {
     kind: "exists",
@@ -308,12 +336,53 @@ async function reserveMonth(
       status: String(row.status),
       createdAt: String(row.created_at),
       stripeInvoiceId: text(row.stripe_invoice_id),
+      livemode: row.livemode === true,
     },
   };
 }
 
+/**
+ * Take over an existing row for a new attempt. Conditional on the row still being exactly as we
+ * read it, so two concurrent recoveries cannot both proceed. Returns false if someone else won.
+ */
+async function claimRow(admin: Admin, row: ExistingRow, fields: Row): Promise<boolean> {
+  const { data, error } = await admin
+    .from("billing_invoices")
+    .update({ ...fields, created_at: now(), updated_at: now() })
+    .eq("id", row.id)
+    .eq("status", row.status)
+    .eq("created_at", row.createdAt)
+    .select("id");
+  if (error) throw new Error(`claim row: ${error.message}`);
+  return (data?.length ?? 0) === 1;
+}
+
 /** A `reserved` row older than this came from a crashed run and is reconciled, not respected. */
 const RESERVATION_STALE_MS = 60 * 60 * 1000;
+
+/**
+ * Undo a half-built Stripe invoice. draft -> delete, open -> void; paid/other is left alone.
+ * Returns the invoice's resulting state, or the reason cleanup failed. Never swallows an error.
+ */
+async function cleanupStripeInvoice(
+  stripe: Stripe,
+  invoiceId: string,
+): Promise<{ ok: true; removed: boolean; stripeStatus: string | null } | { ok: false; reason: string }> {
+  try {
+    const inv = await stripe.invoices.retrieve(invoiceId);
+    if (inv.status === "draft") {
+      await stripe.invoices.del(invoiceId);
+      return { ok: true, removed: true, stripeStatus: "deleted" };
+    }
+    if (inv.status === "open") {
+      await stripe.invoices.voidInvoice(invoiceId);
+      return { ok: true, removed: false, stripeStatus: "void" };
+    }
+    return { ok: true, removed: false, stripeStatus: inv.status };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 export async function invoiceMonth(
   clientId: string,
@@ -352,6 +421,10 @@ export async function invoiceMonth(
   }
 
   const tz = tzOf(client?.timezone);
+  // Never invoice a month that has not closed in the client's timezone.
+  if (month >= monthOf(localDate(new Date(), tz))) {
+    return result("error", { error: "The current month cannot be invoiced until it closes" });
+  }
   const { from, to } = monthBounds(month);
   const reserveCols: Row = {
     olivia_client_id: clientId,
@@ -365,139 +438,230 @@ export async function invoiceMonth(
     created_by: opts.createdBy ?? null,
     livemode: live,
   };
+  // One id per call: Stripe idempotency keys are scoped to this attempt, so a deleted draft's id is
+  // never replayed. Cross-attempt safety comes from the unique row and the fail-closed recovery.
+  const attemptId = randomUUID();
 
-  // 1. Reserve the month.
-  let reservation = await reserveMonth(admin, reserveCols, clientId, month);
-  if (reservation.kind === "exists") {
+  // 1. Reserve the month (the unique constraint is the lock).
+  const reservation = await reserveMonth(admin, reserveCols, clientId, month);
+  if (reservation.kind === "error") return result("error", { error: reservation.message });
+
+  let rowId: string;
+  /** An open Stripe invoice found during recovery: skip straight to paying it. */
+  let adopted: Stripe.Invoice | null = null;
+
+  if (reservation.kind === "reserved") {
+    rowId = reservation.rowId;
+  } else {
     const { row } = reservation;
+    if (row.livemode !== live) {
+      return result("error", {
+        error: `A ${row.livemode ? "live" : "sandbox"} invoice row already exists for this month; delete it before billing in this mode`,
+      });
+    }
     const stale = row.status === "reserved" && Date.now() - Date.parse(row.createdAt) > RESERVATION_STALE_MS;
-    if (!stale) {
+    const stuckFailed = row.status === "failed" && !row.stripeInvoiceId;
+    if (!stale && !stuckFailed) {
       return result("already_invoiced", {
         status: isInvoiceStatus(row.status) ? row.status : null,
         stripeInvoiceId: row.stripeInvoiceId,
       });
     }
-    // A crashed run. Adopt a finalised Stripe invoice if one exists, delete a draft, start over.
-    const found = await findStripeInvoice(stripe, clientId, month);
-    if (found && found.status !== "draft") {
+
+    // 2. Recovery of a crashed / stuck row. Fails CLOSED: any Stripe lookup error leaves the row alone.
+    let found: Stripe.Invoice | null;
+    try {
+      found = await lookupExistingInvoice(stripe, row.stripeInvoiceId, clientId, month);
+    } catch (e) {
+      console.error("[billing] recovery lookup failed", clientId, month, e);
+      return result("error", { error: "Stripe lookup failed during recovery; row left untouched" });
+    }
+    const reservedFields = {
+      status: "reserved",
+      stripe_invoice_id: null,
+      hosted_invoice_url: null,
+      invoice_pdf_url: null,
+      failure_code: null,
+      failure_message: null,
+      finalized_at: null,
+      paid_at: null,
+    };
+    if (found && found.status === "open") {
+      // Finalised but unpaid: adopt it and go to the pay step.
+      const claimed = await claimRow(admin, row, {
+        stripe_invoice_id: found.id,
+        status: "open",
+        total_cents: found.total,
+        hosted_invoice_url: found.hosted_invoice_url ?? null,
+        invoice_pdf_url: found.invoice_pdf ?? null,
+        failure_code: null,
+        failure_message: null,
+      });
+      if (!claimed) return result("already_invoiced", { stripeInvoiceId: found.id });
+      rowId = row.id;
+      adopted = found;
+    } else if (found && found.status !== "draft") {
+      // paid / void / uncollectible: record what Stripe says and stop.
       const status = invoiceStatusFromStripe(found.status);
-      await admin
+      const paidSec = found.status_transitions?.paid_at ?? null;
+      console.warn("[billing] recovered invoice", { clientId, month, stripeInvoiceId: found.id, status });
+      const { error } = await admin
         .from("billing_invoices")
         .update({
           stripe_invoice_id: found.id,
           status,
+          total_cents: found.total,
           hosted_invoice_url: found.hosted_invoice_url ?? null,
           invoice_pdf_url: found.invoice_pdf ?? null,
-          total_cents: found.total,
+          paid_at: paidSec ? new Date(paidSec * 1000).toISOString() : null,
           updated_at: now(),
         })
         .eq("id", row.id);
-      return result("already_invoiced", { status, stripeInvoiceId: found.id, totalCents: found.total });
+      if (error) {
+        return result("error", { error: `Recovered invoice ${found.id} (${status}) but the local write failed: ${error.message}` });
+      }
+      return result("already_invoiced", {
+        status,
+        stripeInvoiceId: found.id,
+        totalCents: found.total,
+        error: `Recovered ${found.status} invoice ${found.id} from a previous interrupted run`,
+      });
+    } else {
+      // Nothing, or a draft that never finalised: delete the draft, then restart on the SAME row.
+      if (found) {
+        try {
+          await stripe.invoices.del(found.id);
+        } catch (e) {
+          console.error("[billing] recovery could not delete draft", found.id, e);
+          return result("error", { error: "Could not delete the abandoned draft invoice; row left untouched" });
+        }
+      }
+      const claimed = await claimRow(admin, row, reservedFields);
+      if (!claimed) return result("already_invoiced");
+      rowId = row.id;
     }
-    if (found) await stripe.invoices.del(found.id).catch(() => undefined);
-    await admin.from("billing_invoices").delete().eq("id", row.id);
-    reservation = await reserveMonth(admin, reserveCols, clientId, month);
-  }
-  if (reservation.kind !== "reserved") {
-    return result("error", { error: reservation.kind === "error" ? reservation.message : "could not reserve the month" });
-  }
-  const rowId = reservation.rowId;
-
-  // 2. Usage. null releases the reservation so tomorrow's run retries. Never $0.
-  const raw = await (opts.usage ?? liveUsage)(clientId, tz, from, to);
-  if (raw == null) {
-    await admin.from("billing_invoices").delete().eq("id", rowId);
-    await safeNotify("usage-unavailable", () => notifyUsageUnavailable(clientId, clientName, month, origin));
-    return result("usage_unavailable");
   }
 
-  // 3. Lines.
-  const lines = composeInvoice(raw, cb.effective.markupBps, cb.effective.feeCents);
-  const lineCols: Row = {
-    raw_usage_cents: lines.rawUsageCents,
-    markup_bps: lines.markupBps,
-    billed_usage_cents: lines.billedUsageCents,
-    fee_cents: lines.feeCents,
-    total_cents: lines.totalCents,
-  };
-  if (lines.totalCents === 0) {
-    await admin.from("billing_invoices").update({ ...lineCols, status: "skipped_zero", updated_at: now() }).eq("id", rowId);
-    return result("skipped_zero", { status: "skipped_zero", totalCents: 0 });
-  }
+  // Everything below owns the row. Stripe-side id once we have one:
+  let stripeInvoiceId: string | null = adopted?.id ?? null;
+  let payReturned: PayOutcome | null = null;
 
-  // 4. Stripe.
-  const k = `emma:inv:${rowId}`;
-  const label = monthLabel(month);
   try {
-    const invoice = await stripe.invoices.create(
-      {
-        customer: cb.stripeCustomerId,
-        collection_method: "charge_automatically",
-        auto_advance: true,
-        currency: "usd",
-        pending_invoice_items_behavior: "exclude",
-        description: `Emma · ${label}`,
-        statement_descriptor: "HEY EMMA",
-        metadata: { emma_client_id: clientId, emma_period: month },
-      },
-      { idempotencyKey: `${k}:create` },
-    );
-    if (lines.billedUsageCents > 0) {
-      await stripe.invoiceItems.create(
-        {
-          customer: cb.stripeCustomerId,
-          invoice: invoice.id,
-          amount: lines.billedUsageCents,
-          currency: "usd",
-          description: `Emma usage · ${label}`,
-        },
-        { idempotencyKey: `${k}:usage` },
-      );
-    }
-    if (lines.feeCents > 0) {
-      await stripe.invoiceItems.create(
-        {
-          customer: cb.stripeCustomerId,
-          invoice: invoice.id,
-          amount: lines.feeCents,
-          currency: "usd",
-          description: `Monthly fee · ${label}`,
-        },
-        { idempotencyKey: `${k}:fee` },
-      );
-    }
-    const finalized = await stripe.invoices.finalizeInvoice(
-      invoice.id,
-      { auto_advance: true },
-      { idempotencyKey: `${k}:finalize` },
-    );
-    await admin
-      .from("billing_invoices")
-      .update({
-        ...lineCols,
-        stripe_invoice_id: finalized.id,
-        hosted_invoice_url: finalized.hosted_invoice_url ?? null,
-        invoice_pdf_url: finalized.invoice_pdf ?? null,
-        status: "open",
-        finalized_at: now(),
-        updated_at: now(),
-      })
-      .eq("id", rowId);
+    let finalized: { id: string; hosted_invoice_url?: string | null; invoice_pdf?: string | null };
+    let lines: InvoiceLines | null = null;
 
-    const outcome = await payInvoice(stripe, finalized.id, `${k}:pay`);
+    if (adopted) {
+      finalized = adopted;
+    } else {
+      // 3. Usage. null releases the reservation so tomorrow's run retries. Never $0.
+      const raw = await (opts.usage ?? liveUsage)(clientId, tz, from, to);
+      if (raw == null) {
+        must("release reservation", await admin.from("billing_invoices").delete().eq("id", rowId));
+        await safeNotify("usage-unavailable", () => notifyUsageUnavailable(clientId, clientName, month, origin));
+        return result("usage_unavailable");
+      }
+
+      // 4. Lines. Markup once, on the month total.
+      lines = composeInvoice(raw, cb.effective.markupBps, cb.effective.feeCents);
+      const lineCols: Row = {
+        raw_usage_cents: lines.rawUsageCents,
+        markup_bps: lines.markupBps,
+        billed_usage_cents: lines.billedUsageCents,
+        fee_cents: lines.feeCents,
+        total_cents: lines.totalCents,
+      };
+      if (lines.totalCents === 0) {
+        must(
+          "mark skipped_zero",
+          await admin.from("billing_invoices").update({ ...lineCols, status: "skipped_zero", updated_at: now() }).eq("id", rowId),
+        );
+        return result("skipped_zero", { status: "skipped_zero", totalCents: 0 });
+      }
+
+      // 5. Stripe: draft with auto_advance OFF so Stripe never finalises or charges a half-built draft.
+      const k = `emma:inv:${rowId}:${attemptId}`;
+      const label = monthLabel(month);
+      const invoice = await stripe.invoices.create(
+        {
+          customer: cb.stripeCustomerId,
+          collection_method: "charge_automatically",
+          auto_advance: false,
+          currency: "usd",
+          pending_invoice_items_behavior: "exclude",
+          description: `Emma · ${label}`,
+          statement_descriptor: "HEY EMMA",
+          metadata: { emma_client_id: clientId, emma_period: month },
+        },
+        { idempotencyKey: `${k}:create` },
+      );
+      stripeInvoiceId = invoice.id;
+      // Record the id BEFORE adding lines so a crash leaves a row that points at the draft.
+      must(
+        "record stripe invoice id",
+        await admin.from("billing_invoices").update({ ...lineCols, stripe_invoice_id: invoice.id, updated_at: now() }).eq("id", rowId),
+      );
+      if (lines.billedUsageCents > 0) {
+        await stripe.invoiceItems.create(
+          {
+            customer: cb.stripeCustomerId,
+            invoice: invoice.id,
+            amount: lines.billedUsageCents,
+            currency: "usd",
+            description: `Emma usage · ${label}`,
+          },
+          { idempotencyKey: `${k}:usage` },
+        );
+      }
+      if (lines.feeCents > 0) {
+        await stripe.invoiceItems.create(
+          {
+            customer: cb.stripeCustomerId,
+            invoice: invoice.id,
+            amount: lines.feeCents,
+            currency: "usd",
+            description: `Monthly fee · ${label}`,
+          },
+          { idempotencyKey: `${k}:fee` },
+        );
+      }
+      // Finalised invoices are immutable and complete, so letting Stripe keep retrying a decline is safe.
+      finalized = await stripe.invoices.finalizeInvoice(invoice.id, { auto_advance: true }, { idempotencyKey: `${k}:finalize` });
+      must(
+        "mark open",
+        await admin
+          .from("billing_invoices")
+          .update({
+            stripe_invoice_id: finalized.id,
+            hosted_invoice_url: finalized.hosted_invoice_url ?? null,
+            invoice_pdf_url: finalized.invoice_pdf ?? null,
+            status: "open",
+            finalized_at: now(),
+            updated_at: now(),
+          })
+          .eq("id", rowId),
+      );
+    }
+
+    // 6. Pay now so the run reports a real outcome.
+    const outcome = await payInvoice(stripe, finalized.id, `emma:inv:${rowId}:${attemptId}:pay`);
+    payReturned = outcome;
     const hostedInvoiceUrl = outcome.hostedInvoiceUrl ?? finalized.hosted_invoice_url ?? null;
-    await admin
-      .from("billing_invoices")
-      .update({
-        status: outcome.status,
-        failure_code: outcome.failureCode,
-        failure_message: outcome.failureMessage,
-        paid_at: outcome.paidAt,
-        hosted_invoice_url: hostedInvoiceUrl,
-        invoice_pdf_url: outcome.invoicePdfUrl ?? finalized.invoice_pdf ?? null,
-        updated_at: now(),
-      })
-      .eq("id", rowId);
+    const totalCents = lines?.totalCents ?? adopted?.total ?? null;
+    must(
+      "record payment outcome",
+      await admin
+        .from("billing_invoices")
+        .update({
+          status: outcome.status,
+          failure_code: outcome.failureCode,
+          failure_message: outcome.failureMessage,
+          paid_at: outcome.paidAt,
+          hosted_invoice_url: hostedInvoiceUrl,
+          invoice_pdf_url: outcome.invoicePdfUrl ?? finalized.invoice_pdf ?? null,
+          updated_at: now(),
+        })
+        .eq("id", rowId),
+    );
 
     if (outcome.status === "failed" || outcome.status === "action_required") {
       const failedKind = outcome.status;
@@ -506,7 +670,7 @@ export async function invoiceMonth(
           clientId,
           clientName,
           month,
-          totalCents: lines.totalCents,
+          totalCents: totalCents ?? 0,
           reason: outcome.failureMessage ?? "Payment declined",
           kind: failedKind,
           origin,
@@ -514,19 +678,48 @@ export async function invoiceMonth(
         }),
       );
     }
-    return result("invoiced", {
-      status: outcome.status,
-      totalCents: lines.totalCents,
-      stripeInvoiceId: finalized.id,
-      hostedInvoiceUrl,
-    });
+    return result("invoiced", { status: outcome.status, totalCents, stripeInvoiceId: finalized.id, hostedInvoiceUrl });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await admin
+
+    // A write that failed AFTER pay returned is not a decline and must not be undone.
+    if (payReturned) {
+      console.error("[billing] local write failed after pay", { rowId, stripeInvoiceId, status: payReturned.status }, e);
+      return result("error", {
+        stripeInvoiceId,
+        error:
+          payReturned.status === "paid"
+            ? `Paid on Stripe (${stripeInvoiceId}) but the local write failed; the invoice.paid webhook will correct it`
+            : `Payment attempted on Stripe (${stripeInvoiceId}) but the local write failed; webhooks will correct it`,
+      });
+    }
+
+    // Otherwise undo whatever Stripe state we created, then record the failure.
+    let failure: Row = { status: "failed", failure_code: "stripe_error", failure_message: message };
+    let reportId = stripeInvoiceId;
+    if (stripeInvoiceId) {
+      const cleaned = await cleanupStripeInvoice(stripe, stripeInvoiceId);
+      if (!cleaned.ok) {
+        failure = {
+          status: "failed",
+          failure_code: "cleanup_failed",
+          failure_message: `${message} (cleanup of ${stripeInvoiceId} failed: ${cleaned.reason})`,
+          stripe_invoice_id: stripeInvoiceId,
+        };
+      } else if (cleaned.removed) {
+        failure = { ...failure, stripe_invoice_id: null };
+        reportId = null;
+      } else if (cleaned.stripeStatus && cleaned.stripeStatus !== "void") {
+        // Already settled on Stripe (e.g. paid before the error): reflect it, do not call it failed.
+        failure = { status: invoiceStatusFromStripe(cleaned.stripeStatus), stripe_invoice_id: stripeInvoiceId, failure_code: null, failure_message: null };
+      }
+    }
+    const { error: writeErr } = await admin
       .from("billing_invoices")
-      .update({ ...lineCols, status: "failed", failure_code: "stripe_error", failure_message: message, updated_at: now() })
+      .update({ ...failure, updated_at: now() })
       .eq("id", rowId);
-    return result("error", { status: "failed", error: message });
+    if (writeErr) console.error("[billing] could not record failure", rowId, writeErr.message);
+    return result("error", { status: "failed", stripeInvoiceId: reportId, error: message });
   }
 }
 
@@ -620,13 +813,14 @@ export async function runBilling(
 
   const counts = countOutcomes(results);
   const summary: RunSummary = { trigger, startedAt, finishedAt: now(), results, counts };
-  await admin.from("billing_runs").insert({
+  const { error: runErr } = await admin.from("billing_runs").insert({
     trigger,
     livemode: stripeLivemode(),
     started_at: startedAt,
     finished_at: summary.finishedAt,
     summary,
   });
+  if (runErr) console.error("[billing] could not write billing_runs summary", runErr.message);
 
   const anyFailure = results.some((r) => r.status === "failed" || r.status === "action_required");
   if (counts.invoiced > 0 || counts.error > 0 || anyFailure) {
@@ -648,23 +842,49 @@ export async function retryInvoice(
   rowId: string,
 ): Promise<{ ok: boolean; status: InvoiceStatus | null; message: string | null }> {
   const admin = createAdminClient();
-  const { data } = await admin.from("billing_invoices").select<string, Row>(INVOICE_COLS).eq("id", rowId).maybeSingle();
+  const { data, error } = await admin.from("billing_invoices").select<string, Row>(INVOICE_COLS).eq("id", rowId).maybeSingle();
+  if (error) throw new Error(`retryInvoice: ${error.message}`);
   if (!data) return { ok: false, status: null, message: "Invoice not found" };
   const row = rowToInvoice(data);
+  if (row.livemode !== stripeLivemode()) {
+    return { ok: false, status: row.status, message: "This invoice belongs to the other Stripe mode" };
+  }
   if (!row.stripeInvoiceId || !["failed", "open", "action_required"].includes(row.status)) {
     return { ok: false, status: row.status, message: "This invoice can't be retried" };
   }
-  const outcome = await payInvoice(getStripe(), row.stripeInvoiceId, `emma:inv:${rowId}:retry:${Date.now()}`);
-  await admin
-    .from("billing_invoices")
-    .update({
-      status: outcome.status,
-      failure_code: outcome.failureCode,
-      failure_message: outcome.failureMessage,
-      paid_at: outcome.paidAt,
-      updated_at: now(),
-    })
-    .eq("id", rowId);
+  const stripe = getStripe();
+  const current = await stripe.invoices.retrieve(row.stripeInvoiceId);
+
+  let outcome: PayOutcome;
+  if (current.status === "paid" || current.status === "void" || current.status === "uncollectible") {
+    // Stripe already settled it: record that, never overwrite it with a retry result.
+    const paidSec = current.status_transitions?.paid_at ?? null;
+    outcome = {
+      status: invoiceStatusFromStripe(current.status),
+      failureCode: null,
+      failureMessage: null,
+      paidAt: paidSec ? new Date(paidSec * 1000).toISOString() : null,
+      hostedInvoiceUrl: current.hosted_invoice_url ?? null,
+      invoicePdfUrl: current.invoice_pdf ?? null,
+    };
+  } else {
+    outcome = await payInvoice(stripe, row.stripeInvoiceId, `emma:inv:${rowId}:retry:${randomUUID()}`);
+  }
+  must(
+    "retry: record outcome",
+    await admin
+      .from("billing_invoices")
+      .update({
+        status: outcome.status,
+        failure_code: outcome.failureCode,
+        failure_message: outcome.failureMessage,
+        paid_at: outcome.paidAt,
+        ...(outcome.hostedInvoiceUrl ? { hosted_invoice_url: outcome.hostedInvoiceUrl } : {}),
+        ...(outcome.invoicePdfUrl ? { invoice_pdf_url: outcome.invoicePdfUrl } : {}),
+        updated_at: now(),
+      })
+      .eq("id", rowId),
+  );
   return { ok: outcome.status === "paid", status: outcome.status, message: outcome.failureMessage };
 }
 
