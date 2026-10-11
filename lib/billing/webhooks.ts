@@ -13,6 +13,15 @@ import { eventSubject, planTransition, type BillingTransition, type WebhookEvent
 const IN_FLIGHT_MS = 60_000;
 
 /**
+ * An unprocessed event row younger than IN_FLIGHT_MS is presumed to be mid-handling by another
+ * delivery: throw so Stripe retries later. Older means that attempt died or failed; run again.
+ */
+function assertNotInFlight(receivedAt: unknown): void {
+  const age = receivedAt ? Date.now() - Date.parse(String(receivedAt)) : Infinity;
+  if (age < IN_FLIGHT_MS) throw new Error("event in flight");
+}
+
+/**
  * Stripe → us. Idempotent by event id (`billing_events`): a processed event is a no-op on
  * redelivery; an event whose handler threw stays unprocessed so Stripe's retry runs it again.
  * Decisions live in the pure `planTransition`; this file only resolves ids and applies.
@@ -26,6 +35,7 @@ export async function handleStripeEvent(event: Stripe.Event, origin: string): Pr
     .maybeSingle();
   if (selErr) throw new Error(`billing_events lookup: ${selErr.message}`);
   if (existing?.processed_at) return;
+  if (existing) assertNotInFlight(existing.received_at);
   if (!existing) {
     const { error: insErr } = await admin
       .from("billing_events")
@@ -40,9 +50,7 @@ export async function handleStripeEvent(event: Stripe.Event, origin: string): Pr
         .maybeSingle();
       if (reErr) throw new Error(`billing_events re-lookup: ${reErr.message}`);
       if (other?.processed_at) return;
-      const age = other?.received_at ? Date.now() - Date.parse(String(other.received_at)) : Infinity;
-      // Still being handled by the other delivery: have Stripe retry later. Older: it died; proceed.
-      if (age < IN_FLIGHT_MS) throw new Error("event in flight");
+      assertNotInFlight(other?.received_at);
     }
   }
   try {
