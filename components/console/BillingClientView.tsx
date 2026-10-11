@@ -15,7 +15,7 @@ import type { InvoiceRow, MonthFigure } from "@/lib/billing/invoices";
 import { bpsToPercent, centsToDollarsInput } from "@/lib/billing/money";
 import { cardLabel } from "@/lib/billing/notify";
 import type { SetupLink } from "@/lib/billing/setup";
-import { INVOICE_STATUS_LABEL, STATUS_LABEL, type ClientBillingStatus } from "@/lib/billing/status";
+import { INVOICE_STATUS_LABEL, STATUS_LABEL, setupLinkState, type ClientBillingStatus } from "@/lib/billing/status";
 import { initials as toInitials, relTime } from "@/lib/format";
 import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
 
@@ -99,7 +99,11 @@ function errorText(code: string | null): string | null {
     case "client":
       return "Client not found.";
     case "month":
-      return "Choose a closed month (never the current one).";
+      return "That month can't be charged.";
+    case "bill_from":
+      return "Bill-from can't be more than 12 months in the past.";
+    case "no_valid_link":
+      return "That link is no longer valid. Generate a new one.";
     default:
       return null;
   }
@@ -109,7 +113,7 @@ export function BillingClientView(p: BillingClientViewProps) {
   const { client, cb, settings } = p;
   const notice = noticeText(p);
   const error = errorText(p.error);
-  const pending = p.links.filter((l) => l.status === "pending");
+  const now = new Date();
 
   return (
     <div className="mx-auto max-w-[1000px]">
@@ -225,33 +229,48 @@ export function BillingClientView(p: BillingClientViewProps) {
             </form>
           }
         >
-          {pending.length === 0 ? (
-            <div className="px-5 py-6 text-center text-[13px] text-muted">No pending links.</div>
+          {p.links.length === 0 ? (
+            <div className="px-5 py-6 text-center text-[13px] text-muted">No links yet.</div>
           ) : (
-            pending.map((l) => {
+            p.links.map((l) => {
+              const state = setupLinkState(l, now);
+              const valid = state === "valid";
               const url = `${p.baseUrl}/billing/setup/${l.token}`;
               return (
                 <div key={l.id} className="border-b border-lavender px-5 py-4 last:border-0">
                   <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-[8px] border border-lavender-deep bg-lavender px-2.5 py-1.5 font-mono text-[11.5px] text-ink">{url}</code>
-                    <CopyButton value={url} />
-                    <form action={revokeLink}>
+                    <span className={`flex-none rounded-full border px-2 py-0.5 font-mono text-[10.5px] ${valid ? "border-success/40 bg-success/10 text-ink" : "border-ink/10 bg-lavender text-muted"}`}>
+                      {state}
+                    </span>
+                    {valid ? (
+                      <>
+                        <code className="min-w-0 flex-1 truncate rounded-[8px] border border-lavender-deep bg-lavender px-2.5 py-1.5 font-mono text-[11.5px] text-ink">{url}</code>
+                        <CopyButton value={url} />
+                        <form action={revokeLink}>
+                          <input type="hidden" name="clientId" value={client.id} />
+                          <input type="hidden" name="linkId" value={l.id} />
+                          <SubmitButton pendingLabel="Revoking…" className="rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-danger transition-colors hover:bg-danger/8">
+                            Revoke
+                          </SubmitButton>
+                        </form>
+                      </>
+                    ) : (
+                      <span className="font-mono text-[11px] text-muted">
+                        {state === "expired" ? "expired" : state} {dayLabel(l.expiresAt.slice(0, 10))}{l.sentTo ? ` · sent to ${l.sentTo}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  {valid ? (
+                    <form action={emailSetupLink} className="mt-2.5 flex flex-wrap items-center gap-2">
                       <input type="hidden" name="clientId" value={client.id} />
                       <input type="hidden" name="linkId" value={l.id} />
-                      <SubmitButton pendingLabel="Revoking…" className="rounded-[8px] border border-ink/10 bg-white px-2.5 py-1.5 font-display text-[12px] font-medium text-danger transition-colors hover:bg-danger/8">
-                        Revoke
+                      <input type="email" name="email" required defaultValue={l.sentTo ?? cb?.billingEmail ?? ""} placeholder="billing@client.com" className="min-w-[220px] flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60" />
+                      <SubmitButton pendingLabel="Sending…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
+                        {l.sentTo ? "Email again" : "Email link"}
                       </SubmitButton>
+                      <span className="font-mono text-[11px] text-muted">expires {dayLabel(l.expiresAt.slice(0, 10))}{l.sentTo ? ` · sent to ${l.sentTo}` : ""}</span>
                     </form>
-                  </div>
-                  <form action={emailSetupLink} className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <input type="hidden" name="clientId" value={client.id} />
-                    <input type="hidden" name="linkId" value={l.id} />
-                    <input type="email" name="email" required defaultValue={l.sentTo ?? cb?.billingEmail ?? ""} placeholder="billing@client.com" className="min-w-[220px] flex-1 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] text-ink placeholder:text-muted/60" />
-                    <SubmitButton pendingLabel="Sending…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
-                      {l.sentTo ? "Email again" : "Email link"}
-                    </SubmitButton>
-                    <span className="font-mono text-[11px] text-muted">expires {dayLabel(l.expiresAt.slice(0, 10))}{l.sentTo ? ` · sent to ${l.sentTo}` : ""}</span>
-                  </form>
+                  ) : null}
                 </div>
               );
             })

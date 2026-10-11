@@ -7,9 +7,9 @@ import { removeCard } from "@/lib/billing/customers";
 import { invoiceMonth, retryInvoice, runBilling, tzOf, listInvoices } from "@/lib/billing/invoices";
 import { parseAnchorDay, parseDollarsToCents, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
 import { sendSetupLinkEmail } from "@/lib/billing/notify";
-import { localDate, monthOf, prevMonth } from "@/lib/billing/schedule";
+import { closedMonthsWithoutInvoice, localDate, monthOf, prevMonth } from "@/lib/billing/schedule";
+import { setupLinkState } from "@/lib/billing/status";
 import {
-  SETUP_LINK_TTL_DAYS,
   createSetupLink,
   listSetupLinks,
   markSetupLinkSent,
@@ -62,11 +62,12 @@ export async function runBillingNow() {
 async function knownClient(clientId: string): Promise<{ id: string; name: string; timezone: string | null } | null> {
   if (!clientId) return null;
   const admin = createAdminClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("olivia_clients")
     .select("olivia_client_id, name, timezone")
     .eq("olivia_client_id", clientId)
     .maybeSingle();
+  if (error) throw new Error(`Client lookup failed: ${error.message}`);
   return data
     ? {
         id: data.olivia_client_id as string,
@@ -104,6 +105,12 @@ export async function saveClientBilling(formData: FormData) {
   const billFromRaw = str(formData, "billFromMonth");
   const billFromMonth = billFromRaw ? parseMonthKey(billFromRaw) : null;
   if (billFromRaw && !billFromMonth) redirect(`${back}?error=invalid`);
+  if (billFromMonth) {
+    // A year typo would raise a year of fee invoices: no more than 12 months back (future is fine).
+    let earliest = monthOf(localDate(new Date(), tzOf(client.timezone)));
+    for (let i = 0; i < 12; i++) earliest = prevMonth(earliest);
+    if (billFromMonth < earliest) redirect(`${back}?error=bill_from`);
+  }
   const markupRaw = str(formData, "markup");
   const markupBps = markupRaw ? parsePercentToBps(markupRaw) : null;
   if (markupRaw && markupBps == null) redirect(`${back}?error=invalid`);
@@ -166,9 +173,10 @@ export async function emailSetupLink(formData: FormData) {
   let target = `${back}?notice=sent`;
   try {
     // The token comes from the stored link for THIS client, never from the form.
-    const link = (await listSetupLinks(client.id)).find((l) => l.id === linkId && l.status === "pending");
+    const now = new Date();
+    const link = (await listSetupLinks(client.id)).find((l) => l.id === linkId && setupLinkState(l, now) === "valid");
     if (!link) {
-      target = `${back}?error=link`;
+      target = `${back}?error=no_valid_link`;
     } else {
       const cb = await loadClientBilling(client.id);
       const { error } = await sendSetupLinkEmail({
@@ -178,7 +186,7 @@ export async function emailSetupLink(formData: FormData) {
         setupUrl: setupLinkUrl(await getRequestOrigin(), link.token),
         feeCents: cb?.effective.feeCents ?? 0,
         anchorDay: cb?.effective.anchorDay ?? 3,
-        expiresInDays: SETUP_LINK_TTL_DAYS,
+        expiresInDays: Math.max(1, Math.ceil((Date.parse(link.expiresAt) - now.getTime()) / 86_400_000)),
       });
       if (error) {
         console.error("[billing] setup link email failed:", error);
@@ -235,6 +243,22 @@ export async function chargeNow(formData: FormData) {
   const month = parseMonthKey(str(formData, "month"));
   const lastClosed = prevMonth(monthOf(localDate(new Date(), tzOf(client.timezone))));
   if (!month || month > lastClosed) redirect(`${back}?error=month`);
+
+  // Only months the page offers: bill-from onward, closed, not yet invoiced. Decided before the
+  // charge try/catch so redirect() is never inside a catch.
+  let allowed = false;
+  try {
+    const cb = await loadClientBilling(client.id);
+    if (cb?.enabled && cb.billFromMonth) {
+      const invoiced = (await listInvoices(client.id)).map((i) => i.periodMonth);
+      const today = localDate(new Date(), tzOf(client.timezone));
+      allowed = closedMonthsWithoutInvoice(today, cb.billFromMonth, invoiced).includes(month);
+    }
+  } catch (e) {
+    console.error("[billing] charge now pre-check failed", e);
+    redirect(`${back}?error=charge`);
+  }
+  if (!allowed) redirect(`${back}?error=month`);
 
   let target: string;
   try {

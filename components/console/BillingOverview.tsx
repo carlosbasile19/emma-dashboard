@@ -54,7 +54,9 @@ export function BillingOverview(p: BillingOverviewProps) {
       ? "Check the values: markup 0–300%, fee in dollars, anchor day 1–28."
       : p.error === "save_failed"
         ? "Could not save the defaults. Try again."
-        : p.error === "run_failed"
+        : p.error === "client"
+          ? "That workspace was not found."
+          : p.error === "run_failed"
           ? "The billing run could not complete. Try again, or check the run log."
           : null;
 
