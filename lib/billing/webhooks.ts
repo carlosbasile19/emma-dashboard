@@ -111,12 +111,11 @@ async function applyEvent(ev: WebhookEventShape, origin: string): Promise<void> 
         const live = await liveDefaultPaymentMethod(customerId);
         if (live === mirroredPaymentMethodId) return;
         if (live) await refreshCardMirror(plan.clientId, live);
-        else await writeCardMirror(plan.clientId, null);
+        else if (mirroredPaymentMethodId) await clearMirrorAndNotify(plan.clientId, mirroredPaymentMethodId, origin);
         return;
       }
       if (plan.kind === "card_cleared") {
-        await writeCardMirror(plan.clientId, null);
-        if (plan.notify) await safeNotify("card removed", () => notifyCardRemoved(plan.clientId, "detached", origin));
+        if (mirroredPaymentMethodId) await clearMirrorAndNotify(plan.clientId, mirroredPaymentMethodId, origin);
       } else {
         await refreshCardMirror(plan.clientId, plan.paymentMethodId);
       }
@@ -130,6 +129,26 @@ async function applyEvent(ev: WebhookEventShape, origin: string): Promise<void> 
       await applyInvoiceStatus(plan, origin);
       return;
   }
+}
+
+/**
+ * A card removed in the Stripe dashboard produces both `customer.updated` and
+ * `payment_method.detached`, in either order. Clearing the non-null mirror is the notification
+ * claim: the conditional update succeeds for exactly one handler, which clears the rest of the
+ * mirror and emails; the other finds the mirror already null and stays silent. An in-app removal
+ * nulls the mirror first, so both webhooks stay silent (removeCard emails itself).
+ */
+async function clearMirrorAndNotify(clientId: string, mirroredPaymentMethodId: string, origin: string): Promise<void> {
+  const { data, error } = await createAdminClient()
+    .from("client_billing")
+    .update({ default_payment_method_id: null, updated_at: new Date().toISOString() })
+    .eq("olivia_client_id", clientId)
+    .eq("default_payment_method_id", mirroredPaymentMethodId)
+    .select("olivia_client_id");
+  if (error) throw new Error(`client_billing card clear: ${error.message}`);
+  if (!data || data.length === 0) return;
+  await writeCardMirror(clientId, null);
+  await safeNotify("card removed", () => notifyCardRemoved(clientId, "detached", origin));
 }
 
 /** A notification failure must never fail the event: Stripe would redeliver and re-run side effects. */

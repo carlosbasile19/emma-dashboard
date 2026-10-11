@@ -260,7 +260,19 @@ export async function reconcileCheckoutSession(
     }
     return { ok: false, reason: "stale" };
   }
-  if (setupToken) await completeSetupLink(setupToken);
-  await notifyCardAdded(clientId, card, origin);
+  // The card is adopted: nothing after this may turn that into an error result.
+  if (setupToken) {
+    try {
+      await completeSetupLink(setupToken);
+    } catch (e) {
+      // The link stays reusable until a later adoption attempt marks it.
+      console.error("[billing] setup link not marked completed", { sessionId, clientId, setupToken }, e);
+    }
+  }
+  try {
+    await notifyCardAdded(clientId, card, origin);
+  } catch (e) {
+    console.error("[billing] card-added notification failed", { sessionId, clientId }, e);
+  }
   return { ok: true, clientId, card, alreadyDone: false };
 }
