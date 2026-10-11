@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, stripeLivemode } from "@/lib/stripe/client";
-import { loadClientBilling, type CardOnFile } from "./config";
+import { loadClientBilling, updateClientBillingColumns, type CardOnFile } from "./config";
 import { CHECKOUT_SUBMIT_MESSAGE } from "./copy";
 import { ensureCustomer, setDefaultCard } from "./customers";
 import { notifyCardAdded } from "./notify";
@@ -225,6 +225,7 @@ export async function reconcileCheckoutSession(
     if (found.state !== "valid" && found.state !== "completed") return { ok: false, reason: "link_invalid" };
   }
 
+  const previousPmId = cb.card?.paymentMethodId ?? null;
   // Atomic claim. The conditional update is the lock: only one caller can change the stored
   // card id from something else to pmId, so only that caller adopts and notifies.
   const admin = createAdminClient();
@@ -246,6 +247,16 @@ export async function reconcileCheckoutSession(
       clientId,
       message: err instanceof Error ? err.message : String(err),
     });
+    // A failed adoption must never leave a chargeable-looking row.
+    try {
+      await updateClientBillingColumns(clientId, { default_payment_method_id: previousPmId });
+    } catch (restoreErr) {
+      console.error("[billing] reconcile could not restore the previous card id", {
+        sessionId,
+        clientId,
+        message: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+      });
+    }
     return { ok: false, reason: "stale" };
   }
   if (setupToken) await completeSetupLink(setupToken);
