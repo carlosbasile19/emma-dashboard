@@ -70,23 +70,32 @@ export async function createSetupLink(clientId: string, createdBy: string | null
 /** Newest first. */
 export async function listSetupLinks(clientId: string): Promise<SetupLink[]> {
   const admin = createAdminClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("billing_setup_links")
     .select(COLS)
     .eq("olivia_client_id", clientId)
     .order("created_at", { ascending: false })
     .limit(20);
+  if (error) throw new Error(`listSetupLinks failed: ${error.message}`);
   return (data ?? []).map((r) => rowToLink(r as Record<string, unknown>));
 }
 
-export async function revokeSetupLink(id: string): Promise<void> {
+/** Revokes a pending link, but only if it belongs to `clientId` (the route's client). */
+export async function revokeSetupLink(id: string, clientId: string): Promise<void> {
   const admin = createAdminClient();
-  await admin.from("billing_setup_links").update({ status: "revoked" }).eq("id", id).eq("status", "pending");
+  const { error } = await admin
+    .from("billing_setup_links")
+    .update({ status: "revoked" })
+    .eq("id", id)
+    .eq("olivia_client_id", clientId)
+    .eq("status", "pending");
+  if (error) throw new Error(`revokeSetupLink failed: ${error.message}`);
 }
 
 export async function markSetupLinkSent(id: string, to: string): Promise<void> {
   const admin = createAdminClient();
-  await admin.from("billing_setup_links").update({ sent_to: to }).eq("id", id);
+  const { error } = await admin.from("billing_setup_links").update({ sent_to: to }).eq("id", id);
+  if (error) throw new Error(`markSetupLinkSent failed: ${error.message}`);
 }
 
 export async function getSetupLink(
@@ -94,7 +103,8 @@ export async function getSetupLink(
 ): Promise<{ link: SetupLink; state: SetupLinkState } | null> {
   if (!token) return null;
   const admin = createAdminClient();
-  const { data } = await admin.from("billing_setup_links").select(COLS).eq("token", token).maybeSingle();
+  const { data, error } = await admin.from("billing_setup_links").select(COLS).eq("token", token).maybeSingle();
+  if (error) throw new Error(`getSetupLink failed: ${error.message}`);
   if (!data) return null;
   const link = rowToLink(data as Record<string, unknown>);
   return { link, state: setupLinkState({ status: link.status, expiresAt: link.expiresAt }, new Date()) };
@@ -102,17 +112,19 @@ export async function getSetupLink(
 
 export async function completeSetupLink(token: string): Promise<void> {
   const admin = createAdminClient();
-  await admin
+  const { error } = await admin
     .from("billing_setup_links")
     .update({ status: "completed", completed_at: new Date().toISOString() })
     .eq("token", token)
     .eq("status", "pending");
+  if (error) throw new Error(`completeSetupLink failed: ${error.message}`);
 }
 
 /**
  * A Stripe Checkout Session in setup mode for the client's customer. Returns the hosted URL to
  * redirect the browser to. `successUrl` must contain the literal `{CHECKOUT_SESSION_ID}`
  * placeholder — Stripe substitutes it, and the return page uses it to reconcile.
+ * A `setupToken` must be a valid (pending, unexpired) link belonging to `clientId`.
  */
 export async function createCheckoutSession(args: {
   clientId: string;
@@ -120,6 +132,12 @@ export async function createCheckoutSession(args: {
   cancelUrl: string;
   setupToken?: string | null;
 }): Promise<string> {
+  if (args.setupToken) {
+    const found = await getSetupLink(args.setupToken);
+    if (!found || found.state !== "valid" || found.link.clientId !== args.clientId) {
+      throw new Error("Setup link is not valid");
+    }
+  }
   const customerId = await ensureCustomer(args.clientId);
   const metadata: Record<string, string> = {
     emma_client_id: args.clientId,
@@ -145,13 +163,25 @@ export type ReconcileResult =
   | { ok: true; clientId: string; card: CardOnFile; alreadyDone: boolean }
   | {
       ok: false;
-      reason: "incomplete" | "not_emma" | "client_mismatch" | "customer_mismatch" | "no_payment_method";
+      reason:
+        | "incomplete"
+        | "not_emma"
+        | "client_mismatch"
+        | "customer_mismatch"
+        | "no_payment_method"
+        | "not_found"
+        | "stale"
+        | "link_invalid"
+        | "link_revoked"
+        | "link_expired"
+        | "already_adopted";
     };
 
 /**
  * After Checkout: verify the session, make its payment method the card on file, complete the
  * setup link it came from, and email the admins. Idempotent — the return page and the webhook
- * both call it; the second caller finds the card already mirrored and sends nothing.
+ * both call it. Only the caller that wins the atomic claim on `client_billing` adopts the card
+ * and sends the email; every other caller gets `already_adopted`.
  *
  * `expectedClientId` is the tenant guard for the return page (the session's client must be the
  * one the page belongs to); the webhook passes the session's own client id.
@@ -161,7 +191,12 @@ export async function reconcileCheckoutSession(
   expectedClientId: string | null,
   origin: string,
 ): Promise<ReconcileResult> {
-  const session = await getStripe().checkout.sessions.retrieve(sessionId, { expand: ["setup_intent"] });
+  let session;
+  try {
+    session = await getStripe().checkout.sessions.retrieve(sessionId, { expand: ["setup_intent"] });
+  } catch {
+    return { ok: false, reason: "not_found" };
+  }
   if (session.mode !== "setup" || session.status !== "complete") return { ok: false, reason: "incomplete" };
   const clientId = session.metadata?.emma_client_id;
   if (!clientId) return { ok: false, reason: "not_emma" };
@@ -178,12 +213,41 @@ export async function reconcileCheckoutSession(
   const pmId = typeof pmRef === "string" ? pmRef : (pmRef?.id ?? null);
   if (!pmId) return { ok: false, reason: "no_payment_method" };
 
+  // The link must still belong to this client and still be usable. A session opened before a
+  // revoke or expiry must not adopt the card. A completed link is accepted so a replay of the
+  // same session reaches the claim below and reports already_adopted.
   const setupToken = session.metadata?.emma_setup_token || null;
-  if (cb.card?.paymentMethodId === pmId) {
-    if (setupToken) await completeSetupLink(setupToken);
-    return { ok: true, clientId, card: cb.card, alreadyDone: true };
+  if (setupToken) {
+    const found = await getSetupLink(setupToken);
+    if (!found || found.link.clientId !== clientId) return { ok: false, reason: "link_invalid" };
+    if (found.state === "revoked") return { ok: false, reason: "link_revoked" };
+    if (found.state === "expired") return { ok: false, reason: "link_expired" };
+    if (found.state !== "valid" && found.state !== "completed") return { ok: false, reason: "link_invalid" };
   }
-  const card = await setDefaultCard(clientId, pmId);
+
+  // Atomic claim. The conditional update is the lock: only one caller can change the stored
+  // card id from something else to pmId, so only that caller adopts and notifies.
+  const admin = createAdminClient();
+  const { data: claimed, error: claimErr } = await admin
+    .from("client_billing")
+    .update({ default_payment_method_id: pmId, updated_at: new Date().toISOString() })
+    .eq("olivia_client_id", clientId)
+    .or(`default_payment_method_id.is.null,default_payment_method_id.neq.${pmId}`)
+    .select("olivia_client_id");
+  if (claimErr) throw new Error(`Card adoption claim failed: ${claimErr.message}`);
+  if (!claimed || claimed.length === 0) return { ok: false, reason: "already_adopted" };
+
+  let card: CardOnFile;
+  try {
+    card = await setDefaultCard(clientId, pmId);
+  } catch (err) {
+    console.error("[billing] reconcile setDefaultCard failed", {
+      sessionId,
+      clientId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, reason: "stale" };
+  }
   if (setupToken) await completeSetupLink(setupToken);
   await notifyCardAdded(clientId, card, origin);
   return { ok: true, clientId, card, alreadyDone: false };
