@@ -19,7 +19,7 @@ import {
   notifyUsageUnavailable,
   type RunSummaryLine,
 } from "./notify";
-import { dueMonths, localDate, monthOf, nextChargeDate, prevMonth } from "./schedule";
+import { dueMonths, localDate, monthOf, nextChargeDate, prevMonth, shouldAlertNoCard } from "./schedule";
 import { createSetupLink, setupLinkUrl } from "./setup";
 import { invoiceStatusFromStripe, isInvoiceStatus, type InvoiceStatus } from "./status";
 
@@ -146,7 +146,11 @@ function rowToInvoice(r: Row): InvoiceRow {
 /** Newest month first. */
 export async function listInvoices(clientId?: string): Promise<InvoiceRow[]> {
   const admin = createAdminClient();
-  let q = admin.from("billing_invoices").select<string, Row>(INVOICE_COLS).order("period_month", { ascending: false });
+  let q = admin
+    .from("billing_invoices")
+    .select<string, Row>(INVOICE_COLS)
+    .eq("livemode", stripeLivemode())
+    .order("period_month", { ascending: false });
   if (clientId) q = q.eq("olivia_client_id", clientId);
   const { data, error } = await q;
   if (error) throw new Error(`listInvoices: ${error.message}`);
@@ -191,6 +195,7 @@ export async function lastBillingRun(): Promise<BillingRunInfo | null> {
   const { data, error } = await admin
     .from("billing_runs")
     .select("trigger, started_at, finished_at, summary")
+    .eq("livemode", stripeLivemode())
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -357,12 +362,16 @@ async function claimRow(admin: Admin, row: ExistingRow, fields: Row): Promise<bo
   return (data?.length ?? 0) === 1;
 }
 
+/** Statuses a webhook may have written that a later local write must never overwrite. */
+const SETTLED = "(paid,void,uncollectible)";
+
 /** A `reserved` row older than this came from a crashed run and is reconciled, not respected. */
 const RESERVATION_STALE_MS = 60 * 60 * 1000;
 
 /**
- * Undo a half-built Stripe invoice. draft -> delete, open -> void; paid/other is left alone.
- * Returns the invoice's resulting state, or the reason cleanup failed. Never swallows an error.
+ * Undo a half-built Stripe invoice: a draft is deleted. Anything else (open, paid, void,
+ * uncollectible) is left alone and its status reported — a finalised invoice is NEVER voided,
+ * because a void row would make the month unbillable. Never swallows an error.
  */
 async function cleanupStripeInvoice(
   stripe: Stripe,
@@ -373,10 +382,6 @@ async function cleanupStripeInvoice(
     if (inv.status === "draft") {
       await stripe.invoices.del(invoiceId);
       return { ok: true, removed: true, stripeStatus: "deleted" };
-    }
-    if (inv.status === "open") {
-      await stripe.invoices.voidInvoice(invoiceId);
-      return { ok: true, removed: false, stripeStatus: "void" };
     }
     return { ok: true, removed: false, stripeStatus: inv.status };
   } catch (e) {
@@ -411,9 +416,14 @@ export async function invoiceMonth(
 
   const cb = await loadClientBilling(clientId);
   if (!cb?.enabled) return result("skipped_disabled");
-  if (!cb.card || !cb.stripeCustomerId || cb.stripeLivemode !== live) {
-    // Once per due month, not once per day.
-    if (cb.noCardAlertedMonth !== month) {
+  // A customer from the other key mode (a sandbox session on the shared database, or vice versa)
+  // is not "no card": never alert or touch the alert marker for it.
+  if (cb.stripeCustomerId && cb.stripeLivemode !== live) {
+    return result("skipped_disabled", { error: "Client is billed under the other Stripe mode" });
+  }
+  if (!cb.card || !cb.stripeCustomerId) {
+    // Once per newly-due month (months run oldest first), never again on repeat runs.
+    if (shouldAlertNoCard(month, cb.noCardAlertedMonth)) {
       await safeNotify("no-card", () => notifyNoCard(clientId, clientName, month, origin));
       await updateClientBillingColumns(clientId, { no_card_alerted_month: month });
     }
@@ -549,6 +559,8 @@ export async function invoiceMonth(
   let stripeInvoiceId: string | null = adopted?.id ?? null;
   let payReturned: PayOutcome | null = null;
   let payAttempted = false;
+  /** True once the Stripe invoice is finalised (open): from then on it is never deleted or voided. */
+  let finalizedOnStripe = adopted != null;
 
   try {
     let finalized: { id: string; hosted_invoice_url?: string | null; invoice_pdf?: string | null };
@@ -630,20 +642,35 @@ export async function invoiceMonth(
       }
       // Finalised invoices are immutable and complete, so letting Stripe keep retrying a decline is safe.
       finalized = await stripe.invoices.finalizeInvoice(invoice.id, { auto_advance: true }, { idempotencyKey: `${k}:finalize` });
-      must(
-        "mark open",
-        await admin
-          .from("billing_invoices")
-          .update({
-            stripe_invoice_id: finalized.id,
-            hosted_invoice_url: finalized.hosted_invoice_url ?? null,
-            invoice_pdf_url: finalized.invoice_pdf ?? null,
-            status: "open",
-            finalized_at: now(),
-            updated_at: now(),
-          })
-          .eq("id", rowId),
-      );
+      finalizedOnStripe = true;
+      // Conditional: Stripe auto-collects a finalised invoice, so invoice.paid may already have
+      // landed. Never flip a settled row back to open.
+      const openWrite = await admin
+        .from("billing_invoices")
+        .update({
+          stripe_invoice_id: finalized.id,
+          hosted_invoice_url: finalized.hosted_invoice_url ?? null,
+          invoice_pdf_url: finalized.invoice_pdf ?? null,
+          status: "open",
+          finalized_at: now(),
+          updated_at: now(),
+        })
+        .eq("id", rowId)
+        .not("status", "in", SETTLED)
+        .select("id");
+      must("mark open", openWrite);
+      if ((openWrite.data?.length ?? 0) === 0) {
+        // A webhook settled it first: report that, do not pay again.
+        const { data: settled, error: readErr } = await admin.from("billing_invoices").select("status").eq("id", rowId).maybeSingle();
+        if (readErr) throw new Error(`read settled row: ${readErr.message}`);
+        const st = String(settled?.status ?? "");
+        return result("invoiced", {
+          status: isInvoiceStatus(st) ? st : null,
+          totalCents: lines.totalCents,
+          stripeInvoiceId: finalized.id,
+          hostedInvoiceUrl: finalized.hosted_invoice_url ?? null,
+        });
+      }
     }
 
     // 6. Pay now so the run reports a real outcome.
@@ -702,19 +729,26 @@ export async function invoiceMonth(
       });
     }
 
-    // A non-decline error from the pay call is ambiguous (the charge may have gone through): never
-    // delete or void. Leave the invoice open for retry; the invoice.paid webhook corrects a paid one.
-    if (payAttempted && stripeInvoiceId) {
-      console.error("[billing] non-decline error during pay", { rowId, stripeInvoiceId }, e);
-      const { error: openErr } = await admin
-        .from("billing_invoices")
-        .update({ status: "open", stripe_invoice_id: stripeInvoiceId, failure_code: "pay_error", failure_message: message, updated_at: now() })
-        .eq("id", rowId);
-      if (openErr) console.error("[billing] could not record pay_error", rowId, openErr.message);
+    // After finalisation the invoice is never deleted or voided (a void would leave the month
+    // unbillable). A non-decline pay error is ambiguous (the charge may have gone through), so ask
+    // Stripe first; otherwise leave the invoice open for retry and keep its id.
+    if (finalizedOnStripe && stripeInvoiceId) {
+      const failureCode = payAttempted ? "pay_error" : "finalize_error";
+      console.error(`[billing] ${failureCode} after finalise`, { rowId, stripeInvoiceId }, e);
+      const settled = await settledOnStripe(stripe, admin, rowId, stripeInvoiceId);
+      if (settled) {
+        return result("invoiced", {
+          status: settled.status,
+          totalCents: settled.totalCents,
+          stripeInvoiceId,
+          hostedInvoiceUrl: settled.hostedInvoiceUrl,
+        });
+      }
+      await recordOpenForRetry(admin, rowId, stripeInvoiceId, failureCode, message);
       return result("error", {
         status: "open",
         stripeInvoiceId,
-        error: "Payment attempt failed with a non-decline error; invoice left open for retry",
+        error: `${payAttempted ? "Payment attempt" : "Recording the finalised invoice"} failed (${message}); invoice ${stripeInvoiceId} is open on Stripe for retry`,
       });
     }
 
@@ -733,18 +767,86 @@ export async function invoiceMonth(
       } else if (cleaned.removed) {
         failure = { ...failure, stripe_invoice_id: null };
         reportId = null;
-      } else if (cleaned.stripeStatus && cleaned.stripeStatus !== "void") {
+      } else if (cleaned.stripeStatus === "open") {
+        // Finalised despite the throw (e.g. finalize succeeded but its response was lost): never
+        // void it — record it open for retry and keep the id.
+        await recordOpenForRetry(admin, rowId, stripeInvoiceId, "finalize_error", message);
+        return result("error", {
+          status: "open",
+          stripeInvoiceId,
+          error: `${message}; invoice ${stripeInvoiceId} is open on Stripe for retry`,
+        });
+      } else if (cleaned.stripeStatus) {
         // Already settled on Stripe (e.g. paid before the error): reflect it, do not call it failed.
         failure = { status: invoiceStatusFromStripe(cleaned.stripeStatus), stripe_invoice_id: stripeInvoiceId, failure_code: null, failure_message: null };
       }
     }
+    // Conditional: never overwrite a status a webhook already settled.
     const { error: writeErr } = await admin
       .from("billing_invoices")
       .update({ ...failure, updated_at: now() })
-      .eq("id", rowId);
+      .eq("id", rowId)
+      .not("status", "in", SETTLED)
+      .select("id");
     if (writeErr) console.error("[billing] could not record failure", rowId, writeErr.message);
-    return result("error", { status: "failed", stripeInvoiceId: reportId, error: message });
+    return result("error", { status: isInvoiceStatus(String(failure.status)) ? (failure.status as InvoiceStatus) : "failed", stripeInvoiceId: reportId, error: message });
   }
+}
+
+/**
+ * After an ambiguous error on a finalised invoice: if Stripe already settled it (auto-collection
+ * or the pay call went through), record that — conditionally, so a webhook's write is never
+ * overwritten — and return it. null = still open (or the lookup failed); the caller records it open.
+ */
+async function settledOnStripe(
+  stripe: Stripe,
+  admin: Admin,
+  rowId: string,
+  stripeInvoiceId: string,
+): Promise<{ status: InvoiceStatus; totalCents: number; hostedInvoiceUrl: string | null } | null> {
+  let inv: Stripe.Invoice;
+  try {
+    inv = await stripe.invoices.retrieve(stripeInvoiceId);
+  } catch (e) {
+    console.error("[billing] could not re-check invoice after error", stripeInvoiceId, e);
+    return null;
+  }
+  if (inv.status !== "paid") return null;
+  const paidSec = inv.status_transitions?.paid_at ?? null;
+  const { error } = await admin
+    .from("billing_invoices")
+    .update({
+      status: "paid",
+      stripe_invoice_id: stripeInvoiceId,
+      failure_code: null,
+      failure_message: null,
+      paid_at: paidSec ? new Date(paidSec * 1000).toISOString() : now(),
+      hosted_invoice_url: inv.hosted_invoice_url ?? null,
+      invoice_pdf_url: inv.invoice_pdf ?? null,
+      updated_at: now(),
+    })
+    .eq("id", rowId)
+    .not("status", "in", SETTLED)
+    .select("id");
+  if (error) console.error("[billing] could not record paid after error; invoice.paid webhook will", rowId, error.message);
+  return { status: "paid", totalCents: inv.total, hostedInvoiceUrl: inv.hosted_invoice_url ?? null };
+}
+
+/** Record a finalised invoice as open for retry, keeping its id. Never overwrites a settled row. */
+async function recordOpenForRetry(
+  admin: Admin,
+  rowId: string,
+  stripeInvoiceId: string,
+  failureCode: "finalize_error" | "pay_error",
+  message: string,
+): Promise<void> {
+  const { error } = await admin
+    .from("billing_invoices")
+    .update({ status: "open", stripe_invoice_id: stripeInvoiceId, failure_code: failureCode, failure_message: message, updated_at: now() })
+    .eq("id", rowId)
+    .not("status", "in", SETTLED)
+    .select("id");
+  if (error) console.error(`[billing] could not record ${failureCode}`, rowId, error.message);
 }
 
 /** Where the client's "fix it" button goes: the hosted invoice for authentication, else a fresh setup link. */

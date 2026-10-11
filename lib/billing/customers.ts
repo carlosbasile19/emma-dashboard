@@ -43,7 +43,8 @@ async function clientName(clientId: string): Promise<string> {
 /**
  * The client's Stripe Customer id, created on first use. A customer created under the OTHER
  * key mode (sandbox vs live) is treated as absent and a fresh one is created, so sandbox state
- * never leaks into live billing. No idempotency key is sent: a fixed key would make Stripe replay
+ * never leaks into live billing — unless that customer has a card on file, in which case this
+ * throws rather than wipe the other mode's card. No idempotency key is sent: a fixed key would make Stripe replay
  * the cached response for 24h, so a customer deleted on Stripe (customer.deleted → clearCustomer)
  * would be handed back on re-enable, and changed name/email would raise idempotency_error. The
  * DB unique constraint on stripe_customer_id plus the re-read below blunt the concurrent-create
@@ -53,6 +54,10 @@ export async function ensureCustomer(clientId: string): Promise<string> {
   const live = stripeLivemode();
   const cb = (await loadClientBilling(clientId)) ?? (await upsertClientBilling(clientId, {}, null));
   if (cb.stripeCustomerId && cb.stripeLivemode === live) return cb.stripeCustomerId;
+  // A sandbox session on the shared database must never orphan a live card (or vice versa).
+  if (cb.stripeCustomerId && cb.card) {
+    throw new Error("This client's card is on file under the other Stripe mode; refusing to replace it");
+  }
   const customer = await getStripe().customers.create(
     {
       name: await clientName(clientId),
@@ -171,7 +176,12 @@ export async function removeCard(clientId: string, origin: string): Promise<bool
       `Card could not be removed from Stripe: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
-  await notifyCardRemoved(clientId, "removed", origin);
+  // The card is removed: a notification failure must not turn that into an error.
+  try {
+    await notifyCardRemoved(clientId, "removed", origin);
+  } catch (e) {
+    console.error("[billing] card-removed notification failed", { clientId }, e);
+  }
   return true;
 }
 
