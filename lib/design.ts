@@ -100,13 +100,14 @@ export type NavKey =
   | "campaigns"
   | "leads"
   | "logs"
+  | "billing"
   | "design";
 
 export interface NavItem {
   key: NavKey;
   label: string;
   href: string;
-  group: "Analytics" | "Performance" | "Records" | "Reference";
+  group: "Analytics" | "Performance" | "Records" | "Account" | "Reference";
   /** Hidden from the sidebar (route still exists) — for sections not ready for users yet. */
   hidden?: boolean;
 }
@@ -123,10 +124,12 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "campaigns", label: "Campaigns", href: "/dashboard/campaigns", group: "Performance", hidden: true },
   { key: "leads", label: "Leads", href: "/dashboard/leads", group: "Records" },
   { key: "logs", label: "Calls & Conversations", href: "/dashboard/log", group: "Records" },
+  // Shown only when billing is enabled for the active workspace (Sidebar filters on the flag).
+  { key: "billing", label: "Billing", href: "/dashboard/billing", group: "Account" },
   { key: "design", label: "Design System", href: "/dashboard/design", group: "Reference", hidden: true },
 ];
 
-export const NAV_GROUPS = ["Analytics", "Performance", "Records", "Reference"] as const;
+export const NAV_GROUPS = ["Analytics", "Performance", "Records", "Account", "Reference"] as const;
 
 /** Per-route header titles. */
 export const SCREEN_TITLES: Record<NavKey, string> = {
@@ -139,5 +142,6 @@ export const SCREEN_TITLES: Record<NavKey, string> = {
   campaigns: "Campaigns",
   leads: "Leads",
   logs: "Calls & Conversations",
+  billing: "Billing",
   design: "Design System",
 };

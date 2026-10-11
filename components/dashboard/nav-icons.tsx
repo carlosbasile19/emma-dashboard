@@ -87,6 +87,14 @@ export function NavIcon({ name, className }: { name: NavKey; className?: string 
           <path d="M7 10.5h4" />
         </svg>
       );
+    case "billing":
+      return (
+        <svg {...common}>
+          <rect x="2.5" y="5" width="15" height="10.5" rx="2" />
+          <path d="M2.5 8.5h15" />
+          <path d="M6 12.5h3" />
+        </svg>
+      );
     case "design":
       return (
         <svg {...common}>

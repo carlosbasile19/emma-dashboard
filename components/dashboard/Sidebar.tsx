@@ -18,8 +18,11 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar({
   workspace,
+  billingEnabled = false,
 }: {
   workspace: Pick<Workspace, "name" | "user" | "initials" | "role" | "isAdmin">;
+  /** Billing is per-workspace; its nav item exists only where it is switched on. */
+  billingEnabled?: boolean;
 }) {
   const pathname = usePathname();
   return (
@@ -30,7 +33,9 @@ export function Sidebar({
 
       <nav className="flex flex-1 flex-col gap-[14px] overflow-y-auto">
         {NAV_GROUPS.map((group) => {
-          const items = NAV_ITEMS.filter((n) => n.group === group && !n.hidden);
+          const items = NAV_ITEMS.filter(
+            (n) => n.group === group && !n.hidden && (n.key !== "billing" || billingEnabled),
+          );
           if (items.length === 0) return null;
           return (
           <div key={group}>

@@ -40,10 +40,12 @@ export function Header({
   activeClientId?: string;
 }) {
   const pathname = usePathname();
-  // Views that carry their own scoping controls (board columns, calendar month nav)
-  // don't show the global range/campaign filters.
+  // Views that carry their own scoping controls (board columns, calendar month nav) — or none
+  // at all (billing) — don't show the global range/campaign filters.
   const isBoard =
-    pathname.startsWith("/dashboard/trends") || pathname.startsWith("/dashboard/calendar");
+    pathname.startsWith("/dashboard/trends") ||
+    pathname.startsWith("/dashboard/calendar") ||
+    pathname.startsWith("/dashboard/billing");
   const router = useRouter();
   const params = useSearchParams();
   const navigate = useNavigate();

@@ -240,3 +240,15 @@ export function planTransition(ev: WebhookEventShape, ctx: TransitionContext): B
 
   return { kind: "ignore", reason: `unhandled event type ${ev.type}` };
 }
+
+/** What a client (and an admin) reads for each invoice row. */
+export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
+  reserved: "Preparing",
+  open: "Processing",
+  paid: "Paid",
+  failed: "Payment failed",
+  action_required: "Needs authentication",
+  void: "Voided",
+  uncollectible: "Unpaid",
+  skipped_zero: "Nothing to bill",
+};

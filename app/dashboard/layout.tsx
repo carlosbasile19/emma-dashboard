@@ -8,6 +8,7 @@ import { PendingNavProvider } from "@/components/ui/states/PendingNav";
 import { RouteProgress } from "@/components/ui/states/RouteProgress";
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import { AuthError, getWorkspace } from "@/lib/auth";
+import { billingFeatureEnabled, getClientBilling } from "@/lib/billing/config";
 import { fetchCampaigns } from "@/lib/olivia/service";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
@@ -34,9 +35,19 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     // keep the default single option on error
   }
 
+  // The Billing nav item exists only where billing is switched on for this workspace.
+  let billingEnabled = false;
+  if (billingFeatureEnabled()) {
+    try {
+      billingEnabled = (await getClientBilling(ws.clientId))?.enabled === true;
+    } catch {
+      // A billing lookup failure hides the item; it never blocks the dashboard.
+    }
+  }
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar workspace={ws} />
+      <Sidebar workspace={ws} billingEnabled={billingEnabled} />
       {/* The provider must enclose BOTH the Header (which starts the wait) and <main> (which
           reflects it). Sidebar stays outside — its links change route segment, so they're
           covered by loading.tsx and a local useLinkStatus dot instead. */}

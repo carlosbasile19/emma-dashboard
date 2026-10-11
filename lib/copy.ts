@@ -49,6 +49,10 @@ export const EMPTY_COPY: Record<CopyKey, EmptyCopy> = {
     body: "No calls or conversations in this window. The log fills the instant Emma starts dialling.",
     cta: "Reset filters",
   },
+  billing: {
+    title: "No invoices yet",
+    body: "Your first invoice appears here after the first charge date. Until then, this page shows the card on file and this month's running estimate.",
+  },
 };
 
 export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
@@ -87,6 +91,10 @@ export const ERROR_COPY: Record<CopyKey, ErrorCopy> = {
   logs: {
     title: "The log didn’t load",
     body: "We couldn’t pull call & conversation history. Give it another go.",
+  },
+  billing: {
+    title: "We couldn't load billing",
+    body: "The billing service didn't respond. Nothing was charged — give it another go.",
   },
 };
 
