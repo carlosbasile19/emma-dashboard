@@ -111,6 +111,9 @@ async function fetchDaily(
       force: fresh,
       fetcher: () => api.getTimeseries(clientId, params),
     });
+    // Billing must never invoice a stale/incomplete month: a lock-contended, governor-blocked or
+    // errored refresh serves the cached row even with force. null -> "usage unavailable" -> retried next run.
+    if (fresh && res.freshness.stale) return null;
     // The cache may legitimately hand back a DIFFERENT window (stale-on-error falls back to the
     // closest one it holds). Harmless on a KPI card; on an invoice it would file one month's
     // spend under another. Upstream echoes the period it served, so verify instead of assuming.
