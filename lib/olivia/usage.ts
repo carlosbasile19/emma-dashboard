@@ -94,6 +94,7 @@ async function fetchDaily(
   tz: string,
   from: string,
   to: string,
+  fresh = false,
 ): Promise<DailySpend[] | null> {
   const params = { from, to, tz };
   try {
@@ -105,6 +106,9 @@ async function fetchDaily(
       endpoint: "usage-timeseries",
       params,
       tier: TIERS.usage,
+      // An invoice run asks for a fresh upstream read; a stale same-window row is still the
+      // on-error fallback, and a different window is rejected below either way.
+      force: fresh,
       fetcher: () => api.getTimeseries(clientId, params),
     });
     // The cache may legitimately hand back a DIFFERENT window (stale-on-error falls back to the
@@ -157,10 +161,13 @@ export async function getUsageSeries(
   tz: string,
   from: string,
   to: string,
+  opts: { fresh?: boolean } = {},
 ): Promise<UsageSeries | null> {
   const window = padWindow({ from, to });
   const parts = await Promise.all(
-    yearChunks(window.from, window.to).map((c) => fetchDaily(clientId, tz, c.from, c.to)),
+    yearChunks(window.from, window.to).map((c) =>
+      fetchDaily(clientId, tz, c.from, c.to, opts.fresh === true),
+    ),
   );
   if (parts.some((p) => p === null)) return null;
   return {

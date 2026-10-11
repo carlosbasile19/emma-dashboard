@@ -15,6 +15,8 @@ import type {
 } from "./api";
 import { OliviaError } from "./errors";
 import { cachedFetch, invalidateEndpoints, TIERS } from "./cache";
+import { activeMarkupBps } from "@/lib/billing/config";
+import { markupLeadDetail, markupOverview, markupTimeseries } from "@/lib/billing/money";
 import { mergeThreadRows } from "@/lib/threads";
 import { searchCorpus } from "@/lib/leads-search";
 import { searchCallCorpus } from "@/lib/log-search";
@@ -62,14 +64,20 @@ export async function fetchOverview(
   opts: Opts = {},
 ): Promise<WithFreshness<Overview>> {
   const clientId = await getSessionClientId();
-  return cachedFetch({
-    clientId,
-    endpoint: "overview",
-    params: rec(params),
-    tier: TIERS.overview,
-    force: opts.force,
-    fetcher: () => api.getOverview(clientId, params),
-  });
+  // The markup is applied AFTER the cache so response_cache rows stay raw; a markup change
+  // takes effect on the next request without any invalidation.
+  const [res, bps] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "overview",
+      params: rec(params),
+      tier: TIERS.overview,
+      force: opts.force,
+      fetcher: () => api.getOverview(clientId, params),
+    }),
+    activeMarkupBps(),
+  ]);
+  return bps ? { ...res, data: markupOverview(res.data, bps) } : res;
 }
 
 export async function fetchTimeseries(
@@ -77,14 +85,18 @@ export async function fetchTimeseries(
   opts: Opts = {},
 ): Promise<WithFreshness<Timeseries>> {
   const clientId = await getSessionClientId();
-  return cachedFetch({
-    clientId,
-    endpoint: "timeseries",
-    params: rec(params),
-    tier: TIERS.timeseries,
-    force: opts.force,
-    fetcher: () => api.getTimeseries(clientId, params),
-  });
+  const [res, bps] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "timeseries",
+      params: rec(params),
+      tier: TIERS.timeseries,
+      force: opts.force,
+      fetcher: () => api.getTimeseries(clientId, params),
+    }),
+    activeMarkupBps(),
+  ]);
+  return bps ? { ...res, data: markupTimeseries(res.data, bps) } : res;
 }
 
 export async function fetchOutcomes(
@@ -390,14 +402,18 @@ export async function fetchLeadDetail(
   opts: Opts = {},
 ): Promise<WithFreshness<LeadDetail>> {
   const clientId = await getSessionClientId();
-  return cachedFetch({
-    clientId,
-    endpoint: "lead-detail",
-    params: { leadId },
-    tier: TIERS.leadDetail,
-    force: opts.force,
-    fetcher: () => api.getLeadDetail(clientId, leadId),
-  });
+  const [res, bps] = await Promise.all([
+    cachedFetch({
+      clientId,
+      endpoint: "lead-detail",
+      params: { leadId },
+      tier: TIERS.leadDetail,
+      force: opts.force,
+      fetcher: () => api.getLeadDetail(clientId, leadId),
+    }),
+    activeMarkupBps(),
+  ]);
+  return bps ? { ...res, data: markupLeadDetail(res.data, bps) } : res;
 }
 
 /**
