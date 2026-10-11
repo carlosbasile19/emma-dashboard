@@ -23,7 +23,9 @@
     "test:usage": "tsx scripts/usage-selftest.ts",
     "test:loading": "tsx scripts/loading-states-selftest.ts",
     "test:dnc": "tsx scripts/dnc-selftest.ts",
-    "test:localtime": "tsx --tsconfig scripts/tsconfig.json scripts/local-time-selftest.ts"
+    "test:localtime": "tsx --tsconfig scripts/tsconfig.json scripts/local-time-selftest.ts",
+    "test:billing": "tsx scripts/billing-selftest.ts",
+    "billing:livecheck": "NODE_OPTIONS=--conditions=react-server tsx --env-file=.env scripts/billing-livecheck.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
@@ -34,7 +36,8 @@
     "recharts": "^2.15.0",
     "resend": "^6.14.0",
     "retell-client-js-sdk": "^2.0.8",
-    "standardwebhooks": "^1.0.0"
+    "standardwebhooks": "^1.0.0",
+    "stripe": "^23.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
