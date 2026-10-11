@@ -68,11 +68,12 @@ const text = (v: unknown): string | null => (typeof v === "string" && v.length >
 
 export async function loadBillingSettings(): Promise<BillingSettings> {
   const admin = createAdminClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("billing_settings")
     .select("markup_bps, fee_cents, anchor_day, currency, alert_email, updated_at")
     .eq("id", 1)
     .maybeSingle();
+  if (error) throw new Error(`billing_settings read failed: ${error.message}`);
   if (!data) return DEFAULT_SETTINGS;
   return {
     markupBps: num(data.markup_bps) ?? 0,
@@ -130,10 +131,11 @@ export function rowToClientBilling(r: Row, s: BillingSettings): ClientBilling {
 
 export async function loadClientBilling(clientId: string): Promise<ClientBilling | null> {
   const admin = createAdminClient();
-  const [settings, { data }] = await Promise.all([
+  const [settings, { data, error }] = await Promise.all([
     loadBillingSettings(),
     admin.from("client_billing").select(CLIENT_COLS).eq("olivia_client_id", clientId).maybeSingle(),
   ]);
+  if (error) throw new Error(`client_billing read failed: ${error.message}`);
   return data ? rowToClientBilling(data as unknown as Row, settings) : null;
 }
 
@@ -141,30 +143,33 @@ export const getClientBilling = cache(loadClientBilling);
 
 export async function listClientBilling(): Promise<ClientBilling[]> {
   const admin = createAdminClient();
-  const [settings, { data }] = await Promise.all([
+  const [settings, { data, error }] = await Promise.all([
     loadBillingSettings(),
     admin.from("client_billing").select(CLIENT_COLS),
   ]);
+  if (error) throw new Error(`client_billing list failed: ${error.message}`);
   return (data ?? []).map((r) => rowToClientBilling(r as unknown as Row, settings));
 }
 
 export async function clientIdForCustomer(customerId: string): Promise<string | null> {
   const admin = createAdminClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("client_billing")
     .select("olivia_client_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
+  if (error) throw new Error(`client_billing customer lookup failed: ${error.message}`);
   return text(data?.olivia_client_id);
 }
 
 export async function clientIdForPaymentMethod(paymentMethodId: string): Promise<string | null> {
   const admin = createAdminClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("client_billing")
     .select("olivia_client_id")
     .eq("default_payment_method_id", paymentMethodId)
     .maybeSingle();
+  if (error) throw new Error(`client_billing payment method lookup failed: ${error.message}`);
   return text(data?.olivia_client_id);
 }
 
