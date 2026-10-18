@@ -193,14 +193,20 @@ export async function fetchReportNutshell(
 }
 
 /**
- * Start a briefing for the session's client over the chosen brief window. Returns a live
- * session (with realtime join creds) when the Olivia briefing bridge is enabled, otherwise a
- * { mode: "simulated" } result so the dashboard runs its local walkthrough.
+ * Start a voice briefing for the session's client over the chosen brief window. `sdp` is the
+ * browser's WebRTC offer; it goes to Olivia with the agency key (server-side only) and Olivia's
+ * SDP answer comes back in `realtime.sdp`. When the bridge is disabled or Olivia refuses, the
+ * result is { mode: "simulated" } (plus `error` when there's something to tell the user) and the
+ * dashboard runs its local walkthrough.
  */
-export async function beginBrief(window: BriefWindow, focus: string): Promise<BriefSession> {
+export async function beginBrief(
+  window: BriefWindow,
+  focus: string,
+  sdp: string,
+): Promise<BriefSession> {
   const ctx = await getSessionContext();
   const period = briefWindowToPeriod(window, ctx.activeClientTimezone ?? DEFAULT_TZ);
-  return svcStartBriefing(period, focus);
+  return svcStartBriefing(period, focus, sdp);
 }
 
 export async function endBrief(briefingId: string): Promise<void> {

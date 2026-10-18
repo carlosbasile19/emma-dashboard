@@ -2,17 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { RetellWebClient } from "retell-client-js-sdk";
 import { beginBrief, endBrief, fetchBriefWindow } from "@/app/auth/actions";
+import { connectBriefingVoice, type BriefStartResult, type VoiceHandle } from "@/lib/brief/voice";
 import { tint } from "@/lib/design";
 import type { BriefWindow, BriefWindowKind } from "@/lib/filters";
 import type { BriefCategory, BriefItem } from "@/lib/overview";
+import { useBriefingStream } from "./useBriefingStream";
 
 type Step = "form" | "connecting" | "live";
 type Focus = "all" | BriefCategory;
-// "pending" = deciding (real briefing creds in flight); "live" = a real Retell web call is
-// connected (audio); "sim" = no live session, run the local walkthrough animation.
-type Transport = "pending" | "live" | "sim";
+// "pending" = deciding (WebRTC offer/answer in flight); "live" = Emma's voice session is
+// connected; "over" = a live session finished (transcript stays up); "sim" = no live session,
+// run the local walkthrough animation.
+type Transport = "pending" | "live" | "over" | "sim";
 
 const FOCUS_OPTIONS: Array<{ v: Focus; l: string }> = [
   { v: "all", l: "Everything" },
@@ -88,10 +90,18 @@ export function BriefEmma({
   const [transport, setTransport] = useState<Transport>("sim");
   const [muted, setMuted] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
-  const retellRef = useRef<RetellWebClient | null>(null);
+  const voiceRef = useRef<VoiceHandle | null>(null);
+  const connectRef = useRef<AbortController | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptEnd = useRef<HTMLDivElement | null>(null);
+  const { entries, status: streamStatus, currentItemId } = useBriefingStream(
+    briefingId,
+    open && transport === "live",
+  );
 
   // The brief window is the modal's own filter. Seed it (+ the item list) from the props the
   // dashboard rendered for its current ?range=, so the first open is instant. 90d maps straight
@@ -156,19 +166,19 @@ export function BriefEmma({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, range]);
 
+  // Every exit path funnels through here: POST …/end, pc.close(), mic tracks stopped. Also
+  // cancels a connect that's still negotiating (its own teardown ends any created briefing).
+  function endVoice() {
+    connectRef.current?.abort();
+    connectRef.current = null;
+    const v = voiceRef.current;
+    voiceRef.current = null;
+    v?.close();
+    setAudioBlocked(false);
+  }
+
   function close() {
-    // Tear down the live call first; null the ref before stopCall so the "call_ended"
-    // handler (which also calls close) can't loop back into another stopCall.
-    const client = retellRef.current;
-    retellRef.current = null;
-    if (client) {
-      try {
-        client.stopCall();
-      } catch {
-        /* already torn down */
-      }
-    }
-    if (briefingId) endBrief(briefingId).catch(() => {});
+    endVoice();
     if (timer.current) clearTimeout(timer.current);
     if (ticker.current) clearInterval(ticker.current);
     setOpen(false);
@@ -178,111 +188,138 @@ export function BriefEmma({
     setTransport("sim");
     setMuted(false);
     setLiveError(null);
-    setAudioBlocked(false);
+    setCanRetry(false);
   }
 
+  function rebrief() {
+    endVoice();
+    setBriefingId(null);
+    setTransport("sim");
+    setLiveError(null);
+    setCanRetry(false);
+    setStep("form");
+  }
+
+  // Unmount (navigating away with the modal open) must not leave the mic or the session running.
+  // endVoice only touches refs and a setter, so the mount-time closure is safe to run on unmount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => endVoice(), []);
+
   function toggleMute() {
-    const client = retellRef.current;
     setMuted((m) => {
-      const next = !m;
-      if (client) {
-        try {
-          if (next) client.mute();
-          else client.unmute();
-        } catch {
-          /* no live call to mute */
-        }
-      }
-      return next;
+      voiceRef.current?.setMuted(!m);
+      return !m;
     });
   }
 
-  // Browser blocked audio autoplay — call from a real click so LiveKit can start playback.
+  // Autoplay was refused — retry play() from this real click; the connection stays up meanwhile.
   function enableAudio() {
-    retellRef.current
-      ?.startAudioPlayback()
-      .then(() => setAudioBlocked(false))
+    voiceRef.current
+      ?.retryPlay()
+      .then((ok) => setAudioBlocked(!ok))
       .catch(() => setAudioBlocked(true));
+  }
+
+  function refusedNotice(s?: BriefStartResult): string | null {
+    const e = s?.error;
+    if (!e) return null;
+    if (e.code === "briefing_concurrency_limit" || e.code === "rate_limited") {
+      const wait = e.retryAfterSeconds ? ` Try again in ${e.retryAfterSeconds}s.` : " Try again shortly.";
+      return `Emma is already on as many briefings as she can take.${wait} Showing the walkthrough.`;
+    }
+    if (e.code === "forbidden_scope") {
+      return "Voice briefings with Emma aren’t enabled for this workspace yet. Showing the walkthrough.";
+    }
+    return "Couldn’t connect Emma’s voice. Showing the walkthrough.";
   }
 
   function start() {
     if (filtered.length === 0) return;
+    endVoice();
     setCallId(`BR-${Math.floor(1000 + Math.random() * 8999)}`);
     setLiveIdx(0);
     setMuted(false);
     setLiveError(null);
-    setAudioBlocked(false);
-    setTransport("pending"); // hold the simulated walkthrough until we know if a live call connects
+    setCanRetry(false);
+    setBriefingId(null);
+    setTransport("pending"); // hold the simulated walkthrough until we know if Emma connects
     setStep("connecting");
-    beginBrief(win, focus)
-      .then(async (s) => {
-        if (s.briefingId) {
-          setBriefingId(s.briefingId);
-          setCallId(s.briefingId);
-        }
 
-        // The bridge returns the Retell join token as realtime.access_token (the documented shape)
-        // or realtime.token (the generic transport shape the backend currently emits) — accept
-        // either. No token → no call to join, so run the local walkthrough.
-        const rt = s.realtime;
-        const accessToken = rt?.access_token ?? rt?.token;
-        if (s.mode !== "live" || !accessToken) {
-          setTransport("sim");
-          return;
-        }
+    if (typeof RTCPeerConnection === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setLiveError("This browser can’t take a voice briefing. Showing the walkthrough.");
+      setTransport("sim");
+      return;
+    }
+    const ac = new AbortController();
+    connectRef.current = ac;
+    audioRef.current ??= new Audio();
+    audioRef.current.autoplay = true;
+    const won = () => connectRef.current === ac && !ac.signal.aborted;
 
-        // Live: join Emma's Retell web call. The SDK is browser-only (WebRTC/mic), so load it
-        // lazily here — keeps it out of the SSR + initial client bundle.
-        try {
-          const { RetellWebClient } = await import("retell-client-js-sdk");
-          const client = new RetellWebClient();
-          retellRef.current = client;
-          client.on("call_started", () => {
-            setTransport("live");
-            setStep("live");
-            // startCall ran after awaits (server action + dynamic import), so the browser may
-            // have suspended audio autoplay (LiveKit room.startAudio under the hood). Try to
-            // start playback; if the browser blocks it, surface a tap-to-enable control — a
-            // fresh user gesture always unblocks it.
-            client.startAudioPlayback().catch(() => setAudioBlocked(true));
-          });
-          client.on("call_ended", () => close());
-          client.on("error", () => {
-            // Audio dropped mid-call → degrade to the silent walkthrough rather than ejecting
-            // the user from the modal.
-            const c = retellRef.current;
-            retellRef.current = null;
-            if (c) {
-              try {
-                c.stopCall();
-              } catch {
-                /* already torn down */
-              }
-            }
-            setLiveError("Emma’s audio dropped — showing the walkthrough instead.");
-            setTransport("sim");
-            setStep("live");
-          });
-          await client.startCall({
-            accessToken,
-            ...(rt?.sample_rate ? { sampleRate: rt.sample_rate } : {}),
-          });
-        } catch {
-          // startCall rejected (mic permission denied, token expired) or the SDK failed to load.
-          retellRef.current = null;
+    connectBriefingVoice({
+      getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+      createPeerConnection: () => new RTCPeerConnection(),
+      start: (sdp) => beginBrief(win, focus, sdp),
+      end: (id) => endBrief(id),
+      audio: audioRef.current,
+      signal: ac.signal,
+      onAudioBlocked: () => setAudioBlocked(true),
+      onStopped: (reason) => {
+        voiceRef.current = null;
+        setAudioBlocked(false);
+        setTransport("over");
+        setCanRetry(true);
+        setLiveError(
+          reason === "expired"
+            ? "Emma’s briefing reached its 15-minute limit and has ended."
+            : "Emma’s connection dropped. You can start the briefing again.",
+        );
+      },
+    })
+      .then((r) => {
+        if (!won()) return;
+        connectRef.current = null;
+        if (r.kind === "live") {
+          voiceRef.current = r.handle;
+          setBriefingId(r.handle.briefingId);
+          setCallId(r.handle.briefingId);
+          setTransport("live");
+          setStep("live");
+        } else if (r.kind === "fallback") {
           setLiveError(
-            "Couldn’t start the audio call — check microphone permissions. Showing the walkthrough.",
+            r.reason === "mic_denied"
+              ? "Emma needs your microphone for a voice briefing — check permissions. Showing the walkthrough."
+              : refusedNotice(r.session) ?? "Couldn’t connect Emma’s voice. Showing the walkthrough.",
           );
           setTransport("sim");
         }
       })
       .catch(() => {
-        // beginBrief itself failed → fall back to the walkthrough.
+        if (!won()) return;
+        connectRef.current = null;
         setTransport("sim");
       });
   }
 
-  // connecting → live (simulated only; a real call transitions on the "call_started" event)
+  // The session finished upstream (Emma wrapped up, or it failed) → end + close + stop the mic.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (transport !== "live" || (streamStatus !== "ended" && streamStatus !== "failed")) return;
+    endVoice();
+    setTransport("over");
+    if (streamStatus === "failed") {
+      setCanRetry(true);
+      setLiveError("Emma’s briefing failed. You can start it again.");
+    } else {
+      setLiveError("Emma has finished your briefing.");
+    }
+  }, [transport, streamStatus]);
+
+  useEffect(() => {
+    transcriptEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [entries.length]);
+
+  // connecting → live (simulated only; a live session moves to "live" once the answer is applied)
   useEffect(() => {
     if (step !== "connecting" || transport !== "sim") return;
     timer.current = setTimeout(() => setStep("live"), 1600);
@@ -291,8 +328,7 @@ export function BriefEmma({
     };
   }, [step, transport]);
 
-  // advance the "speaking now" item (simulated only — the real call carries the audio; per-item
-  // sync from the backend's current_item_id is a follow-up, see docs/olivia-briefing-bridge.md §4.2)
+  // advance the "speaking now" item (simulated only — live highlights the server's current_item_id)
   useEffect(() => {
     if (step !== "live" || transport !== "sim") return;
     ticker.current = setInterval(() => {
@@ -510,7 +546,9 @@ export function BriefEmma({
                   <Wave count={5} h={30} w={4} />
                 </div>
                 <div className="text-xl font-bold tracking-[-0.01em]">Starting your briefing…</div>
-                <div className="mt-2 text-[13.5px] text-muted">Connecting your web call with Emma</div>
+                <div className="mt-2 text-[13.5px] text-muted" role="status">
+                  Connecting your web call with Emma
+                </div>
                 <div className="mt-[22px] flex items-center gap-2 font-mono text-xs text-muted">
                   <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-lavender-deep border-t-violet" />
                   Powered by Hey Emma
@@ -523,17 +561,30 @@ export function BriefEmma({
                     <Wave count={4} h={18} w={3} />
                   </span>
                   <div className="flex-1">
-                    <div className="text-[17px] font-bold tracking-[-0.01em]">Emma is briefing you</div>
+                    <div className="text-[17px] font-bold tracking-[-0.01em]">
+                      {transport === "over" ? "Briefing with Emma ended" : "Emma is briefing you"}
+                    </div>
                     <div className="mt-0.5 font-mono text-xs text-muted">{callId} · web call</div>
                   </div>
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-danger/25 bg-danger/10 py-1.5 pl-2.5 pr-3 font-display text-xs font-medium text-danger">
                     <span className="h-[7px] w-[7px] animate-blink rounded-full bg-danger" />
-                    {transport === "live" ? "Live" : "Preview"} · {winLabel}
+                    {transport === "live" ? "Live" : transport === "over" ? "Ended" : "Preview"} · {winLabel}
                   </span>
                 </div>
                 {liveError ? (
-                  <div className="mb-4 rounded-[11px] border border-ink/10 bg-lavender px-3.5 py-2.5 text-[12.5px] leading-[1.45] text-muted">
-                    {liveError}
+                  <div
+                    role="status"
+                    className="mb-4 flex items-center gap-3 rounded-[11px] border border-ink/10 bg-lavender px-3.5 py-2.5 text-[12.5px] leading-[1.45] text-muted"
+                  >
+                    <span className="flex-1">{liveError}</span>
+                    {canRetry ? (
+                      <button
+                        onClick={start}
+                        className="flex-none cursor-pointer rounded-[9px] bg-violet px-3 py-1.5 font-display text-[12.5px] font-medium text-white hover:bg-[#5d3df0]"
+                      >
+                        Try again
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
                 {audioBlocked ? (
@@ -545,7 +596,7 @@ export function BriefEmma({
                       <path d="M4 8v4h3l4 3V5L7 8H4z" />
                       <path d="M14 7a4 4 0 010 6" stroke="#fff" strokeWidth="1.6" fill="none" strokeLinecap="round" />
                     </svg>
-                    Tap to hear Emma
+                    Turn on audio to hear Emma
                   </button>
                 ) : null}
                 <div className="mb-[11px] font-mono text-[11px] uppercase tracking-[0.1em] text-muted">
@@ -553,9 +604,44 @@ export function BriefEmma({
                 </div>
                 <div className="mb-5 overflow-hidden rounded-[13px] border border-ink/10">
                   {filtered.map((i, idx) => (
-                    <BriefRow key={i.id} item={i} speaking={idx === liveIdx} />
+                    <BriefRow
+                      key={i.id}
+                      item={i}
+                      speaking={
+                        transport === "live" ? i.id === currentItemId : transport === "sim" && idx === liveIdx
+                      }
+                    />
                   ))}
                 </div>
+                {transport === "live" || transport === "over" ? (
+                  <div className="mb-5">
+                    <div className="mb-[11px] font-mono text-[11px] uppercase tracking-[0.1em] text-muted">
+                      Transcript
+                    </div>
+                    <div
+                      role="log"
+                      aria-live="polite"
+                      aria-label="Briefing transcript with Emma"
+                      className="max-h-[180px] overflow-y-auto rounded-[13px] border border-ink/10 px-4 py-3"
+                    >
+                      {entries.length === 0 ? (
+                        <div className="text-[12.5px] text-muted">
+                          {transport === "live" ? "Emma will start speaking in a moment…" : "Nothing was said."}
+                        </div>
+                      ) : (
+                        entries.map((e) => (
+                          <div key={`${e.at} ${e.role} ${e.text}`} className="py-1 text-[13px] leading-[1.45]">
+                            <span className={`font-semibold ${e.role === "agent" ? "text-violet" : "text-ink"}`}>
+                              {e.role === "agent" ? "Emma" : "You"}:
+                            </span>{" "}
+                            {e.text}
+                          </div>
+                        ))
+                      )}
+                      <div ref={transcriptEnd} />
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex gap-2.5">
                   <button
                     onClick={toggleMute}
@@ -569,7 +655,7 @@ export function BriefEmma({
                     {muted ? "Unmute" : "Mute"}
                   </button>
                   <button
-                    onClick={() => setStep("form")}
+                    onClick={rebrief}
                     className="cursor-pointer rounded-[11px] border border-ink/10 bg-white px-4 py-3 font-display text-sm font-medium text-ink hover:bg-lavender"
                   >
                     Re-brief
@@ -582,7 +668,7 @@ export function BriefEmma({
                       <path d="M5 4l3 1 1 3-2 1a8 8 0 004 4l1-2 3 1 1 3a2 2 0 01-2 2A12 12 0 013 6a2 2 0 012-2z" />
                       <path d="M16 4L4 16" />
                     </svg>
-                    End call
+                    {transport === "over" ? "Close" : "End call"}
                   </button>
                 </div>
               </div>

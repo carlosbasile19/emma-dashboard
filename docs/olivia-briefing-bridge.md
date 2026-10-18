@@ -7,6 +7,17 @@
 > chosen date window. The dashboard already ships the full UI for this (form → connecting → live);
 > today it's a simulation. This bridge makes it real.
 
+> **Current transport (2026-10-18, Olivia PR #589): OpenAI GPT Live over WebRTC — this replaces
+> the Retell sections below.** The browser gets the mic, builds an `RTCPeerConnection` (mic track +
+> `oai-events` data channel), and sends its offer SDP through the `beginBrief` server action; our
+> backend POSTs `{ from, to, tz, focus, voice: true, sdp }` with the agency key and returns
+> `realtime: { provider: "openai", transport: "webrtc", sdp: <answer>, expires_at }`. No
+> token/room/url/ice_servers any more. Status/stream/end are unchanged and proxied same-origin at
+> `/api/briefing/{id}` and `/api/briefing/{id}/stream`. Code: `lib/brief/voice.ts` (connection
+> lifecycle), `components/dashboard/brief/{BriefEmma.tsx,useBriefingStream.ts}`,
+> `lib/olivia/{api,service}.ts`. Tests: `npm run test:briefvoice`, `npm run test:briefbridge`.
+> Upstream reference: Olivia repo `docs/external-api/briefings-voice.md`.
+
 ---
 
 ## 1. Context

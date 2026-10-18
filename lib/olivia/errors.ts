@@ -8,6 +8,7 @@ export type OliviaErrorCode =
   | "conversation_not_found" // 404 (thread unknown for this tenant — never retry)
   | "agency_not_found" // 404 (agency id doesn't match the key — never retry)
   | "reporting_not_found" // 404 (reporting session unknown)
+  | "briefing_not_found" // 404 (briefing session unknown)
   | "invalid_request" // 400
   | "invalid_date_range" // 400
   | "invalid_timezone" // 400
@@ -15,6 +16,7 @@ export type OliviaErrorCode =
   | "internal_error" // 500
   | "rate_limited" // 429
   | "reporting_concurrency_limit" // 429 (too many concurrent reporting sessions)
+  | "briefing_concurrency_limit" // 429 (too many concurrent briefing sessions)
   | "network_error" // fetch failed
   | "unknown";
 

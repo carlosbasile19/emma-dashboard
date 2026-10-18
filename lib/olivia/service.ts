@@ -3,6 +3,7 @@ import { getSessionClientId } from "@/lib/auth";
 import * as api from "./api";
 import type {
   BriefRealtime,
+  BriefingStatusResponse,
   ConversationsParams,
   DateParams,
   LeadsParams,
@@ -553,48 +554,65 @@ export async function fetchThreadRows(
 }
 
 // ---- Briefing bridge ----
-// Flag-gated and graceful: until OLIVIA_BRIEFING_ENABLED=true AND the backend ships the
-// endpoint, this returns { mode: "simulated" } and the dashboard runs its local walkthrough.
-// The moment the backend is live, flip the flag and live realtime creds flow through.
+// Flag-gated and graceful: until OLIVIA_BRIEFING_ENABLED=true this returns { mode: "simulated" }
+// and the dashboard runs its local walkthrough. Live, the browser's WebRTC offer SDP is forwarded
+// to Olivia with the agency key and Olivia's SDP answer comes back — to the requesting user only,
+// as the server action's return value (never cached, never logged).
 export interface BriefSession {
   mode: "live" | "simulated";
   briefingId?: string;
   realtime?: BriefRealtime;
+  /** Surfaced when a recognizable Olivia error blocks the live session (400 invalid_request,
+   *  429 briefing_concurrency_limit + Retry-After, 403 scope, 500 voice refused) so the UI can say
+   *  why. The modal still degrades to the walkthrough. */
+  error?: { code: string; message: string; retryAfterSeconds?: number };
 }
 
 // Trim: env values set via `echo` can carry a trailing newline ("true\n" !== "true").
 const briefingEnabled = () => process.env.OLIVIA_BRIEFING_ENABLED?.trim() === "true";
 
+// An SDP offer is a few KB; anything empty is useless and anything huge is not an offer.
+const SDP_MIN = 20;
+const SDP_MAX = 64 * 1024;
+
 export async function startBriefing(
   params: DateParams,
   focus: string,
+  sdp: string,
 ): Promise<BriefSession> {
-  // TEMP diagnostics (remove once prod briefing is verified): reveal why we fall back to sim.
-  console.warn(
-    "[brief] start enabled=%s flagRaw=%s",
-    briefingEnabled(),
-    JSON.stringify(process.env.OLIVIA_BRIEFING_ENABLED),
-  );
   if (!briefingEnabled()) return { mode: "simulated" };
-  const clientId = await getSessionClientId();
+  return startBriefingFor(await getSessionClientId(), params, focus, sdp);
+}
+
+/** The session-free half of startBriefing, exported for scripts/brief-bridge-selftest.ts. */
+export async function startBriefingFor(
+  clientId: string,
+  params: DateParams,
+  focus: string,
+  sdp: string,
+): Promise<BriefSession> {
+  if (typeof sdp !== "string" || sdp.length < SDP_MIN || sdp.length > SDP_MAX) {
+    return {
+      mode: "simulated",
+      error: { code: "invalid_request", message: "A WebRTC offer is required to start a voice briefing." },
+    };
+  }
   try {
-    const r = await api.startBriefing(clientId, { ...params, focus, voice: true });
-    console.warn(
-      "[brief] live ok briefing_id=%s hasRealtime=%s tokenField=%s",
-      r.briefing_id,
-      !!r.realtime,
-      r.realtime ? (r.realtime.access_token ? "access_token" : r.realtime.token ? "token" : "none") : "n/a",
-    );
+    const r = await api.startBriefing(clientId, { ...params, focus, voice: true, sdp });
+    if (!r.realtime?.sdp) {
+      // A 201 without an answer can't carry audio. End it so it doesn't hold a concurrency slot.
+      api.endBriefing(clientId, r.briefing_id).catch(() => {});
+      return { mode: "simulated" };
+    }
     return { mode: "live", briefingId: r.briefing_id, realtime: r.realtime };
   } catch (e) {
-    const err = e as { status?: number; code?: string; message?: string };
-    console.warn(
-      "[brief] api.startBriefing FAILED status=%s code=%s msg=%s",
-      err?.status,
-      err?.code,
-      err?.message,
-    );
-    // backend not ready / errored → fall back to the simulated walkthrough
+    if (e instanceof OliviaError) {
+      console.warn("[brief] start failed status=%s code=%s", e.status, e.code);
+      return {
+        mode: "simulated",
+        error: { code: e.code, message: e.message, retryAfterSeconds: e.retryAfterSeconds },
+      };
+    }
     return { mode: "simulated" };
   }
 }
@@ -605,8 +623,20 @@ export async function endBriefing(briefingId: string): Promise<void> {
     const clientId = await getSessionClientId();
     await api.endBriefing(clientId, briefingId);
   } catch {
-    /* best effort */
+    /* best effort — idempotent on the backend */
   }
+}
+
+/** Session-scoped status (polling fallback). Throws AuthError if unauthenticated. */
+export async function briefingStatus(briefingId: string): Promise<BriefingStatusResponse> {
+  const clientId = await getSessionClientId();
+  return api.getBriefingStatus(clientId, briefingId);
+}
+
+/** Session-scoped live status/transcript stream (raw upstream Response). Throws AuthError if unauth. */
+export async function streamBriefing(briefingId: string, signal?: AbortSignal): Promise<Response> {
+  const clientId = await getSessionClientId();
+  return api.streamBriefing(clientId, briefingId, signal);
 }
 
 // ---- Reporting bridge ----

@@ -12,6 +12,8 @@
     "test:cache": "NODE_OPTIONS=--conditions=react-server tsx scripts/cache-fallback-selftest.ts",
     "test:narrate": "tsx scripts/narrate-selftest.ts",
     "test:brief": "tsx scripts/brief-items-selftest.ts",
+    "test:briefvoice": "tsx scripts/brief-voice-selftest.ts",
+    "test:briefbridge": "NODE_OPTIONS=--conditions=react-server tsx scripts/brief-bridge-selftest.ts",
     "test:pipeline": "tsx scripts/pipeline-board-selftest.ts",
     "test:calendar": "tsx scripts/calendar-selftest.ts",
     "test:threads": "tsx scripts/threads-selftest.ts",
