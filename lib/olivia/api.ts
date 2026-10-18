@@ -572,18 +572,16 @@ export function getAgencyClientCosts(
 }
 
 // ---- Briefing bridge (server-to-server action; see docs/olivia-briefing-bridge.md) ----
-// Realtime transport is Retell web calls (the backend already runs Olivia's voice on Retell).
+// Realtime transport is an OpenAI GPT Live session over WebRTC (Olivia PR #589). The browser makes
+// the RTCPeerConnection offer; we forward its SDP here with the agency key and hand back Olivia's
+// SDP answer. No join credential is minted any more — the SDP pair is all the browser sees.
 export interface BriefRealtime {
-  provider: string; // "retell"
-  // Retell web call — the browser joins via the Retell Web SDK with this access token.
-  access_token?: string;
-  call_id?: string;
-  sample_rate?: number;
+  provider: string; // "openai"
+  transport: string; // "webrtc"
+  /** The SDP answer — the browser applies it with setRemoteDescription({ type: "answer" }). */
+  sdp: string;
+  /** The 15-minute session ceiling. */
   expires_at?: string;
-  // Generic fallback fields, in case the transport is ever swapped:
-  url?: string;
-  token?: string;
-  room?: string;
 }
 export interface BriefAgendaItem {
   id: string;
@@ -592,12 +590,28 @@ export interface BriefAgendaItem {
   detail?: string;
   priority?: number;
 }
+export type BriefingStatusValue = "queued" | "connecting" | "live" | "ended" | "failed";
 export interface BriefingResponse {
   briefing_id: string;
   client_id: string;
-  status: string;
+  status: BriefingStatusValue;
+  period?: { from: string; to: string; tz: string };
   agenda?: BriefAgendaItem[];
   realtime?: BriefRealtime;
+}
+
+export interface BriefTranscriptEntry {
+  role: "agent" | "user";
+  text: string;
+  at: string;
+}
+
+export interface BriefingStatusResponse {
+  status: BriefingStatusValue;
+  current_item_id?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  transcript?: BriefTranscriptEntry[];
 }
 
 export interface StartBriefingBody {
@@ -606,20 +620,40 @@ export interface StartBriefingBody {
   tz?: string;
   focus?: string;
   voice?: boolean;
+  /** The browser's RTCPeerConnection offer SDP. Required by Olivia when `voice` is true. */
+  sdp?: string;
 }
 
 export function startBriefing(clientId: string, body: StartBriefingBody, h: Hints = {}) {
   return oliviaFetch<BriefingResponse>(`${ANALYTICS}/clients/${cid(clientId)}/briefings`, {
     method: "POST",
     body,
+    // Never auto-retry: each attempt carries the same one-shot SDP offer, and a concurrency 429
+    // should reach the UI immediately with its Retry-After rather than stalling the start.
+    maxRetries: 0,
     ...h,
   });
+}
+
+export function getBriefingStatus(clientId: string, briefingId: string, h: Hints = {}) {
+  return oliviaFetch<BriefingStatusResponse>(
+    `${ANALYTICS}/clients/${cid(clientId)}/briefings/${encodeURIComponent(briefingId)}`,
+    { ...h },
+  );
 }
 
 export function endBriefing(clientId: string, briefingId: string, h: Hints = {}) {
   return oliviaFetch<{ status: string }>(
     `${ANALYTICS}/clients/${cid(clientId)}/briefings/${encodeURIComponent(briefingId)}/end`,
     { method: "POST", ...h },
+  );
+}
+
+/** Live status/item/transcript SSE — returns the raw upstream Response for a same-origin route. */
+export function streamBriefing(clientId: string, briefingId: string, signal?: AbortSignal) {
+  return oliviaStream(
+    `${ANALYTICS}/clients/${cid(clientId)}/briefings/${encodeURIComponent(briefingId)}/stream`,
+    { signal },
   );
 }
 
