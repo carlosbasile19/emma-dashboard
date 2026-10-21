@@ -3,14 +3,15 @@ import { BillingClientView } from "@/components/console/BillingClientView";
 import {
   billingFeatureEnabled,
   billingMarkupEnabled,
+  defaultAgencyContact,
   defaultBillingEmail,
   getBillingSettings,
   getClientBilling,
 } from "@/lib/billing/config";
-import { listInvoices, previewLastClosedMonth, tzOf } from "@/lib/billing/invoices";
-import { closedMonthsWithoutInvoice, localDate, nextChargeDate } from "@/lib/billing/schedule";
+import { listInvoices, nextFeeCharge, tzOf, unbilledCredits } from "@/lib/billing/invoices";
+import { chargeableFeeMonths, localDate } from "@/lib/billing/schedule";
 import { listSetupLinks } from "@/lib/billing/setup";
-import { deriveStatus } from "@/lib/billing/status";
+import { deriveStatus, paymentIssue } from "@/lib/billing/status";
 import { listAgencyClients } from "@/lib/olivia/agency";
 import { getRequestOrigin } from "@/lib/origin";
 
@@ -40,16 +41,20 @@ export default async function ConsoleBillingClientPage({
   ]);
   const tz = tzOf(client.timezone);
   const today = localDate(new Date(), tz);
-  const [preview, suggestedEmail] = await Promise.all([
-    cb?.enabled ? previewLastClosedMonth(cb, tz) : null,
+  const [credits, nextFee, suggestedEmail, defaultContact] = await Promise.all([
+    cb?.enabled ? unbilledCredits(cb, tz) : null,
+    cb?.enabled ? nextFeeCharge(cb, tz) : null,
     // Who a setup link goes to when there is no billing contact yet. Only a suggestion: never fatal.
     cb?.billingEmail ? null : defaultBillingEmail(id).catch(() => null),
+    defaultAgencyContact(settings).catch(() => null),
   ]);
   const status = deriveStatus({
     enabled: cb?.enabled ?? false,
     hasCard: Boolean(cb?.card),
-    lastInvoiceStatus: invoices[0]?.status ?? null,
+    suspended: Boolean(cb?.suspension),
+    issue: paymentIssue(invoices.map((i) => i.status)),
   });
+  const feeMonthsDone = invoices.filter((i) => i.stream === "service_fee").map((i) => i.periodKey);
 
   return (
     <BillingClientView
@@ -58,17 +63,19 @@ export default async function ConsoleBillingClientPage({
       settings={settings}
       markupEnabled={billingMarkupEnabled()}
       suggestedEmail={suggestedEmail}
+      defaultContact={defaultContact}
       status={status}
       links={links}
       baseUrl={baseUrl}
       invoices={invoices}
-      preview={preview}
-      chargeableMonths={
-        cb?.enabled && cb.billFromMonth
-          ? closedMonthsWithoutInvoice(today, cb.billFromMonth, invoices.map((i) => i.periodMonth))
+      credits={credits}
+      nextFee={nextFee}
+      chargeableFeeMonths={
+        cb?.enabled && cb.billFromMonth && cb.effective.feeCents > 0
+          ? chargeableFeeMonths(today, cb.billFromMonth, feeMonthsDone)
           : []
       }
-      nextCharge={cb?.enabled ? nextChargeDate(today, cb.effective.anchorDay) : null}
+      canChargeCredits={Boolean(cb?.enabled && credits && credits.from < today)}
       notice={one(sp.notice) ?? null}
       error={one(sp.error) ?? null}
       extra={{ outcome: one(sp.outcome), status: one(sp.status), ok: one(sp.ok) }}

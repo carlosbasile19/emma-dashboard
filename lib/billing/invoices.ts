@@ -4,39 +4,88 @@ import Stripe from "stripe";
 import { getUsageSeries } from "@/lib/olivia/usage";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, stripeLivemode } from "@/lib/stripe/client";
-import { monthBounds, monthLabel, sumRange } from "@/lib/usage";
+import { dayLabel, monthBounds, monthLabel, shiftDay, sumRange } from "@/lib/usage";
 import {
   listClientBilling,
   loadClientBilling,
   updateClientBillingColumns,
   type ClientBilling,
 } from "./config";
-import { composeInvoice, type InvoiceLines } from "./money";
+import { composeInvoice, CREDITS_CURRENCY, type InvoiceLines } from "./money";
 import {
   notifyNoCard,
   notifyPaymentFailed,
+  notifyPaymentReceived,
   notifyRunSummary,
   notifyUsageUnavailable,
   type RunSummaryLine,
 } from "./notify";
-import { dueMonths, localDate, monthOf, nextChargeDate, prevMonth, shouldAlertNoCard } from "./schedule";
+import { payInvoice, type PayOutcome } from "./pay";
+import {
+  creditsCursor,
+  dueCreditPeriods,
+  dueFeeMonths,
+  earlyCreditPeriod,
+  localDate,
+  monthOf,
+  nextFeeChargeDate,
+  nextMonday,
+  shouldAlertNoCard,
+  thresholdCrossed,
+  weekStart,
+} from "./schedule";
 import { createSetupLink, setupLinkUrl } from "./setup";
-import { invoiceStatusFromStripe, isInvoiceStatus, type InvoiceStatus } from "./status";
+import {
+  invoiceStatusFromStripe,
+  isInvoiceStatus,
+  isInvoiceStream,
+  STREAM_LABEL,
+  type InvoiceStatus,
+  type InvoiceStream,
+} from "./status";
+import { maybeResume, onChargeFailed, runRetrySweep, type SweepResult } from "./suspension";
 
 /**
- * The monthly charge. `invoiceMonth` is the one path that creates a Stripe Invoice; the cron,
- * the admin's "Charge now" and the livecheck all go through it.
+ * The charges. `invoicePeriod` is the one path that creates a Stripe Invoice, for both streams:
+ *   - credits      AI Power Credits (USD) for a run of closed days — the weekly Mon–Sun period,
+ *                  or cursor → yesterday for a low-balance early charge;
+ *   - service_fee  the agency's monthly service fee (its currency), in advance for a month.
+ * The cron, the admin's "Charge now" and the livecheck all go through it. Each stream is its own
+ * Stripe invoice with its own descriptor; both are charged to the same saved card.
  *
  * Billing-safety rules, in the order the code applies them:
- *   1. The (client, month) row is RESERVED before Stripe is called — the unique constraint is
+ *   1. The (client, stream, period) row is RESERVED before Stripe is called — the unique constraint is
  *      the lock, so two runs can never bill a month twice and a crash leaves a visible row.
  *   2. Usage that fails to load is `null`: the reservation is released, admins are told, and
  *      tomorrow's run retries. Never $0.
  *   3. Every Stripe create carries an idempotency key built from the reservation id, so a replay
  *      within 24h returns the same objects and a fresh reservation never collides.
- *   4. Pay synchronously so the run reports a real outcome; Stripe's automatic collection keeps
- *      retrying a decline afterwards.
+ *   4. Pay synchronously so the run reports a real outcome. A decline gets one retry, then the
+ *      client is suspended (lib/billing/suspension.ts).
  */
+
+export type ChargePeriod = { stream: "credits"; from: string; to: string } | { stream: "service_fee"; month: string };
+
+export function periodKeyOf(p: ChargePeriod): string {
+  return p.stream === "credits" ? p.from : p.month;
+}
+
+/** "6 Oct 2026 – 12 Oct 2026" for a credits period, "October 2026" for a fee month. */
+export function periodLabel(stream: InvoiceStream, periodKey: string, periodTo: string | null): string {
+  if (stream === "service_fee") return monthLabel(periodKey);
+  if (!periodTo || periodTo === periodKey) return dayLabel(periodKey);
+  return `${dayLabel(periodKey)} – ${dayLabel(periodTo)}`;
+}
+
+function chargeLabel(p: ChargePeriod): string {
+  return periodLabel(p.stream, periodKeyOf(p), p.stream === "credits" ? p.to : null);
+}
+
+/** Card-statement descriptors (≤ 22 chars), one per stream so the client can tell them apart. */
+const DESCRIPTOR: Record<InvoiceStream, string> = {
+  credits: "HEY EMMA AI CREDITS",
+  service_fee: "HEY EMMA SERVICE FEE",
+};
 
 export function tzOf(timezone: string | null | undefined): string {
   return timezone?.trim() || "UTC";
@@ -67,6 +116,11 @@ export async function loadClientsIndex(): Promise<Map<string, ClientInfo>> {
 export interface InvoiceRow {
   id: string;
   clientId: string;
+  stream: InvoiceStream;
+  /** credits: the period's first day; service_fee: the month. */
+  periodKey: string;
+  /** "6 Oct 2026 – 12 Oct 2026" / "October 2026". */
+  periodLabel: string;
   periodMonth: string;
   periodFrom: string | null;
   periodTo: string | null;
@@ -88,10 +142,12 @@ export interface InvoiceRow {
   createdAt: string;
   finalizedAt: string | null;
   paidAt: string | null;
+  retryCount: number;
+  nextRetryAt: string | null;
 }
 
 const INVOICE_COLS =
-  "id, olivia_client_id, period_month, period_from, period_to, tz, raw_usage_cents, markup_bps, " +
+  "id, olivia_client_id, stream, period_key, retry_count, next_retry_at, period_month, period_from, period_to, tz, raw_usage_cents, markup_bps, " +
   "billed_usage_cents, fee_cents, total_cents, currency, stripe_invoice_id, hosted_invoice_url, " +
   "invoice_pdf_url, status, failure_code, failure_message, trigger, livemode, created_at, finalized_at, paid_at";
 
@@ -116,9 +172,15 @@ async function safeNotify(what: string, fn: () => Promise<unknown>): Promise<voi
 
 function rowToInvoice(r: Row): InvoiceRow {
   const status = String(r.status);
+  const streamRaw = String(r.stream ?? "credits");
+  const stream: InvoiceStream = isInvoiceStream(streamRaw) ? streamRaw : "credits";
+  const periodKey = text(r.period_key) ?? String(r.period_month);
   return {
     id: String(r.id),
     clientId: String(r.olivia_client_id),
+    stream,
+    periodKey,
+    periodLabel: periodLabel(stream, periodKey, text(r.period_to)),
     periodMonth: String(r.period_month),
     periodFrom: text(r.period_from),
     periodTo: text(r.period_to),
@@ -140,41 +202,62 @@ function rowToInvoice(r: Row): InvoiceRow {
     createdAt: String(r.created_at),
     finalizedAt: text(r.finalized_at),
     paidAt: text(r.paid_at),
+    retryCount: num(r.retry_count) ?? 0,
+    nextRetryAt: text(r.next_retry_at),
   };
 }
 
-/** Newest month first. */
+/** Newest first. */
 export async function listInvoices(clientId?: string): Promise<InvoiceRow[]> {
   const admin = createAdminClient();
   let q = admin
     .from("billing_invoices")
     .select<string, Row>(INVOICE_COLS)
     .eq("livemode", stripeLivemode())
-    .order("period_month", { ascending: false });
+    .order("period_from", { ascending: false })
+    .order("created_at", { ascending: false });
   if (clientId) q = q.eq("olivia_client_id", clientId);
   const { data, error } = await q;
   if (error) throw new Error(`listInvoices: ${error.message}`);
   return (data ?? []).map((r) => rowToInvoice(r));
 }
 
+export interface BilledPeriods {
+  /** Service-fee months with a row. */
+  feeMonths: string[];
+  /** Last day of every billed credits period. */
+  creditEnds: string[];
+}
+
 /**
- * Months that count as "done" for scheduling, this Stripe mode only. A `reserved` row (a crashed
+ * Periods that count as "done" for scheduling, this Stripe mode only. A `reserved` row (a crashed
  * run) and a `failed` row with no Stripe invoice are NOT done: they resurface so recovery runs.
  */
-export async function invoicedMonthsByClient(): Promise<Map<string, string[]>> {
+export async function billedPeriodsByClient(clientId?: string): Promise<Map<string, BilledPeriods>> {
   const admin = createAdminClient();
-  const { data, error } = await admin
+  let q = admin
     .from("billing_invoices")
-    .select("olivia_client_id, period_month, status, stripe_invoice_id")
+    .select("olivia_client_id, stream, period_key, period_to, status, stripe_invoice_id")
     .eq("livemode", stripeLivemode());
-  if (error) throw new Error(`invoicedMonthsByClient: ${error.message}`);
-  const out = new Map<string, string[]>();
+  if (clientId) q = q.eq("olivia_client_id", clientId);
+  const { data, error } = await q;
+  if (error) throw new Error(`billedPeriodsByClient: ${error.message}`);
+  const out = new Map<string, BilledPeriods>();
   for (const r of data ?? []) {
     if (r.status === "reserved" || (r.status === "failed" && !r.stripe_invoice_id)) continue;
     const id = r.olivia_client_id as string;
-    out.set(id, [...(out.get(id) ?? []), r.period_month as string]);
+    const entry = out.get(id) ?? { feeMonths: [], creditEnds: [] };
+    if (r.stream === "service_fee") entry.feeMonths.push(r.period_key as string);
+    else if (r.period_to) entry.creditEnds.push(r.period_to as string);
+    out.set(id, entry);
   }
   return out;
+}
+
+/** The first unbilled credits day for one client. */
+export async function creditsCursorFor(cb: ClientBilling, today: string): Promise<string> {
+  const billed = (await billedPeriodsByClient(cb.clientId)).get(cb.clientId);
+  return creditsCursor(cb.billFromMonth ?? monthOf(today), billed?.creditEnds ?? []);
 }
 
 export async function latestInvoiceByClient(): Promise<Map<string, InvoiceRow>> {
@@ -228,14 +311,18 @@ export type InvoiceOutcome =
   | "skipped_zero"
   | "skipped_no_card"
   | "skipped_disabled"
+  | "skipped_suspended"
   | "already_invoiced"
   | "usage_unavailable"
   | "error";
 
-export interface InvoiceMonthResult {
+export interface InvoicePeriodResult {
   clientId: string;
   clientName: string;
-  month: string;
+  stream: InvoiceStream;
+  periodKey: string;
+  periodLabel: string;
+  trigger: "cron" | "manual" | "threshold";
   outcome: InvoiceOutcome;
   status: InvoiceStatus | null;
   totalCents: number | null;
@@ -244,64 +331,17 @@ export interface InvoiceMonthResult {
   error: string | null;
 }
 
-export interface PayOutcome {
-  status: InvoiceStatus;
-  failureCode: string | null;
-  failureMessage: string | null;
-  paidAt: string | null;
-  hostedInvoiceUrl: string | null;
-  invoicePdfUrl: string | null;
-}
-
-const AUTH_CODES = new Set(["authentication_required", "invoice_payment_intent_requires_action"]);
-
-/**
- * Pay a finalised invoice now. A card decline or an authentication request is an outcome, not an
- * exception; EVERYTHING else (bad request, network, auth, rate limit) rethrows so the caller records
- * a `stripe_error` instead of mistaking it for a decline.
- */
-export async function payInvoice(stripe: Stripe, invoiceId: string, idempotencyKey: string): Promise<PayOutcome> {
-  try {
-    const paid = await stripe.invoices.pay(invoiceId, {}, { idempotencyKey });
-    const paidAtSec = paid.status_transitions?.paid_at ?? null;
-    return {
-      status: invoiceStatusFromStripe(paid.status),
-      failureCode: null,
-      failureMessage: null,
-      paidAt: paidAtSec ? new Date(paidAtSec * 1000).toISOString() : null,
-      hostedInvoiceUrl: paid.hosted_invoice_url ?? null,
-      invoicePdfUrl: paid.invoice_pdf ?? null,
-    };
-  } catch (e) {
-    if (e instanceof Stripe.errors.StripeError) {
-      const code = e.code ?? null;
-      const decline = typeof e.decline_code === "string" ? e.decline_code : null;
-      const needsAuth = (code != null && AUTH_CODES.has(code)) || (decline != null && AUTH_CODES.has(decline));
-      if (needsAuth || e.type === "StripeCardError") {
-        return {
-          status: needsAuth ? "action_required" : "failed",
-          failureCode: decline ?? code ?? "payment_failed",
-          failureMessage: e.message,
-          paidAt: null,
-          hostedInvoiceUrl: null,
-          invoicePdfUrl: null,
-        };
-      }
-    }
-    throw e;
-  }
-}
-
 /** Throws on any Stripe error: recovery must fail CLOSED, never read an outage as "nothing exists". */
 async function lookupExistingInvoice(
   stripe: Stripe,
   stripeInvoiceId: string | null,
   clientId: string,
-  month: string,
+  stream: InvoiceStream,
+  periodKey: string,
 ): Promise<Stripe.Invoice | null> {
   if (stripeInvoiceId) return stripe.invoices.retrieve(stripeInvoiceId);
   const res = await stripe.invoices.search({
-    query: `metadata['emma_client_id']:'${clientId}' AND metadata['emma_period']:'${month}'`,
+    query: `metadata['emma_client_id']:'${clientId}' AND metadata['emma_stream']:'${stream}' AND metadata['emma_period']:'${periodKey}'`,
     limit: 1,
   });
   return res.data[0] ?? null;
@@ -322,7 +362,7 @@ type Reservation =
   | { kind: "exists"; row: ExistingRow }
   | { kind: "error"; message: string };
 
-async function reserveMonth(admin: Admin, cols: Row, clientId: string, month: string): Promise<Reservation> {
+async function reservePeriod(admin: Admin, cols: Row, clientId: string, stream: InvoiceStream, periodKey: string): Promise<Reservation> {
   const { data, error } = await admin.from("billing_invoices").insert(cols).select("id").single();
   if (!error && data) return { kind: "reserved", rowId: String(data.id) };
   if (error?.code !== "23505") return { kind: "error", message: error?.message ?? "reserve failed" };
@@ -330,7 +370,8 @@ async function reserveMonth(admin: Admin, cols: Row, clientId: string, month: st
     .from("billing_invoices")
     .select("id, status, created_at, stripe_invoice_id, livemode")
     .eq("olivia_client_id", clientId)
-    .eq("period_month", month)
+    .eq("stream", stream)
+    .eq("period_key", periodKey)
     .maybeSingle();
   if (readErr) return { kind: "error", message: readErr.message };
   if (!row) return { kind: "error", message: "reservation vanished" };
@@ -389,22 +430,30 @@ async function cleanupStripeInvoice(
   }
 }
 
-export async function invoiceMonth(
+export async function invoicePeriod(
   clientId: string,
-  month: string,
-  trigger: "cron" | "manual",
+  period: ChargePeriod,
+  trigger: "cron" | "manual" | "threshold",
   opts: { usage?: UsageProvider; createdBy?: string | null; origin?: string } = {},
-): Promise<InvoiceMonthResult> {
+): Promise<InvoicePeriodResult> {
   const admin = createAdminClient();
   const stripe = getStripe();
   const live = stripeLivemode();
   const origin = opts.origin ?? "";
   const client = (await loadClientsIndex()).get(clientId);
   const clientName = client?.name ?? clientId;
-  const result = (outcome: InvoiceOutcome, extra: Partial<InvoiceMonthResult> = {}): InvoiceMonthResult => ({
+  const stream = period.stream;
+  const periodKey = periodKeyOf(period);
+  const label = chargeLabel(period);
+  /** The month this period belongs to: the no-card alert marker and the legacy column. */
+  const month = period.stream === "credits" ? monthOf(period.to) : period.month;
+  const result = (outcome: InvoiceOutcome, extra: Partial<InvoicePeriodResult> = {}): InvoicePeriodResult => ({
     clientId,
     clientName,
-    month,
+    stream,
+    periodKey,
+    periodLabel: label,
+    trigger,
     outcome,
     status: null,
     totalCents: null,
@@ -416,6 +465,8 @@ export async function invoiceMonth(
 
   const cb = await loadClientBilling(clientId);
   if (!cb?.enabled) return result("skipped_disabled");
+  // Suspended: no new charges until what is owed is paid (catch-up runs after the resume).
+  if (cb.suspension) return result("skipped_suspended");
   // A customer from the other key mode (a sandbox session on the shared database, or vice versa)
   // is not "no card": never alert or touch the alert marker for it.
   if (cb.stripeCustomerId && cb.stripeLivemode !== live) {
@@ -431,21 +482,34 @@ export async function invoiceMonth(
   }
 
   const tz = tzOf(client?.timezone);
-  // Never invoice a month that has not closed in the client's timezone.
-  if (month >= monthOf(localDate(new Date(), tz))) {
-    return result("error", { error: "The current month cannot be invoiced until it closes" });
+  const today = localDate(new Date(), tz);
+  if (!cb.billFromMonth) return result("error", { error: "This client has no bill-from month" });
+  if (period.stream === "credits") {
+    // Only whole, closed days: today's usage is still accruing.
+    if (period.to >= today || period.from > period.to) {
+      return result("error", { error: "Credits can only be charged for closed days" });
+    }
+    if (period.from < `${cb.billFromMonth}-01`) {
+      return result("error", { error: "Period starts before this client's bill-from month" });
+    }
+  } else {
+    // In advance: the current month is billable, a future one is not.
+    if (period.month > monthOf(today)) return result("error", { error: "A future month's fee cannot be charged yet" });
+    if (period.month < cb.billFromMonth) return result("error", { error: "Month is before this client's bill-from month" });
+    // No fee configured: nothing to raise, and no row, so a fee set later this month still bills it.
+    if (cb.effective.feeCents === 0) return result("skipped_zero", { totalCents: 0 });
   }
-  if (!cb.billFromMonth || month < cb.billFromMonth) {
-    return result("error", { error: "Month is before this client's bill-from month" });
-  }
-  const { from, to } = monthBounds(month);
+  const { from, to } = period.stream === "credits" ? period : monthBounds(period.month);
+  const currency = period.stream === "credits" ? CREDITS_CURRENCY : cb.effective.feeCurrency;
   const reserveCols: Row = {
     olivia_client_id: clientId,
+    stream,
+    period_key: periodKey,
     period_month: month,
     period_from: from,
     period_to: to,
     tz,
-    currency: "usd",
+    currency,
     status: "reserved",
     trigger,
     created_by: opts.createdBy ?? null,
@@ -455,8 +519,8 @@ export async function invoiceMonth(
   // never replayed. Cross-attempt safety comes from the unique row and the fail-closed recovery.
   const attemptId = randomUUID();
 
-  // 1. Reserve the month (the unique constraint is the lock).
-  const reservation = await reserveMonth(admin, reserveCols, clientId, month);
+  // 1. Reserve the period (the unique constraint is the lock).
+  const reservation = await reservePeriod(admin, reserveCols, clientId, stream, periodKey);
   if (reservation.kind === "error") return result("error", { error: reservation.message });
 
   let rowId: string;
@@ -469,7 +533,7 @@ export async function invoiceMonth(
     const { row } = reservation;
     if (row.livemode !== live) {
       return result("error", {
-        error: `A ${row.livemode ? "live" : "sandbox"} invoice row already exists for this month; delete it before billing in this mode`,
+        error: `A ${row.livemode ? "live" : "sandbox"} invoice row already exists for this period; delete it before billing in this mode`,
       });
     }
     const stale = row.status === "reserved" && Date.now() - Date.parse(row.createdAt) > RESERVATION_STALE_MS;
@@ -484,12 +548,16 @@ export async function invoiceMonth(
     // 2. Recovery of a crashed / stuck row. Fails CLOSED: any Stripe lookup error leaves the row alone.
     let found: Stripe.Invoice | null;
     try {
-      found = await lookupExistingInvoice(stripe, row.stripeInvoiceId, clientId, month);
+      found = await lookupExistingInvoice(stripe, row.stripeInvoiceId, clientId, stream, periodKey);
     } catch (e) {
-      console.error("[billing] recovery lookup failed", clientId, month, e);
+      console.error("[billing] recovery lookup failed", clientId, stream, periodKey, e);
       return result("error", { error: "Stripe lookup failed during recovery; row left untouched" });
     }
     const reservedFields = {
+      // A recovered credits period may now end on a different day than the crashed attempt's.
+      period_from: from,
+      period_to: to,
+      currency,
       status: "reserved",
       stripe_invoice_id: null,
       hosted_invoice_url: null,
@@ -517,7 +585,7 @@ export async function invoiceMonth(
       // paid / void / uncollectible: record what Stripe says and stop.
       const status = invoiceStatusFromStripe(found.status);
       const paidSec = found.status_transitions?.paid_at ?? null;
-      console.warn("[billing] recovered invoice", { clientId, month, stripeInvoiceId: found.id, status });
+      console.warn("[billing] recovered invoice", { clientId, stream, periodKey, stripeInvoiceId: found.id, status });
       const { error } = await admin
         .from("billing_invoices")
         .update({
@@ -569,16 +637,19 @@ export async function invoiceMonth(
     if (adopted) {
       finalized = adopted;
     } else {
-      // 3. Usage. null releases the reservation so tomorrow's run retries. Never $0.
-      const raw = await (opts.usage ?? liveUsage)(clientId, tz, from, to);
-      if (raw == null) {
-        must("release reservation", await admin.from("billing_invoices").delete().eq("id", rowId));
-        await safeNotify("usage-unavailable", () => notifyUsageUnavailable(clientId, clientName, month, origin));
-        return result("usage_unavailable");
+      if (period.stream === "credits") {
+        // 3. Usage. null releases the reservation so tomorrow's run retries. Never $0.
+        const raw = await (opts.usage ?? liveUsage)(clientId, tz, from, to);
+        if (raw == null) {
+          must("release reservation", await admin.from("billing_invoices").delete().eq("id", rowId));
+          await safeNotify("usage-unavailable", () => notifyUsageUnavailable(clientId, clientName, label, origin));
+          return result("usage_unavailable");
+        }
+        // 4. Lines. Markup once, on the period total; credits carry no fee.
+        lines = composeInvoice(raw, cb.effective.markupBps, 0);
+      } else {
+        lines = composeInvoice(0, 0, cb.effective.feeCents);
       }
-
-      // 4. Lines. Markup once, on the month total.
-      lines = composeInvoice(raw, cb.effective.markupBps, cb.effective.feeCents);
       const lineCols: Row = {
         raw_usage_cents: lines.rawUsageCents,
         markup_bps: lines.markupBps,
@@ -596,17 +667,16 @@ export async function invoiceMonth(
 
       // 5. Stripe: draft with auto_advance OFF so Stripe never finalises or charges a half-built draft.
       const k = `emma:inv:${rowId}:${attemptId}`;
-      const label = monthLabel(month);
       const invoice = await stripe.invoices.create(
         {
           customer: cb.stripeCustomerId,
           collection_method: "charge_automatically",
           auto_advance: false,
-          currency: "usd",
+          currency,
           pending_invoice_items_behavior: "exclude",
-          description: `Emma · ${label}`,
-          statement_descriptor: "HEY EMMA",
-          metadata: { emma_client_id: clientId, emma_period: month },
+          description: `${STREAM_LABEL[stream]} · ${label}`,
+          statement_descriptor: DESCRIPTOR[stream],
+          metadata: { emma_client_id: clientId, emma_stream: stream, emma_period: periodKey },
         },
         { idempotencyKey: `${k}:create` },
       );
@@ -616,30 +686,17 @@ export async function invoiceMonth(
         "record stripe invoice id",
         await admin.from("billing_invoices").update({ ...lineCols, stripe_invoice_id: invoice.id, updated_at: now() }).eq("id", rowId),
       );
-      if (lines.billedUsageCents > 0) {
-        await stripe.invoiceItems.create(
-          {
-            customer: cb.stripeCustomerId,
-            invoice: invoice.id,
-            amount: lines.billedUsageCents,
-            currency: "usd",
-            description: `Emma usage · ${label}`,
-          },
-          { idempotencyKey: `${k}:usage` },
-        );
-      }
-      if (lines.feeCents > 0) {
-        await stripe.invoiceItems.create(
-          {
-            customer: cb.stripeCustomerId,
-            invoice: invoice.id,
-            amount: lines.feeCents,
-            currency: "usd",
-            description: `Monthly fee · ${label}`,
-          },
-          { idempotencyKey: `${k}:fee` },
-        );
-      }
+      // One line per invoice: the stream's own amount, in its own currency. Nothing else.
+      await stripe.invoiceItems.create(
+        {
+          customer: cb.stripeCustomerId,
+          invoice: invoice.id,
+          amount: lines.totalCents,
+          currency,
+          description: `${STREAM_LABEL[stream]} · ${label}`,
+        },
+        { idempotencyKey: `${k}:${stream}` },
+      );
       // Finalised invoices are immutable and complete, so letting Stripe keep retrying a decline is safe.
       finalized = await stripe.invoices.finalizeInvoice(invoice.id, { auto_advance: true }, { idempotencyKey: `${k}:finalize` });
       finalizedOnStripe = true;
@@ -698,13 +755,21 @@ export async function invoiceMonth(
     must("record payment outcome", outcomeWrite);
     const outcomeChanged = (outcomeWrite.data?.length ?? 0) > 0;
 
+    if (outcomeChanged && outcome.status === "paid") {
+      await safeNotify("payment-received", () =>
+        notifyPaymentReceived({ clientId, clientName, stream, periodLabel: label, totalCents: totalCents ?? 0, currency, origin }),
+      );
+    }
     if (outcomeChanged && (outcome.status === "failed" || outcome.status === "action_required")) {
       const failedKind = outcome.status;
+      await onChargeFailed(rowId, origin);
       await safeNotify("payment-failed", async () =>
         notifyPaymentFailed({
           clientId,
           clientName,
-          month,
+          stream,
+          periodLabel: label,
+          currency,
           totalCents: totalCents ?? 0,
           reason: outcome.failureMessage ?? "Payment declined",
           kind: failedKind,
@@ -868,16 +933,18 @@ export interface RunSummary {
   trigger: "cron" | "manual";
   startedAt: string;
   finishedAt: string;
-  results: InvoiceMonthResult[];
+  sweep: SweepResult;
+  results: InvoicePeriodResult[];
   counts: Record<InvoiceOutcome, number>;
 }
 
-function countOutcomes(results: InvoiceMonthResult[]): Record<InvoiceOutcome, number> {
+function countOutcomes(results: InvoicePeriodResult[]): Record<InvoiceOutcome, number> {
   const counts: Record<InvoiceOutcome, number> = {
     invoiced: 0,
     skipped_zero: 0,
     skipped_no_card: 0,
     skipped_disabled: 0,
+    skipped_suspended: 0,
     already_invoiced: 0,
     usage_unavailable: 0,
     error: 0,
@@ -886,10 +953,16 @@ function countOutcomes(results: InvoiceMonthResult[]): Record<InvoiceOutcome, nu
   return counts;
 }
 
+/** A period's outcome that moves the credits cursor past it. */
+const CLOSES_PERIOD = new Set<InvoiceOutcome>(["invoiced", "skipped_zero", "already_invoiced"]);
+
 /**
- * The daily job (also "Run billing now" in the console). Clients are processed one at a time
- * and their due months oldest first. A summary row is always written; admins are emailed only
- * on a day that invoiced or failed.
+ * The daily job (also "Run billing now" in the console):
+ *   1. the retry sweep — due retries, then suspension of clients whose retry is spent;
+ *   2. per enabled, unsuspended client: service-fee months due (in advance), then closed credits
+ *      weeks (oldest first, stopping at the first that cannot be billed so periods stay
+ *      contiguous), then the low-balance check for an early credits charge.
+ * A summary row is always written; admins are emailed only on a day that charged or failed.
  */
 export async function runBilling(
   trigger: "cron" | "manual",
@@ -897,48 +970,94 @@ export async function runBilling(
 ): Promise<RunSummary> {
   const at = opts.now ?? new Date();
   const startedAt = at.toISOString();
+  const origin = opts.origin ?? "";
   const admin = createAdminClient();
-  const [configs, clients, invoiced] = await Promise.all([
-    listClientBilling(),
-    loadClientsIndex(),
-    invoicedMonthsByClient(),
-  ]);
+  const usage = opts.usage ?? liveUsage;
 
-  const results: InvoiceMonthResult[] = [];
+  let sweep: SweepResult = { retried: 0, recovered: 0, suspended: 0 };
+  try {
+    sweep = await runRetrySweep(at, origin);
+  } catch (e) {
+    console.error("[billing] retry sweep failed", e);
+  }
+
+  // Read after the sweep: it may have suspended or resumed clients.
+  const [configs, clients, billed] = await Promise.all([listClientBilling(), loadClientsIndex(), billedPeriodsByClient()]);
+
+  const results: InvoicePeriodResult[] = [];
+  const run = async (cb: ClientBilling, period: ChargePeriod, t: "cron" | "manual" | "threshold") => {
+    try {
+      const r = await invoicePeriod(cb.clientId, period, t, { origin, usage });
+      results.push(r);
+      return r;
+    } catch (e) {
+      // One client's failure (e.g. a config read) must not abort the rest of the run.
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[billing] invoicePeriod ${cb.clientId} ${period.stream} ${periodKeyOf(period)} threw`, e);
+      const r: InvoicePeriodResult = {
+        clientId: cb.clientId,
+        clientName: clients.get(cb.clientId)?.name ?? cb.clientId,
+        stream: period.stream,
+        periodKey: periodKeyOf(period),
+        periodLabel: chargeLabel(period),
+        trigger: t,
+        outcome: "error",
+        status: null,
+        totalCents: null,
+        stripeInvoiceId: null,
+        hostedInvoiceUrl: null,
+        error: message,
+      };
+      results.push(r);
+      return r;
+    }
+  };
+
   for (const cb of configs) {
     if (opts.clientId && cb.clientId !== opts.clientId) continue;
-    if (!cb.enabled) continue;
-    const today = localDate(at, tzOf(clients.get(cb.clientId)?.timezone));
-    const months = dueMonths({
-      today,
-      anchorDay: cb.effective.anchorDay,
-      billFromMonth: cb.billFromMonth ?? monthOf(today),
-      invoicedMonths: invoiced.get(cb.clientId) ?? [],
-    });
-    for (const month of months) {
-      try {
-        results.push(await invoiceMonth(cb.clientId, month, trigger, { origin: opts.origin, usage: opts.usage }));
-      } catch (e) {
-        // One client's failure (e.g. a config read) must not abort the rest of the run.
-        const message = e instanceof Error ? e.message : String(e);
-        console.error(`[billing] invoiceMonth ${cb.clientId} ${month} threw`, e);
-        results.push({
-          clientId: cb.clientId,
-          clientName: clients.get(cb.clientId)?.name ?? cb.clientId,
-          month,
-          outcome: "error",
-          status: null,
-          totalCents: null,
-          stripeInvoiceId: null,
-          hostedInvoiceUrl: null,
-          error: message,
-        });
+    if (!cb.enabled || cb.suspension) continue;
+    const tz = tzOf(clients.get(cb.clientId)?.timezone);
+    const today = localDate(at, tz);
+    const billFrom = cb.billFromMonth ?? monthOf(today);
+    const done = billed.get(cb.clientId) ?? { feeMonths: [], creditEnds: [] };
+
+    // Stream B: the service fee, in advance.
+    if (cb.effective.feeCents > 0) {
+      const months = dueFeeMonths({ today, anchorDay: cb.effective.anchorDay, billFromMonth: billFrom, invoicedMonths: done.feeMonths });
+      for (const month of months) await run(cb, { stream: "service_fee", month }, trigger);
+    }
+
+    // Stream A: closed credits weeks.
+    let cursor = creditsCursor(billFrom, done.creditEnds);
+    let blocked = false;
+    for (const p of dueCreditPeriods(today, cursor)) {
+      const r = await run(cb, { stream: "credits", ...p }, trigger);
+      if (!CLOSES_PERIOD.has(r.outcome)) {
+        blocked = true;
+        break;
+      }
+      cursor = shiftDay(p.to, 1);
+    }
+
+    // Low-balance: unbilled usage through today at or over the threshold → bill the closed days now.
+    const threshold = cb.effective.lowBalanceCents;
+    if (!blocked && threshold != null && cb.card) {
+      const early = earlyCreditPeriod(today, cursor);
+      if (early) {
+        try {
+          const [unbilled, billable] = await Promise.all([usage(cb.clientId, tz, cursor, today), usage(cb.clientId, tz, early.from, early.to)]);
+          if (thresholdCrossed(unbilled, threshold) && billable != null && billable > 0) {
+            await run(cb, { stream: "credits", ...early }, "threshold");
+          }
+        } catch (e) {
+          console.error("[billing] low-balance check failed", cb.clientId, e);
+        }
       }
     }
   }
 
   const counts = countOutcomes(results);
-  const summary: RunSummary = { trigger, startedAt, finishedAt: now(), results, counts };
+  const summary: RunSummary = { trigger, startedAt, finishedAt: now(), sweep, results, counts };
   const { error: runErr } = await admin.from("billing_runs").insert({
     trigger,
     livemode: stripeLivemode(),
@@ -949,16 +1068,17 @@ export async function runBilling(
   if (runErr) console.error("[billing] could not write billing_runs summary", runErr.message);
 
   const anyFailure = results.some((r) => r.status === "failed" || r.status === "action_required");
-  if (counts.invoiced > 0 || counts.error > 0 || anyFailure) {
+  if (counts.invoiced > 0 || counts.error > 0 || anyFailure || sweep.retried > 0 || sweep.suspended > 0) {
     const lines: RunSummaryLine[] = results.map((r) => ({
       clientName: r.clientName,
-      month: r.month,
+      label: `${STREAM_LABEL[r.stream]} · ${r.periodLabel}${r.trigger === "threshold" ? " (low balance)" : ""}`,
       outcome: r.outcome,
       status: r.status,
       totalCents: r.totalCents,
+      currency: r.stream === "credits" ? CREDITS_CURRENCY : null,
       error: r.error,
     }));
-    await safeNotify("run-summary", () => notifyRunSummary({ trigger, startedAt, lines }, opts.origin ?? ""));
+    await safeNotify("run-summary", () => notifyRunSummary({ trigger, startedAt, lines, sweep }, origin));
   }
   return summary;
 }
@@ -966,6 +1086,7 @@ export async function runBilling(
 /** Admin "Retry charge" on a failed/open/action-required invoice. No emails; the UI shows the result. */
 export async function retryInvoice(
   rowId: string,
+  origin = "",
 ): Promise<{ ok: boolean; status: InvoiceStatus | null; message: string | null }> {
   const admin = createAdminClient();
   const { data, error } = await admin.from("billing_invoices").select<string, Row>(INVOICE_COLS).eq("id", rowId).maybeSingle();
@@ -975,7 +1096,7 @@ export async function retryInvoice(
   if (row.livemode !== stripeLivemode()) {
     return { ok: false, status: row.status, message: "This invoice belongs to the other Stripe mode" };
   }
-  if (!row.stripeInvoiceId || !["failed", "open", "action_required"].includes(row.status)) {
+  if (!row.stripeInvoiceId || !["failed", "open", "action_required", "uncollectible"].includes(row.status)) {
     return { ok: false, status: row.status, message: "This invoice can't be retried" };
   }
   const stripe = getStripe();
@@ -1011,46 +1132,44 @@ export async function retryInvoice(
       })
       .eq("id", rowId),
   );
+  // Settling the last unpaid invoice lifts a suspension.
+  if (outcome.status === "paid" || outcome.status === "void") {
+    await maybeResume(row.clientId, origin).catch((e) => console.error("[billing] resume after retry failed", e));
+  }
   return { ok: outcome.status === "paid", status: outcome.status, message: outcome.failureMessage };
 }
 
 // ---- Read-only figures for the pages ----
 
-export interface MonthFigure {
-  month: string;
-  label: string;
-  /** null = usage could not be loaded (never 0). */
-  lines: InvoiceLines | null;
+export interface CreditsFigure {
+  /** First unbilled day. */
+  from: string;
+  /** Today (client tz): the window still accruing. */
+  to: string;
+  /** Unbilled credits so far (markup applied once released); null = could not be loaded (never 0). */
+  usageCents: number | null;
+  /** The next regular Monday charge. */
+  nextChargeDate: string;
 }
 
-/** The client Billing page's "Next charge": month-to-date usage with the markup, plus the fee. */
-export async function estimateCurrentMonth(
-  cb: ClientBilling,
-  tz: string,
-  at: Date = new Date(),
-): Promise<MonthFigure & { nextChargeDate: string }> {
+/** Unbilled AI Power Credits since the last charge, and when they are next charged. */
+export async function unbilledCredits(cb: ClientBilling, tz: string, at: Date = new Date()): Promise<CreditsFigure> {
   const today = localDate(at, tz);
-  const month = monthOf(today);
-  const from = `${month}-01`;
-  const series = await getUsageSeries(cb.clientId, tz, from, today);
-  const raw = series ? Math.round(sumRange(series.daily, from, today)) : null;
-  return {
-    month,
-    label: monthLabel(month),
-    lines: raw == null ? null : composeInvoice(raw, cb.effective.markupBps, cb.effective.feeCents),
-    nextChargeDate: nextChargeDate(today, cb.effective.anchorDay),
-  };
+  const from = await creditsCursorFor(cb, today);
+  let usageCents: number | null = 0;
+  if (from <= today) {
+    const series = await getUsageSeries(cb.clientId, tz, from, today);
+    usageCents = series ? composeInvoice(Math.round(sumRange(series.daily, from, today)), cb.effective.markupBps, 0).totalCents : null;
+  }
+  // A closed week still unbilled is charged by the next run (today); otherwise next Monday.
+  const owedNow = from <= shiftDay(weekStart(today), -1);
+  return { from, to: today, usageCents, nextChargeDate: owedNow ? today : nextMonday(today) };
 }
 
-/** The console's raw → billed preview for the last closed month (normal cache, not forced). */
-export async function previewLastClosedMonth(cb: ClientBilling, tz: string, at: Date = new Date()): Promise<MonthFigure> {
-  const month = prevMonth(monthOf(localDate(at, tz)));
-  const { from, to } = monthBounds(month);
-  const series = await getUsageSeries(cb.clientId, tz, from, to);
-  const raw = series ? Math.round(sumRange(series.daily, from, to)) : null;
-  return {
-    month,
-    label: monthLabel(month),
-    lines: raw == null ? null : composeInvoice(raw, cb.effective.markupBps, cb.effective.feeCents),
-  };
+/** When the service fee is next charged: the anchor day of the next month not yet invoiced. */
+export async function nextFeeCharge(cb: ClientBilling, tz: string, at: Date = new Date()): Promise<string | null> {
+  if (cb.effective.feeCents === 0) return null;
+  const today = localDate(at, tz);
+  const billed = (await billedPeriodsByClient(cb.clientId)).get(cb.clientId);
+  return nextFeeChargeDate(today, cb.effective.anchorDay, billed?.feeMonths ?? []);
 }

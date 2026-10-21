@@ -12,10 +12,10 @@ import {
   upsertClientBilling,
 } from "@/lib/billing/config";
 import { removeCard, syncCustomerEmail } from "@/lib/billing/customers";
-import { invoiceMonth, retryInvoice, runBilling, tzOf, listInvoices } from "@/lib/billing/invoices";
-import { parseAnchorDay, parseDollarsToCents, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
+import { billedPeriodsByClient, creditsCursorFor, invoicePeriod, listInvoices, retryInvoice, runBilling, tzOf } from "@/lib/billing/invoices";
+import { parseAnchorDay, parseDollarsToCents, parseFeeCurrency, parseMonthKey, parsePercentToBps } from "@/lib/billing/money";
 import { sendSetupLinkEmail } from "@/lib/billing/notify";
-import { closedMonthsWithoutInvoice, localDate, monthOf, prevMonth, reenableNeedsBillFrom } from "@/lib/billing/schedule";
+import { chargeableFeeMonths, earlyCreditPeriod, localDate, monthOf, prevMonth, reenableNeedsBillFrom } from "@/lib/billing/schedule";
 import { setupLinkState } from "@/lib/billing/status";
 import {
   createSetupLink,
@@ -26,24 +26,29 @@ import {
 } from "@/lib/billing/setup";
 import { getRequestOrigin } from "@/lib/origin";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { liftSuspension, setServicePaused } from "@/lib/billing/suspension";
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 
 /**
- * Platform-admin only: the defaults every client inherits unless overridden. Markup is unreleased:
- * while it is off the form has no markup field and the stored default is left untouched.
+ * Platform-admin only: the agency defaults every client inherits unless overridden. There is no
+ * default service fee — each client's fee is set on its own page. Markup is unreleased: while it
+ * is off the form has no markup field and the stored default is left untouched.
  */
 export async function saveBillingDefaults(formData: FormData) {
   const ctx = await requireAdmin();
   const markupBps = billingMarkupEnabled() ? parsePercentToBps(str(formData, "markup")) : undefined;
-  const feeCents = parseDollarsToCents(str(formData, "fee"));
   const anchorDay = parseAnchorDay(str(formData, "anchorDay"));
+  const feeCurrency = parseFeeCurrency(str(formData, "feeCurrency"));
+  const thresholdRaw = str(formData, "lowBalance");
+  const lowBalanceCents = thresholdRaw ? parseDollarsToCents(thresholdRaw) : null;
   const alertEmail = str(formData, "alertEmail").toLowerCase();
-  if (markupBps === null || feeCents == null || anchorDay == null) redirect("/console/billing?error=invalid");
+  if (markupBps === null || anchorDay == null || feeCurrency == null) redirect("/console/billing?error=invalid");
+  if (thresholdRaw && !lowBalanceCents) redirect("/console/billing?error=invalid");
   if (alertEmail && !alertEmail.includes("@")) redirect("/console/billing?error=invalid");
   let failed = false;
   try {
-    await saveBillingSettings({ markupBps, feeCents, anchorDay, alertEmail: alertEmail || null }, ctx.userId);
+    await saveBillingSettings({ markupBps, anchorDay, feeCurrency, lowBalanceCents, alertEmail: alertEmail || null }, ctx.userId);
   } catch (e) {
     console.error("[billing] save defaults failed", e);
     failed = true;
@@ -116,12 +121,22 @@ export async function saveClientBilling(formData: FormData) {
   const markupRaw = markupOn ? str(formData, "markup") : "";
   const markupBps = markupRaw ? parsePercentToBps(markupRaw) : null;
   if (markupRaw && markupBps == null) redirect(`${back}?error=invalid`);
+  // The agency's retail service fee: free-form per client (discounts per deal). Blank = no fee.
   const feeRaw = str(formData, "fee");
   const feeCents = feeRaw ? parseDollarsToCents(feeRaw) : null;
   if (feeRaw && feeCents == null) redirect(`${back}?error=invalid`);
+  const currencyRaw = str(formData, "feeCurrency");
+  const feeCurrency = currencyRaw ? parseFeeCurrency(currencyRaw) : null;
+  if (currencyRaw && feeCurrency == null) redirect(`${back}?error=invalid`);
   const anchorRaw = str(formData, "anchorDay");
   const anchorDay = anchorRaw ? parseAnchorDay(anchorRaw) : null;
   if (anchorRaw && anchorDay == null) redirect(`${back}?error=invalid`);
+  // Blank = agency default; 0 = off for this client.
+  const thresholdRaw = str(formData, "lowBalance");
+  const lowBalanceCents = thresholdRaw ? parseDollarsToCents(thresholdRaw) : null;
+  if (thresholdRaw && lowBalanceCents == null) redirect(`${back}?error=invalid`);
+  const contactRaw = str(formData, "agencyContact").toLowerCase();
+  if (contactRaw && !contactRaw.includes("@")) redirect(`${back}?error=email`);
 
   let existing: Awaited<ReturnType<typeof loadClientBilling>>;
   try {
@@ -155,7 +170,17 @@ export async function saveClientBilling(formData: FormData) {
     // A blank override is an explicit null: it clears the override back to the platform default.
     const saved = await upsertClientBilling(
       client.id,
-      { enabled, billingEmail, billFromMonth: billFrom, markupBps: markupOn ? markupBps : undefined, feeCents, anchorDay },
+      {
+        enabled,
+        billingEmail,
+        billFromMonth: billFrom,
+        markupBps: markupOn ? markupBps : undefined,
+        feeCents,
+        feeCurrency,
+        anchorDay,
+        lowBalanceCents,
+        agencyContactEmail: contactRaw || null,
+      },
       ctx.userId,
     );
     // The card may have been saved before billing was configured: Stripe's receipts follow the contact.
@@ -205,14 +230,12 @@ export async function emailSetupLink(formData: FormData) {
       target = `${back}?error=no_valid_link`;
     } else {
       const [cb, settings] = await Promise.all([loadClientBilling(client.id), loadBillingSettings()]);
-      const terms = chargeTerms(cb, settings);
       const { error } = await sendSetupLinkEmail({
         clientId: client.id,
         clientName: client.name,
         to,
         setupUrl: setupLinkUrl(await getRequestOrigin(), link.token),
-        feeCents: terms.feeCents,
-        anchorDay: terms.anchorDay,
+        terms: chargeTerms(cb, settings),
         expiresInDays: Math.max(1, Math.ceil((Date.parse(link.expiresAt) - now.getTime()) / 86_400_000)),
       });
       if (error) {
@@ -261,35 +284,44 @@ export async function adminRemoveCard(formData: FormData) {
   redirect(target);
 }
 
-/** Platform-admin only: invoice one closed month now, ignoring the anchor day. Never the current month. */
+/**
+ * Platform-admin only: charge now, outside the schedule.
+ *   - credits: every unbilled closed day (cursor → yesterday), like a low-balance early charge;
+ *   - service_fee: one month the page offers (bill-from → current month, not yet invoiced).
+ */
 export async function chargeNow(formData: FormData) {
   const ctx = await requireAdmin();
   const client = await knownClient(str(formData, "clientId"));
   if (!client) redirect("/console/billing?error=client");
   const back = `/console/billing/${client.id}`;
-  const month = parseMonthKey(str(formData, "month"));
-  const lastClosed = prevMonth(monthOf(localDate(new Date(), tzOf(client.timezone))));
-  if (!month || month > lastClosed) redirect(`${back}?error=month`);
+  const stream = str(formData, "stream");
+  const today = localDate(new Date(), tzOf(client.timezone));
 
-  // Only months the page offers: bill-from onward, closed, not yet invoiced. Decided before the
-  // charge try/catch so redirect() is never inside a catch.
-  let allowed = false;
+  // Decided before the charge try/catch so redirect() is never inside a catch.
+  let period: Parameters<typeof invoicePeriod>[1] | null = null;
   try {
     const cb = await loadClientBilling(client.id);
     if (cb?.enabled && cb.billFromMonth) {
-      const invoiced = (await listInvoices(client.id)).map((i) => i.periodMonth);
-      const today = localDate(new Date(), tzOf(client.timezone));
-      allowed = closedMonthsWithoutInvoice(today, cb.billFromMonth, invoiced).includes(month);
+      if (stream === "credits") {
+        const early = earlyCreditPeriod(today, await creditsCursorFor(cb, today));
+        if (early) period = { stream: "credits", ...early };
+      } else if (stream === "service_fee") {
+        const month = parseMonthKey(str(formData, "month"));
+        const billed = (await billedPeriodsByClient(client.id)).get(client.id);
+        if (month && chargeableFeeMonths(today, cb.billFromMonth, billed?.feeMonths ?? []).includes(month)) {
+          period = { stream: "service_fee", month };
+        }
+      }
     }
   } catch (e) {
     console.error("[billing] charge now pre-check failed", e);
     redirect(`${back}?error=charge`);
   }
-  if (!allowed) redirect(`${back}?error=month`);
+  if (!period) redirect(`${back}?error=month`);
 
   let target: string;
   try {
-    const r = await invoiceMonth(client.id, month, "manual", {
+    const r = await invoicePeriod(client.id, period, "manual", {
       createdBy: ctx.userId,
       origin: await getRequestOrigin(),
     });
@@ -318,12 +350,48 @@ export async function retryCharge(formData: FormData) {
     if (!owned) {
       target = `${back}?error=retry`;
     } else {
-      const r = await retryInvoice(invoiceId);
+      const r = await retryInvoice(invoiceId, await getRequestOrigin());
       target = `${back}?notice=retried&ok=${r.ok ? 1 : 0}&status=${encodeURIComponent(r.status ?? "")}`;
     }
   } catch (e) {
     console.error("[billing] retry charge failed", e);
     target = `${back}?error=retry`;
+  }
+  redirect(target);
+}
+
+/**
+ * Platform-admin only: lift a suspension without payment (e.g. paid by bank transfer). The
+ * outstanding charges get one fresh retry; if it fails, the client is suspended again.
+ */
+export async function liftClientSuspension(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  if (formData.get("confirm") !== "on") redirect(`${back}?error=lift_unconfirmed`);
+  let target = `${back}?notice=lifted`;
+  try {
+    await liftSuspension(client.id, await getRequestOrigin());
+  } catch (e) {
+    console.error("[billing] lift suspension failed", e);
+    target = `${back}?error=save`;
+  }
+  redirect(target);
+}
+
+/** Platform-admin only: record that the client's service was paused (or un-paused) in Emma by hand. */
+export async function markServicePaused(formData: FormData) {
+  await requireAdmin();
+  const client = await knownClient(str(formData, "clientId"));
+  if (!client) redirect("/console/billing?error=client");
+  const back = `/console/billing/${client.id}`;
+  let target = `${back}?notice=paused_saved`;
+  try {
+    await setServicePaused(client.id, formData.get("paused") === "on");
+  } catch (e) {
+    console.error("[billing] service paused flag failed", e);
+    target = `${back}?error=save`;
   }
   redirect(target);
 }

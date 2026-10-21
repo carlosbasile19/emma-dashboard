@@ -5,7 +5,7 @@
  * `YYYY-MM`; both compare lexicographically, so there is no Date arithmetic on the hot path and
  * no process timezone can leak in. The only place a Date meets a timezone is `localDate`.
  */
-import type { MonthKey } from "@/lib/usage";
+import { shiftDay, type MonthKey } from "@/lib/usage";
 
 export type { MonthKey };
 
@@ -134,4 +134,118 @@ export function reenableNeedsBillFrom({
     submittedBillFrom === storedBillFrom &&
     submittedBillFrom < currentMonth
   );
+}
+
+// ---- Stream A: AI Power Credits, weekly ----
+// A credits period is a run of whole, closed days in the client's timezone. The regular period is
+// Monday–Sunday, charged on the first run on or after the following Monday; a low-balance early
+// charge closes a period mid-week, and the next period starts the day after it. Periods are
+// contiguous by construction: each starts at the "cursor", the day after the last billed one.
+
+export interface DayPeriod {
+  from: string;
+  to: string;
+}
+
+/** 0 = Monday … 6 = Sunday, for a `YYYY-MM-DD`. */
+export function isoWeekday(ymd: string): number {
+  return (new Date(`${ymd}T00:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+/** The Monday on or before `ymd`. */
+export function weekStart(ymd: string): string {
+  return shiftDay(ymd, -isoWeekday(ymd));
+}
+
+/** The first Monday strictly after `ymd`. */
+export function nextMonday(ymd: string): string {
+  return shiftDay(weekStart(ymd), 7);
+}
+
+/** The first Monday on or after `ymd`: the regular credits charge date. */
+export function creditsChargeDate(today: string): string {
+  return isoWeekday(today) === 0 ? today : nextMonday(today);
+}
+
+/**
+ * The closed credits weeks owed right now, oldest first, each clipped to start at the cursor.
+ * A week is closed once its Sunday is before `today`. Catch-up after a missed run or a late
+ * enable yields one period per week, never one giant invoice.
+ */
+export function dueCreditPeriods(today: string, cursor: string): DayPeriod[] {
+  const lastClosedSunday = shiftDay(weekStart(today), -1);
+  const out: DayPeriod[] = [];
+  for (let from = cursor; from <= lastClosedSunday; ) {
+    const sunday = shiftDay(weekStart(from), 6);
+    out.push({ from, to: sunday });
+    from = shiftDay(sunday, 1);
+  }
+  return out;
+}
+
+/**
+ * The period a low-balance early charge bills: cursor → yesterday. Only whole closed days are
+ * billable (today's usage is still accruing), so `null` when no closed day is unbilled.
+ */
+export function earlyCreditPeriod(today: string, cursor: string): DayPeriod | null {
+  const yesterday = shiftDay(today, -1);
+  return cursor <= yesterday ? { from: cursor, to: yesterday } : null;
+}
+
+/**
+ * Whether unbilled usage has crossed the client's threshold. `null` usage (could not be loaded)
+ * never triggers; a 0 / null threshold is off.
+ */
+export function thresholdCrossed(unbilledCents: number | null, thresholdCents: number | null): boolean {
+  return thresholdCents != null && thresholdCents > 0 && unbilledCents != null && unbilledCents >= thresholdCents;
+}
+
+/** The first unbilled day: the day after the latest billed period, else the bill-from month's 1st. */
+export function creditsCursor(billFromMonth: MonthKey, billedPeriodEnds: Iterable<string>): string {
+  let cursor = `${billFromMonth}-01`;
+  for (const to of billedPeriodEnds) {
+    const next = shiftDay(to, 1);
+    if (next > cursor) cursor = next;
+  }
+  return cursor;
+}
+
+// ---- Stream B: monthly service fee, in advance ----
+
+/**
+ * The service-fee months owed right now, oldest first. Charged IN ADVANCE: the current month is
+ * due once the anchor day has passed; earlier months from bill-from on (catch-up) are due at once.
+ */
+export function dueFeeMonths({ today, anchorDay, billFromMonth, invoicedMonths }: DueArgs): MonthKey[] {
+  const current = monthOf(today);
+  const done = new Set(invoicedMonths);
+  const anchorPassed = dayOfMonth(today) >= anchorDay;
+  return monthRange(billFromMonth, current).filter((m) => !done.has(m) && (m < current || anchorPassed));
+}
+
+/** Months the admin may charge the fee for right now (bill-from → current month, not yet invoiced). */
+export function chargeableFeeMonths(today: string, billFromMonth: MonthKey, invoicedMonths: Iterable<MonthKey>): MonthKey[] {
+  const done = new Set(invoicedMonths);
+  return monthRange(billFromMonth, monthOf(today)).filter((m) => !done.has(m));
+}
+
+// ---- Retry → suspension ----
+
+/**
+ * A failed charge is retried once, this long after the failure, before the client is suspended.
+ * 20h (not 24h) so the next daily 03:00 UTC run always picks the retry up.
+ */
+export const RETRY_AFTER_MS = 20 * 60 * 60 * 1000;
+/** Retries before suspension. */
+export const MAX_RETRIES = 1;
+
+/**
+ * The next service-fee charge date: the current month's anchor day while that month is unbilled
+ * (today, if the anchor has passed — the next run charges it), else next month's anchor day.
+ */
+export function nextFeeChargeDate(today: string, anchorDay: number, invoicedMonths: Iterable<MonthKey>): string {
+  const current = monthOf(today);
+  const day = String(anchorDay).padStart(2, "0");
+  if (new Set(invoicedMonths).has(current)) return `${nextMonth(current)}-${day}`;
+  return dayOfMonth(today) <= anchorDay ? `${current}-${day}` : today;
 }

@@ -3,7 +3,7 @@ import { ErrorState } from "@/components/ui/states/ErrorState";
 import { BillingView } from "@/components/dashboard/billing/BillingView";
 import { getWorkspace } from "@/lib/auth";
 import { billingFeatureEnabled, chargeTerms, getBillingSettings, getClientBilling } from "@/lib/billing/config";
-import { estimateCurrentMonth, listInvoices, tzOf } from "@/lib/billing/invoices";
+import { listInvoices, nextFeeCharge, tzOf, unbilledCredits } from "@/lib/billing/invoices";
 import { reconcileCheckoutSession } from "@/lib/billing/setup";
 import { ERROR_COPY } from "@/lib/copy";
 import { getRequestOrigin } from "@/lib/origin";
@@ -44,11 +44,12 @@ export default async function BillingPage({ searchParams }: { searchParams: SP }
 
   // The estimate reads live usage, so it is only worth fetching once automatic billing is on.
   const tz = tzOf(ws.timezone);
-  let invoices, figure;
+  let invoices, credits, nextFee;
   try {
-    [invoices, figure] = await Promise.all([
+    [invoices, credits, nextFee] = await Promise.all([
       listInvoices(ws.clientId),
-      cb?.enabled ? estimateCurrentMonth(cb, tz) : null,
+      cb?.enabled ? unbilledCredits(cb, tz) : null,
+      cb?.enabled ? nextFeeCharge(cb, tz) : null,
     ]);
   } catch (e) {
     console.error("[billing] could not load invoices/estimate:", e);
@@ -63,18 +64,10 @@ export default async function BillingPage({ searchParams }: { searchParams: SP }
       automatic={cb?.enabled === true}
       card={cb?.card ?? null}
       billingEmail={cb?.billingEmail ?? null}
-      anchorDay={terms.anchorDay}
-      feeCents={terms.feeCents}
-      estimate={
-        figure
-          ? {
-              label: figure.label,
-              usageCents: figure.lines?.billedUsageCents ?? null,
-              totalCents: figure.lines?.totalCents ?? null,
-              nextChargeDate: figure.nextChargeDate,
-            }
-          : null
-      }
+      terms={terms}
+      suspended={Boolean(cb?.suspension)}
+      credits={credits}
+      nextFee={nextFee}
       invoices={invoices}
       notice={notice}
       error={one(sp.error) ?? null}

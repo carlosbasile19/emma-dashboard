@@ -6,9 +6,9 @@ import { chargeTerms, rowToClientBilling, type BillingSettings } from "../lib/bi
 
 const settings: BillingSettings = {
   markupBps: 2000,
-  feeCents: 30000,
   anchorDay: 3,
-  currency: "usd",
+  feeCurrency: "aud",
+  lowBalanceCents: 5000,
   alertEmail: null,
   updatedAt: null,
 };
@@ -26,11 +26,23 @@ assert.equal(rowToClientBilling(row, settings).effective.markupBps, 1500);
 assert.equal(rowToClientBilling({ ...row, markup_bps: null }, settings).effective.markupBps, 2000);
 delete process.env.BILLING_MARKUP_ENABLED;
 
-// ---- chargeTerms: the client's effective values, or the platform defaults before it has a row ----
-assert.deepEqual(chargeTerms(null, settings), { feeCents: 30000, anchorDay: 3 });
+// ---- chargeTerms: the client's own fee; with no row or no fee there is NO fee (never a default) ----
+assert.deepEqual(chargeTerms(null, settings), { feeCents: 0, feeCurrency: "aud", anchorDay: 3 });
+assert.deepEqual(chargeTerms(rowToClientBilling(row, settings), settings), { feeCents: 0, feeCurrency: "aud", anchorDay: 3 });
 assert.deepEqual(
-  chargeTerms(rowToClientBilling({ ...row, fee_cents: 50000, anchor_day: 10 }, settings), settings),
-  { feeCents: 50000, anchorDay: 10 },
+  chargeTerms(rowToClientBilling({ ...row, fee_cents: 50000, fee_currency: "usd", anchor_day: 10 }, settings), settings),
+  { feeCents: 50000, feeCurrency: "usd", anchorDay: 10 },
 );
+
+// ---- low-balance threshold: client override, 0 = off, null = agency default ----
+assert.equal(rowToClientBilling(row, settings).effective.lowBalanceCents, 5000);
+assert.equal(rowToClientBilling({ ...row, low_balance_cents: 2500 }, settings).effective.lowBalanceCents, 2500);
+assert.equal(rowToClientBilling({ ...row, low_balance_cents: 0 }, settings).effective.lowBalanceCents, null);
+assert.equal(rowToClientBilling(row, { ...settings, lowBalanceCents: null }).effective.lowBalanceCents, null);
+
+// ---- suspension mirror ----
+assert.equal(rowToClientBilling(row, settings).suspension, null);
+const susp = rowToClientBilling({ ...row, suspended_at: "2026-10-21T03:00:00Z", suspended_reason: "x", suspended_invoice_id: "r1" }, settings);
+assert.deepEqual(susp.suspension, { at: "2026-10-21T03:00:00Z", reason: "x", invoiceRowId: "r1", servicePausedAt: null });
 
 console.log("billing-config-selftest: OK");

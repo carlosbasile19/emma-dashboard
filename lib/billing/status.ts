@@ -18,11 +18,24 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
+/** The two charge streams: weekly AI Power Credits (USD) and the monthly service fee. */
+export const INVOICE_STREAMS = ["credits", "service_fee"] as const;
+export type InvoiceStream = (typeof INVOICE_STREAMS)[number];
+
+export function isInvoiceStream(s: string): s is InvoiceStream {
+  return (INVOICE_STREAMS as readonly string[]).includes(s);
+}
+
+export const STREAM_LABEL: Record<InvoiceStream, string> = {
+  credits: "AI Power Credits",
+  service_fee: "Monthly service fee",
+};
+
 export function isInvoiceStatus(s: string): s is InvoiceStatus {
   return (INVOICE_STATUSES as readonly string[]).includes(s);
 }
 
-export type ClientBillingStatus = "off" | "no_card" | "active" | "payment_failed" | "action_required";
+export type ClientBillingStatus = "off" | "no_card" | "active" | "payment_failed" | "action_required" | "suspended";
 
 export const STATUS_LABEL: Record<ClientBillingStatus, string> = {
   off: "Off",
@@ -30,18 +43,41 @@ export const STATUS_LABEL: Record<ClientBillingStatus, string> = {
   active: "Active",
   payment_failed: "Payment failed",
   action_required: "Action required",
+  suspended: "Suspended",
 };
 
-/** The badge for a client. `open` is a payment still in flight, so it reads as active. */
+/** Invoice statuses that are money still owed after a failed attempt. */
+const UNPAID = new Set<InvoiceStatus>(["failed", "action_required", "uncollectible"]);
+
+export function isUnpaid(s: InvoiceStatus): boolean {
+  return UNPAID.has(s);
+}
+
+/**
+ * The most urgent payment issue across a client's invoices (both streams): an authentication
+ * request outranks a decline. null = nothing owed. `open` is a payment in flight, not an issue.
+ */
+export function paymentIssue(statuses: Iterable<InvoiceStatus>): "action_required" | "failed" | null {
+  let issue: "action_required" | "failed" | null = null;
+  for (const s of statuses) {
+    if (s === "action_required") return "action_required";
+    if (UNPAID.has(s)) issue = "failed";
+  }
+  return issue;
+}
+
+/** The badge for a client. Suspension outranks everything: it is what the agency must act on. */
 export function deriveStatus(a: {
   enabled: boolean;
   hasCard: boolean;
-  lastInvoiceStatus: InvoiceStatus | null;
+  suspended: boolean;
+  issue: "action_required" | "failed" | null;
 }): ClientBillingStatus {
+  if (a.suspended) return "suspended";
   if (!a.enabled) return "off";
   if (!a.hasCard) return "no_card";
-  if (a.lastInvoiceStatus === "action_required") return "action_required";
-  if (a.lastInvoiceStatus === "failed" || a.lastInvoiceStatus === "uncollectible") return "payment_failed";
+  if (a.issue === "action_required") return "action_required";
+  if (a.issue === "failed") return "payment_failed";
   return "active";
 }
 
@@ -134,7 +170,8 @@ export type BillingTransition =
   | {
       kind: "invoice_status";
       clientId: string;
-      periodMonth: string;
+      stream: InvoiceStream;
+      periodKey: string;
       stripeInvoiceId: string;
       status: InvoiceStatus;
       hostedInvoiceUrl: string | null;
@@ -196,11 +233,13 @@ export function planTransition(ev: WebhookEventShape, ctx: TransitionContext): B
 
   if (INVOICE_EVENTS.has(ev.type)) {
     const clientId = meta(o, "emma_client_id");
-    const periodMonth = meta(o, "emma_period");
-    if (!clientId || !periodMonth) return { kind: "ignore", reason: "not an Emma invoice" };
+    const periodKey = meta(o, "emma_period");
+    const stream = meta(o, "emma_stream") ?? "credits";
+    if (!clientId || !periodKey || !isInvoiceStream(stream)) return { kind: "ignore", reason: "not an Emma invoice" };
     const base = {
       clientId,
-      periodMonth,
+      stream,
+      periodKey,
       stripeInvoiceId: String(o.id),
       hostedInvoiceUrl: str(o.hosted_invoice_url),
       invoicePdfUrl: str(o.invoice_pdf),

@@ -2,11 +2,12 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe, stripeLivemode } from "@/lib/stripe/client";
-import { claimBillingContact, loadClientBilling, type CardOnFile } from "./config";
-import { CHECKOUT_SUBMIT_MESSAGE } from "./copy";
+import { chargeTerms, claimBillingContact, loadBillingSettings, loadClientBilling, type CardOnFile } from "./config";
+import { checkoutSubmitMessage } from "./copy";
 import { ensureCustomer, setDefaultCard, syncCustomerEmail, writeCardMirror } from "./customers";
 import { notifyCardAdded } from "./notify";
 import { setupLinkState, type SetupLinkState } from "./status";
+import { retryUnpaidNow } from "./suspension";
 
 /**
  * Card capture. Two entry points (the client's Billing page and a public token link) create
@@ -142,6 +143,7 @@ export async function createCheckoutSession(args: {
     }
   }
   const customerId = await ensureCustomer(args.clientId);
+  const [cb, settings] = await Promise.all([loadClientBilling(args.clientId), loadBillingSettings()]);
   const metadata: Record<string, string> = {
     emma_client_id: args.clientId,
     emma_origin: args.setupToken ? "link" : "dashboard",
@@ -155,7 +157,7 @@ export async function createCheckoutSession(args: {
     allowed_payment_method_types: ["card"], // stripe@23 name for payment_method_types
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
-    custom_text: { submit: { message: CHECKOUT_SUBMIT_MESSAGE } },
+    custom_text: { submit: { message: checkoutSubmitMessage(chargeTerms(cb, settings)) } },
     metadata,
     setup_intent_data: { metadata: { emma_client_id: args.clientId } },
   });
@@ -288,6 +290,12 @@ export async function reconcileCheckoutSession(
     await notifyCardAdded(clientId, card, origin);
   } catch (e) {
     console.error("[billing] card-added notification failed", { sessionId, clientId }, e);
+  }
+  // A new card settles what is owed straight away; paying the last unpaid charge lifts a suspension.
+  try {
+    await retryUnpaidNow(clientId, origin);
+  } catch (e) {
+    console.error("[billing] retry of unpaid charges after new card failed", { sessionId, clientId }, e);
   }
   return { ok: true, clientId, card, alreadyDone: false };
 }

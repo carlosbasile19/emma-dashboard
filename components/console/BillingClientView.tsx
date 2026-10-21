@@ -4,6 +4,8 @@ import {
   chargeNow,
   emailSetupLink,
   generateSetupLink,
+  liftClientSuspension,
+  markServicePaused,
   retryCharge,
   revokeLink,
   saveClientBilling,
@@ -11,13 +13,19 @@ import {
 import { CopyButton } from "@/components/ui/CopyButton";
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import type { BillingSettings, ClientBilling } from "@/lib/billing/config";
-import type { InvoiceRow, MonthFigure } from "@/lib/billing/invoices";
-import { bpsToPercent, centsToDollarsInput } from "@/lib/billing/money";
+import type { CreditsFigure, InvoiceRow } from "@/lib/billing/invoices";
+import { bpsToPercent, centsToDollarsInput, FEE_CURRENCIES, moneyWithCurrency } from "@/lib/billing/money";
 import { cardLabel } from "@/lib/billing/notify";
 import type { SetupLink } from "@/lib/billing/setup";
-import { INVOICE_STATUS_LABEL, STATUS_LABEL, setupLinkState, type ClientBillingStatus } from "@/lib/billing/status";
+import {
+  INVOICE_STATUS_LABEL,
+  STATUS_LABEL,
+  STREAM_LABEL,
+  setupLinkState,
+  type ClientBillingStatus,
+} from "@/lib/billing/status";
 import { initials as toInitials, relTime } from "@/lib/format";
-import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
+import { dayLabel, monthLabel } from "@/lib/usage";
 
 export interface BillingClientViewProps {
   client: { id: string; name: string; timezone: string | null };
@@ -27,14 +35,19 @@ export interface BillingClientViewProps {
   markupEnabled: boolean;
   /** Pre-fills a link's email box when the client has no billing contact yet. */
   suggestedEmail: string | null;
+  /** The agency default billing contact (alerts email, else the earliest admin). */
+  defaultContact: string | null;
   status: ClientBillingStatus;
   links: SetupLink[];
   baseUrl: string;
   invoices: InvoiceRow[];
-  /** Last closed month: usage + fee (raw → billed once markup is released). null when billing is off. */
-  preview: MonthFigure | null;
-  chargeableMonths: string[];
-  nextCharge: string | null;
+  /** Unbilled AI Power Credits since the last charge. null when billing is off. */
+  credits: CreditsFigure | null;
+  /** Next service-fee charge date; null when off or no fee. */
+  nextFee: string | null;
+  chargeableFeeMonths: string[];
+  /** There are unbilled closed days to charge now. */
+  canChargeCredits: boolean;
   notice: string | null;
   error: string | null;
   extra: Record<string, string | undefined>;
@@ -46,6 +59,7 @@ const STATUS_CLASS: Record<ClientBillingStatus, string> = {
   active: "border-success/60 bg-success/20 text-white",
   payment_failed: "border-danger/60 bg-danger/25 text-white",
   action_required: "border-warning/60 bg-warning/20 text-white",
+  suspended: "border-danger bg-danger text-white",
 };
 
 function noticeText(p: BillingClientViewProps): string | null {
@@ -66,15 +80,20 @@ function noticeText(p: BillingClientViewProps): string | null {
       const o = p.extra.outcome;
       const s = p.extra.status;
       if (o === "invoiced") return `Invoice created — ${s === "paid" ? "paid" : s === "failed" ? "payment failed (see below)" : s}.`;
-      if (o === "skipped_zero") return "Nothing to bill for that month.";
+      if (o === "skipped_zero") return "Nothing to bill for that period.";
+      if (o === "skipped_suspended") return "Not charged: the client is suspended. Settle the outstanding charges first.";
       if (o === "skipped_no_card") return "Not charged: no card on file.";
       if (o === "usage_unavailable") return "Not charged: usage could not be loaded. Try again later.";
       if (o === "skipped_disabled") return "Not charged: billing is switched off for this client.";
-      if (o === "already_invoiced") return "That month already has an invoice.";
+      if (o === "already_invoiced") return "That period already has an invoice.";
       return `Charge did not complete (${o ?? "error"}).`;
     }
     case "retried":
       return p.extra.ok === "1" ? "Payment succeeded." : `Retry did not succeed (${p.extra.status ?? "failed"}).`;
+    case "lifted":
+      return "Suspension lifted. Outstanding charges get one more retry; if it fails the client is suspended again.";
+    case "paused_saved":
+      return "Saved.";
     default:
       return null;
   }
@@ -85,7 +104,7 @@ function errorText(code: string | null, storedBillFrom: string | null, markupEna
     case "bill_from_reenable":
       return `Billing was off since ${storedBillFrom ? monthLabel(storedBillFrom) : "an earlier month"}. Set the bill-from month you want to start charging from, then save again.`;
     case "invalid":
-      return `Check the values: ${markupEnabled ? "markup 0–300%, " : ""}fee in dollars, anchor day 1–28, month as YYYY-MM.`;
+      return `Check the values: ${markupEnabled ? "markup 0–300%, " : ""}fee and threshold in dollars, currency AUD or USD, fee day 1–28, month as YYYY-MM.`;
     case "email":
       return "Enter a valid email address.";
     case "send":
@@ -103,7 +122,9 @@ function errorText(code: string | null, storedBillFrom: string | null, markupEna
     case "client":
       return "Client not found.";
     case "month":
-      return "That month can't be charged.";
+      return "Nothing in that period can be charged right now.";
+    case "lift_unconfirmed":
+      return "Tick the confirmation box to lift the suspension.";
     case "bill_from":
       return "Bill-from can't be more than 12 months in the past.";
     case "no_valid_link":
@@ -139,7 +160,12 @@ export function BillingClientView(p: BillingClientViewProps) {
             <div>
               <div className="text-[24px] font-bold tracking-[-0.01em]">{client.name}</div>
               <div className="mt-1 font-mono text-[11px] tracking-[0.04em] text-violet-light">
-                {cb?.card ? cardLabel(cb.card) : "no card on file"} · {p.nextCharge ? `next charge ${dayLabel(p.nextCharge)}` : "billing off"}
+                {cb?.card ? cardLabel(cb.card) : "no card on file"} ·{" "}
+                {cb?.suspension
+                  ? `suspended ${relTime(cb.suspension.at)}`
+                  : p.credits
+                    ? `credits ${dayLabel(p.credits.nextChargeDate)}${p.nextFee ? ` · fee ${dayLabel(p.nextFee)}` : ""}`
+                    : "billing off"}
               </div>
             </div>
           </div>
@@ -150,28 +176,71 @@ export function BillingClientView(p: BillingClientViewProps) {
       {notice ? <div className="mb-5 rounded-[13px] border border-success/30 bg-success/10 px-4 py-3 text-[13px] text-ink/80">{notice}</div> : null}
       {error ? <div className="mb-5 rounded-[13px] border border-danger/30 bg-danger/8 px-4 py-3 text-[13px] text-danger">{error}</div> : null}
 
+      {cb?.suspension ? <SuspensionPanel clientId={client.id} suspension={cb.suspension} invoices={p.invoices} hasCard={Boolean(cb.card)} /> : null}
+
       <div className="grid gap-5 md:grid-cols-[1.4fr_1fr]">
         {/* config */}
-        <Panel title="Billing settings" subtitle="blank override = platform default">
+        <Panel title="Billing settings" subtitle="blank = agency default">
           <form action={saveClientBilling} className="flex flex-col gap-3 px-5 py-4">
             <input type="hidden" name="clientId" value={client.id} />
             <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
               <input type="checkbox" name="enabled" defaultChecked={cb?.enabled ?? false} className="h-4 w-4 accent-violet" />
               Automatic billing on
             </label>
-            <Field label="Billing email" name="billingEmail" type="email" defaultValue={cb?.billingEmail ?? ""} placeholder="billing@client.com" />
-            <Field label="Bill from month" name="billFromMonth" type="month" defaultValue={cb?.billFromMonth ?? ""} placeholder="" hint="Months from here on are invoiced; earlier months are never touched." />
-            <div className={`grid gap-3 ${p.markupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+            <Field label="Client billing email" name="billingEmail" type="email" defaultValue={cb?.billingEmail ?? ""} placeholder="billing@client.com" hint="The client's own contact: Stripe receipts and payment notices." />
+            <Field label="Bill from month" name="billFromMonth" type="month" defaultValue={cb?.billFromMonth ?? ""} placeholder="" hint="Credits and service fees from this month on are charged; earlier ones never are." />
+            <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-3">
+              <Field
+                label="Monthly service fee"
+                name="fee"
+                defaultValue={cb?.overrides.feeCents == null ? "" : centsToDollarsInput(cb.overrides.feeCents)}
+                placeholder="No fee"
+              />
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">Currency</span>
+                <select
+                  name="feeCurrency"
+                  defaultValue={cb?.overrides.feeCurrency ?? ""}
+                  className="rounded-[9px] border border-ink/10 bg-white px-2.5 py-[6px] font-mono text-[12.5px] text-ink"
+                >
+                  <option value="">Default ({settings.feeCurrency.toUpperCase()})</option>
+                  {FEE_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  ))}
+                </select>
+              </label>
+              <Field label="Fee charge day" name="anchorDay" defaultValue={cb?.overrides.anchorDay == null ? "" : String(cb.overrides.anchorDay)} placeholder={`Default ${settings.anchorDay}`} />
+            </div>
+            <div className="-mt-1 text-[11px] leading-relaxed text-muted">
+              What this client pays you each month, in your currency. Free-form, so you can discount per deal. Charged in
+              advance on the fee day; this is the only fee the client ever sees.
+            </div>
+            <div className={`grid gap-3 ${p.markupEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
               {p.markupEnabled ? (
                 <Field label="Markup %" name="markup" defaultValue={cb?.overrides.markupBps == null ? "" : bpsToPercent(cb.overrides.markupBps)} placeholder={`Default ${bpsToPercent(settings.markupBps)}`} />
               ) : null}
-              <Field label="Monthly fee (USD)" name="fee" defaultValue={cb?.overrides.feeCents == null ? "" : centsToDollarsInput(cb.overrides.feeCents)} placeholder={`Default ${centsToDollarsInput(settings.feeCents)}`} />
-              <Field label="Anchor day" name="anchorDay" defaultValue={cb?.overrides.anchorDay == null ? "" : String(cb.overrides.anchorDay)} placeholder={`Default ${settings.anchorDay}`} />
+              <Field
+                label="Low-balance limit (USD)"
+                name="lowBalance"
+                defaultValue={cb?.overrides.lowBalanceCents == null ? "" : centsToDollarsInput(cb.overrides.lowBalanceCents)}
+                placeholder={settings.lowBalanceCents == null ? "Default off" : `Default ${centsToDollarsInput(settings.lowBalanceCents)}`}
+                hint="Charge AI Power Credits early, before Monday, once unbilled usage reaches this. 0 = off for this client."
+              />
             </div>
+            <Field
+              label="Billing contact at agency"
+              name="agencyContact"
+              type="email"
+              defaultValue={cb?.agencyContactEmail ?? ""}
+              placeholder={p.defaultContact ?? "billing@agency.com"}
+              hint={`Gets this client's payment-failure alerts, receipt copies and suspension notices. Blank = agency default${p.defaultContact ? ` (${p.defaultContact})` : ""}.`}
+            />
             <div className="flex items-center justify-between gap-3 pt-1">
               <span className="font-mono text-[11px] text-muted">
                 Effective: {p.markupEnabled ? `${bpsToPercent(cb?.effective.markupBps ?? settings.markupBps)}% · ` : ""}
-                {centsToMoneyExact(cb?.effective.feeCents ?? settings.feeCents)} · day {cb?.effective.anchorDay ?? settings.anchorDay}
+                {cb && cb.effective.feeCents > 0 ? moneyWithCurrency(cb.effective.feeCents, cb.effective.feeCurrency) : "no fee"} · day{" "}
+                {cb?.effective.anchorDay ?? settings.anchorDay} · low-balance{" "}
+                {cb ? (cb.effective.lowBalanceCents == null ? "off" : `$${centsToDollarsInput(cb.effective.lowBalanceCents)}`) : settings.lowBalanceCents == null ? "off" : `$${centsToDollarsInput(settings.lowBalanceCents)}`}
               </span>
               <SubmitButton pendingLabel="Saving…" className="bg-gradient-brand rounded-[10px] px-4 py-2 font-display text-[13px] font-semibold text-white transition-transform active:scale-95">
                 Save
@@ -203,23 +272,20 @@ export function BillingClientView(p: BillingClientViewProps) {
             </div>
           </Panel>
 
-          {/* preview */}
-          <Panel title="Last closed month" subtitle={p.preview ? p.preview.label : "billing off"}>
-            {p.preview ? (
+          {/* what is accruing / next */}
+          <Panel title="Next charges" subtitle={p.credits ? "two streams, same card" : "billing off"}>
+            {p.credits ? (
               <div className="flex flex-col">
-                {p.markupEnabled ? (
-                  <>
-                    <Line label="Usage (raw)" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.rawUsageCents) : "Unavailable"} />
-                    <Line label={p.preview.lines ? `Billed usage (+${bpsToPercent(p.preview.lines.markupBps)}%)` : "Billed usage"} value={p.preview.lines ? centsToMoneyExact(p.preview.lines.billedUsageCents) : "Unavailable"} />
-                  </>
-                ) : (
-                  <Line label="Usage" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.billedUsageCents) : "Unavailable"} />
-                )}
-                <Line label="Monthly fee" value={p.preview.lines ? centsToMoneyExact(p.preview.lines.feeCents) : "Unavailable"} />
-                <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
-                  <span className="text-[12.5px] font-semibold">Total</span>
-                  <span className="font-mono text-[14px] font-bold text-violet tabular-nums">{p.preview.lines ? centsToMoneyExact(p.preview.lines.totalCents) : "Unavailable"}</span>
-                </div>
+                <Line
+                  label={`${STREAM_LABEL.credits} since ${dayLabel(p.credits.from)}`}
+                  value={p.credits.usageCents == null ? "Unavailable" : moneyWithCurrency(p.credits.usageCents, "usd")}
+                />
+                <Line label="Charged (weekly, Monday)" value={dayLabel(p.credits.nextChargeDate)} />
+                <Line
+                  label={STREAM_LABEL.service_fee}
+                  value={cb && cb.effective.feeCents > 0 ? moneyWithCurrency(cb.effective.feeCents, cb.effective.feeCurrency) : "No fee set"}
+                />
+                {p.nextFee ? <Line label="Charged (in advance)" value={dayLabel(p.nextFee)} /> : null}
               </div>
             ) : (
               <div className="px-5 py-4 text-[13px] text-muted">Switch billing on to see the figures.</div>
@@ -295,20 +361,34 @@ export function BillingClientView(p: BillingClientViewProps) {
       <div className="mt-5">
         <Panel
           title="Invoices"
-          subtitle="one per calendar month"
+          subtitle="credits weekly (USD) · service fee monthly"
           action={
-            cb?.enabled && p.chargeableMonths.length > 0 ? (
-              <form action={chargeNow} className="flex items-center gap-2">
-                <input type="hidden" name="clientId" value={client.id} />
-                <select name="month" defaultValue={p.chargeableMonths[p.chargeableMonths.length - 1]} className="rounded-[9px] border border-ink/10 bg-white py-[6px] pl-2.5 pr-7 font-display text-[12.5px] text-ink">
-                  {p.chargeableMonths.map((m) => (
-                    <option key={m} value={m}>{monthLabel(m)}</option>
-                  ))}
-                </select>
-                <SubmitButton pendingLabel="Charging…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
-                  Charge now
-                </SubmitButton>
-              </form>
+            cb?.enabled && !cb.suspension && (p.canChargeCredits || p.chargeableFeeMonths.length > 0) ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {p.canChargeCredits ? (
+                  <form action={chargeNow}>
+                    <input type="hidden" name="clientId" value={client.id} />
+                    <input type="hidden" name="stream" value="credits" />
+                    <SubmitButton pendingLabel="Charging…" title="Charge every unbilled closed day now" className="rounded-[9px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
+                      Charge credits now
+                    </SubmitButton>
+                  </form>
+                ) : null}
+                {p.chargeableFeeMonths.length > 0 ? (
+                  <form action={chargeNow} className="flex items-center gap-2">
+                    <input type="hidden" name="clientId" value={client.id} />
+                    <input type="hidden" name="stream" value="service_fee" />
+                    <select name="month" defaultValue={p.chargeableFeeMonths[p.chargeableFeeMonths.length - 1]} className="rounded-[9px] border border-ink/10 bg-white py-[6px] pl-2.5 pr-7 font-display text-[12.5px] text-ink">
+                      {p.chargeableFeeMonths.map((m) => (
+                        <option key={m} value={m}>{monthLabel(m)}</option>
+                      ))}
+                    </select>
+                    <SubmitButton pendingLabel="Charging…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-[7px] font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
+                      Charge fee
+                    </SubmitButton>
+                  </form>
+                ) : null}
+              </div>
             ) : null
           }
         >
@@ -316,23 +396,24 @@ export function BillingClientView(p: BillingClientViewProps) {
             <div className="px-5 py-6 text-center text-[13px] text-muted">No invoices yet.</div>
           ) : (
             p.invoices.map((inv, i) => (
-              <div key={inv.id} className={`grid grid-cols-[1fr_1fr_1fr_1fr_1.2fr_1.2fr] items-center gap-3 border-b border-lavender px-5 py-3 text-[13px] ${i % 2 ? "bg-lavender/40" : "bg-white"}`}>
+              <div key={inv.id} className={`grid grid-cols-[1fr_1.6fr_1fr_1.3fr_1fr] items-center gap-3 border-b border-lavender px-5 py-3 text-[13px] ${i % 2 ? "bg-lavender/40" : "bg-white"}`}>
                 <div className="font-medium">
-                  {monthLabel(inv.periodMonth)}
+                  {inv.stream === "credits" ? "AI Credits" : "Service fee"}
+                  {inv.trigger === "threshold" ? <span className="ml-1.5 font-mono text-[10px] text-muted">early</span> : null}
                   {!inv.livemode ? <span className="ml-1.5 font-mono text-[10px] text-warning">test</span> : null}
                 </div>
-                <div className="font-mono text-[12.5px] tabular-nums">{inv.billedUsageCents == null ? "—" : `${centsToMoneyExact(inv.billedUsageCents)} usage`}</div>
-                <div className="font-mono text-[12.5px] tabular-nums">{inv.feeCents == null ? "—" : `${centsToMoneyExact(inv.feeCents)} fee`}</div>
-                <div className="font-mono text-[12.5px] font-semibold tabular-nums">{inv.totalCents == null ? "—" : centsToMoneyExact(inv.totalCents)}</div>
+                <div className="text-[12.5px]">{inv.periodLabel}</div>
+                <div className="font-mono text-[12.5px] font-semibold tabular-nums">{inv.totalCents == null ? "—" : moneyWithCurrency(inv.totalCents, inv.currency)}</div>
                 <div>
                   <span className="font-mono text-[11px] text-muted">{INVOICE_STATUS_LABEL[inv.status]}</span>
                   {inv.failureMessage ? <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-danger" title={inv.failureMessage}>{inv.failureMessage}</div> : null}
+                  {inv.nextRetryAt ? <div className="mt-0.5 font-mono text-[10.5px] text-muted">auto-retry {relTime(inv.nextRetryAt)}</div> : null}
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   {inv.hostedInvoiceUrl ? (
                     <a href={inv.hostedInvoiceUrl} target="_blank" rel="noreferrer" className="font-display text-[12.5px] font-medium text-violet hover:underline">View</a>
                   ) : null}
-                  {inv.status === "failed" || inv.status === "action_required" || inv.status === "open" ? (
+                  {inv.status === "failed" || inv.status === "action_required" || inv.status === "uncollectible" || inv.status === "open" ? (
                     <form action={retryCharge}>
                       <input type="hidden" name="clientId" value={client.id} />
                       <input type="hidden" name="invoiceId" value={inv.id} />
@@ -381,6 +462,71 @@ function Line({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-3 border-b border-lavender px-5 py-3">
       <span className="text-[12.5px] text-muted">{label}</span>
       <span className="font-mono text-[12.5px] tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+/** The red block the agency must act on: why, the manual pause step, and the override. */
+function SuspensionPanel({
+  clientId,
+  suspension,
+  invoices,
+  hasCard,
+}: {
+  clientId: string;
+  suspension: NonNullable<ClientBilling["suspension"]>;
+  invoices: InvoiceRow[];
+  hasCard: boolean;
+}) {
+  const unpaid = invoices.filter((i) => i.status === "failed" || i.status === "action_required" || i.status === "uncollectible");
+  const owed = new Map<string, number>();
+  for (const i of unpaid) owed.set(i.currency, (owed.get(i.currency) ?? 0) + (i.totalCents ?? 0));
+  return (
+    <div className="mb-6 overflow-hidden rounded-[16px] border-2 border-danger bg-danger/5">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-danger px-5 py-3 text-white">
+        <div className="font-display text-[15px] font-bold">Suspended for non-payment</div>
+        <div className="font-mono text-[11px]">since {relTime(suspension.at)}</div>
+      </div>
+      <div className="grid gap-4 px-5 py-4 md:grid-cols-[1.3fr_1fr]">
+        <div className="text-[13px] leading-relaxed text-ink/85">
+          <div className="font-medium text-ink">{suspension.reason ?? "A charge failed and its retry failed too"}.</div>
+          <div className="mt-1">
+            Owed: {owed.size === 0 ? "—" : [...owed].map(([cur, c]) => moneyWithCurrency(c, cur)).join(" + ")} across {unpaid.length}{" "}
+            unpaid charge{unpaid.length === 1 ? "" : "s"}. No new charges are raised while suspended; missed ones are caught up after.
+          </div>
+          <div className="mt-1">
+            It lifts itself as soon as everything owed is paid: the client adds a new card (retried immediately), or you retry
+            below. {hasCard ? "" : "The client has no card on file: send a setup link."}
+          </div>
+        </div>
+        <div className="flex flex-col gap-3">
+          <form action={markServicePaused} className="rounded-[12px] border border-danger/30 bg-white px-3.5 py-3">
+            <input type="hidden" name="clientId" value={clientId} />
+            <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.06em] text-danger">Manual step</div>
+            <div className="text-[12.5px] leading-relaxed text-ink/80">
+              Emma can&apos;t pause calls automatically yet. Pause this client&apos;s campaigns in Emma to stop calls and credit use.
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-[13px] font-medium">
+              <input type="checkbox" name="paused" defaultChecked={Boolean(suspension.servicePausedAt)} className="h-4 w-4 accent-violet" />
+              Service paused in Emma
+              {suspension.servicePausedAt ? <span className="font-mono text-[10.5px] text-muted">({relTime(suspension.servicePausedAt)})</span> : null}
+            </label>
+            <SubmitButton pendingLabel="Saving…" className="mt-2 rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
+              Save
+            </SubmitButton>
+          </form>
+          <form action={liftClientSuspension} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="clientId" value={clientId} />
+            <label className="flex items-center gap-2 text-[12px] text-muted">
+              <input type="checkbox" name="confirm" required className="h-4 w-4 accent-violet" />
+              Paid another way; lift it
+            </label>
+            <SubmitButton pendingLabel="Lifting…" className="rounded-[9px] border border-ink/10 bg-white px-3 py-1.5 font-display text-[12.5px] font-medium text-ink transition-colors hover:bg-lavender">
+              Lift suspension
+            </SubmitButton>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
