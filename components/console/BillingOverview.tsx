@@ -3,22 +3,25 @@ import { runBillingNow, saveBillingDefaults } from "@/app/console/billing/action
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import type { BillingSettings, ClientBilling } from "@/lib/billing/config";
 import type { BillingRunInfo, InvoiceRow } from "@/lib/billing/invoices";
-import { bpsToPercent, centsToDollarsInput } from "@/lib/billing/money";
+import { bpsToPercent, centsToDollarsInput, FEE_CURRENCIES, moneyWithCurrency } from "@/lib/billing/money";
 import { cardLabel } from "@/lib/billing/notify";
-import { INVOICE_STATUS_LABEL, STATUS_LABEL, type ClientBillingStatus } from "@/lib/billing/status";
+import { INVOICE_STATUS_LABEL, STATUS_LABEL, STREAM_LABEL, type ClientBillingStatus } from "@/lib/billing/status";
 import { relTime } from "@/lib/format";
-import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
+import { dayLabel } from "@/lib/usage";
 
 export interface BillingOverviewRow {
   client: { id: string; name: string; timezone: string | null };
   cb: ClientBilling | null;
   status: ClientBillingStatus;
-  nextCharge: string | null;
+  /** Next weekly AI Power Credits charge (Monday); null while off or suspended. */
+  nextCredits: string | null;
   lastInvoice: InvoiceRow | null;
 }
 
 export interface BillingOverviewProps {
   settings: BillingSettings;
+  /** Who per-client billing mail goes to when a client has no contact of its own. */
+  defaultContact: string | null;
   /** Markup is unreleased: when false, no markup field or column is shown. */
   markupEnabled: boolean;
   rows: BillingOverviewRow[];
@@ -35,11 +38,12 @@ const STATUS_CLASS: Record<ClientBillingStatus, string> = {
   active: "border-success/30 bg-success/10 text-success",
   payment_failed: "border-danger/30 bg-danger/10 text-danger",
   action_required: "border-warning/40 bg-warning/10 text-warning",
+  suspended: "border-danger bg-danger text-white",
 };
 
 // Literal class strings (Tailwind only generates classes it can see in the source).
-const COLS_WITH_MARKUP = "grid-cols-[1.8fr_1fr_1.3fr_0.8fr_0.7fr_0.6fr_1fr_1.3fr_0.9fr]";
-const COLS = "grid-cols-[1.8fr_1fr_1.3fr_0.8fr_0.6fr_1fr_1.3fr_0.9fr]";
+const COLS_WITH_MARKUP = "grid-cols-[1.6fr_1fr_1.2fr_1fr_0.7fr_0.8fr_1fr_1.5fr_0.9fr]";
+const COLS = "grid-cols-[1.6fr_1fr_1.2fr_1fr_0.8fr_1fr_1.5fr_0.9fr]";
 
 export function BillingOverview(p: BillingOverviewProps) {
   const cols = p.markupEnabled ? COLS_WITH_MARKUP : COLS;
@@ -47,6 +51,7 @@ export function BillingOverview(p: BillingOverviewProps) {
     active: p.rows.filter((r) => r.status === "active").length,
     noCard: p.rows.filter((r) => r.status === "no_card").length,
     failed: p.rows.filter((r) => r.status === "payment_failed" || r.status === "action_required").length,
+    suspended: p.rows.filter((r) => r.status === "suspended").length,
   };
   const notice =
     p.notice === "saved"
@@ -56,7 +61,7 @@ export function BillingOverview(p: BillingOverviewProps) {
         : null;
   const error =
     p.error === "invalid"
-      ? `Check the values: ${p.markupEnabled ? "markup 0–300%, " : ""}fee in dollars, anchor day 1–28.`
+      ? `Check the values: ${p.markupEnabled ? "markup 0–300%, " : ""}fee day 1–28, threshold in dollars (blank = off), currency AUD or USD.`
       : p.error === "save_failed"
         ? "Could not save the defaults. Try again."
         : p.error === "client"
@@ -81,7 +86,7 @@ export function BillingOverview(p: BillingOverviewProps) {
         <form action={runBillingNow} className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-[12.5px] text-muted">
             <input type="checkbox" name="confirm" required className="h-4 w-4 accent-violet" />
-            I understand this charges every client with a closed, unbilled month now
+            I understand this charges every client with a due service fee or a closed, unbilled week now
           </label>
           <SubmitButton
             pendingLabel="Running…"
@@ -92,7 +97,8 @@ export function BillingOverview(p: BillingOverviewProps) {
         </form>
       </div>
       <div className="mb-6 text-[14px] text-muted">
-        Automatic monthly charging · each client is billed for the previous calendar month on their anchor day
+        Two charges per client on the same card · AI Power Credits (USD) every Monday for the previous week · the
+        client&apos;s monthly service fee (its own amount and currency) in advance on the fee day
       </div>
 
       {notice ? (
@@ -107,13 +113,45 @@ export function BillingOverview(p: BillingOverviewProps) {
         action={saveBillingDefaults}
         className="mb-6 flex flex-wrap items-end gap-3 rounded-[16px] border border-ink/10 bg-white px-5 py-4 shadow-sm"
       >
-        <div className="w-full font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">Platform defaults</div>
+        <div className="w-full font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
+          Agency defaults · each client&apos;s service fee is set on its own page
+        </div>
         {p.markupEnabled ? (
           <Field label="Markup %" name="markup" defaultValue={bpsToPercent(p.settings.markupBps)} placeholder="0" />
         ) : null}
-        <Field label="Monthly fee (USD)" name="fee" defaultValue={centsToDollarsInput(p.settings.feeCents)} placeholder="0" />
-        <Field label="Anchor day" name="anchorDay" defaultValue={String(p.settings.anchorDay)} placeholder="3" type="number" />
-        <Field label="Alerts email (optional)" name="alertEmail" defaultValue={p.settings.alertEmail ?? ""} placeholder="billing@agency.com" type="email" wide />
+        <label className="flex w-[140px] flex-col gap-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">Fee currency</span>
+          <select
+            name="feeCurrency"
+            defaultValue={p.settings.feeCurrency}
+            className="rounded-[9px] border border-ink/10 bg-white px-2.5 py-[6px] font-mono text-[12.5px] text-ink"
+          >
+            {FEE_CURRENCIES.map((c) => (
+              <option key={c} value={c}>{c.toUpperCase()}</option>
+            ))}
+          </select>
+        </label>
+        <Field label="Fee charge day" name="anchorDay" defaultValue={String(p.settings.anchorDay)} placeholder="3" type="number" />
+        <Field
+          label="Low-balance (USD)"
+          name="lowBalance"
+          defaultValue={p.settings.lowBalanceCents == null ? "" : centsToDollarsInput(p.settings.lowBalanceCents)}
+          placeholder="off, e.g. 50"
+        />
+        <Field
+          label="Billing contact at agency"
+          name="alertEmail"
+          defaultValue={p.settings.alertEmail ?? ""}
+          placeholder={p.defaultContact ?? "billing@agency.com"}
+          type="email"
+          wide
+        />
+        <div className="w-full text-[11.5px] leading-relaxed text-muted">
+          The billing contact gets every client&apos;s payment-failure alerts, receipt copies and suspension notices,
+          unless a client has its own contact. Blank = the agency admin
+          {p.defaultContact ? <> ({p.defaultContact})</> : null}. The low-balance limit charges unbilled AI Power
+          Credits early, before Monday, once they reach it; blank = off.
+        </div>
         <SubmitButton
           pendingLabel="Saving…"
           className="bg-gradient-brand rounded-[10px] px-4 py-2 font-display text-[13px] font-semibold text-white transition-transform active:scale-95"
@@ -123,10 +161,11 @@ export function BillingOverview(p: BillingOverviewProps) {
       </form>
 
       {/* status strip */}
-      <div className="mb-6 grid grid-cols-2 gap-3.5 md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3.5 md:grid-cols-5">
         <Kpi label="Active" value={String(counts.active)} accent />
         <Kpi label="No card" value={String(counts.noCard)} />
         <Kpi label="Payment issues" value={String(counts.failed)} />
+        <Kpi label="Suspended" value={String(counts.suspended)} danger={counts.suspended > 0} />
         <Kpi
           label="Last run"
           value={p.lastRun ? relTime(p.lastRun.startedAt) : "never"}
@@ -137,7 +176,7 @@ export function BillingOverview(p: BillingOverviewProps) {
       {/* clients */}
       <div className="overflow-hidden rounded-[16px] border border-ink/10 bg-white shadow-sm">
         <div className={`grid ${cols} gap-3 border-b border-ink/10 bg-surface-tint px-[22px] py-[13px]`}>
-          {["Client", "Status", "Card", "Fee", ...(p.markupEnabled ? ["Markup"] : []), "Anchor", "Next charge", "Last invoice", ""].map((h, i) => (
+          {["Client", "Status", "Card", "Service fee", ...(p.markupEnabled ? ["Markup"] : []), "Low-bal.", "Next credits", "Last invoice", ""].map((h, i) => (
             <div key={h || i} className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
               {h}
             </div>
@@ -155,18 +194,26 @@ export function BillingOverview(p: BillingOverviewProps) {
               </span>
             </div>
             <div className="truncate font-mono text-[12px] text-muted">{r.cb?.card ? cardLabel(r.cb.card) : "—"}</div>
-            {/* A client with no billing row yet is on the platform defaults (what its Billing page and links quote). */}
-            <div className="font-mono text-[12.5px] tabular-nums">{centsToMoneyExact(r.cb?.effective.feeCents ?? p.settings.feeCents)}</div>
+            {/* The agency's retail fee for this client; a client without one is charged no fee. */}
+            <div className="font-mono text-[12.5px] tabular-nums">
+              {r.cb && r.cb.effective.feeCents > 0 ? moneyWithCurrency(r.cb.effective.feeCents, r.cb.effective.feeCurrency) : "—"}
+            </div>
             {p.markupEnabled ? (
               <div className="font-mono text-[12.5px] tabular-nums">{bpsToPercent(r.cb?.effective.markupBps ?? p.settings.markupBps)}%</div>
             ) : null}
-            <div className="font-mono text-[12.5px] tabular-nums">{r.cb?.effective.anchorDay ?? p.settings.anchorDay}</div>
-            <div className="font-mono text-[12px] text-muted">{r.nextCharge ? dayLabel(r.nextCharge) : "—"}</div>
-            <div className="min-w-0 truncate font-mono text-[12px]">
+            <div className="font-mono text-[12.5px] tabular-nums">
+              {r.cb?.effective.lowBalanceCents != null
+                ? `$${centsToDollarsInput(r.cb.effective.lowBalanceCents)}`
+                : r.cb == null && p.settings.lowBalanceCents != null
+                  ? `$${centsToDollarsInput(p.settings.lowBalanceCents)}`
+                  : "off"}
+            </div>
+            <div className="font-mono text-[12px] text-muted">{r.nextCredits ? dayLabel(r.nextCredits) : "—"}</div>
+            <div className="min-w-0 truncate font-mono text-[12px]" title={r.lastInvoice ? `${STREAM_LABEL[r.lastInvoice.stream]} · ${r.lastInvoice.periodLabel}` : undefined}>
               {r.lastInvoice ? (
                 <>
-                  {monthLabel(r.lastInvoice.periodMonth)} ·{" "}
-                  {r.lastInvoice.totalCents == null ? "—" : centsToMoneyExact(r.lastInvoice.totalCents)} ·{" "}
+                  {r.lastInvoice.stream === "credits" ? "Credits" : "Fee"} ·{" "}
+                  {r.lastInvoice.totalCents == null ? "—" : moneyWithCurrency(r.lastInvoice.totalCents, r.lastInvoice.currency)} ·{" "}
                   <span className="text-muted">{INVOICE_STATUS_LABEL[r.lastInvoice.status]}</span>
                 </>
               ) : (
@@ -222,11 +269,11 @@ function Field({
   );
 }
 
-function Kpi({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: boolean }) {
+function Kpi({ label, value, hint, accent, danger }: { label: string; value: string; hint?: string; accent?: boolean; danger?: boolean }) {
   return (
-    <div className="rounded-[13px] border border-ink/10 bg-white px-4 py-3.5 shadow-sm">
+    <div className={`rounded-[13px] border bg-white px-4 py-3.5 shadow-sm ${danger ? "border-danger/50" : "border-ink/10"}`}>
       <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">{label}</div>
-      <div className={`font-display text-[22px] font-bold tracking-[-0.01em] ${accent ? "text-violet" : "text-ink"}`}>{value}</div>
+      <div className={`font-display text-[22px] font-bold tracking-[-0.01em] ${danger ? "text-danger" : accent ? "text-violet" : "text-ink"}`}>{value}</div>
       {hint ? <div className="mt-0.5 font-mono text-[10.5px] text-muted">{hint}</div> : null}
     </div>
   );

@@ -174,3 +174,31 @@ export function markupLeadDetail(ld: LeadDetail, bps: number): LeadDetail {
     },
   };
 }
+
+// ---- Currencies ----
+// AI Power Credits are always USD. The service fee is the agency's retail price, in AUD or USD.
+
+export const FEE_CURRENCIES = ["usd", "aud"] as const;
+export type FeeCurrency = (typeof FEE_CURRENCIES)[number];
+export const CREDITS_CURRENCY = "usd";
+
+export function isFeeCurrency(v: unknown): v is FeeCurrency {
+  return typeof v === "string" && (FEE_CURRENCIES as readonly string[]).includes(v);
+}
+
+/** A form value → a fee currency, or null when it is not one we bill in. */
+export function parseFeeCurrency(input: string): FeeCurrency | null {
+  const s = input.trim().toLowerCase();
+  return isFeeCurrency(s) ? s : null;
+}
+
+/**
+ * "$450.00 AUD" / "$12.40 USD": the amount always carries its currency code on billing screens,
+ * because a client billed in two currencies must never have to guess which a "$" means.
+ */
+export function moneyWithCurrency(cents: number, currency: string): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(cents));
+  const dollars = Math.floor(abs / 100).toLocaleString("en-US");
+  return `${sign}$${dollars}.${String(abs % 100).padStart(2, "0")} ${currency.toUpperCase()}`;
+}

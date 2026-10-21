@@ -3,8 +3,8 @@ import { ClientDetailView, type ClientBillingSummary } from "@/components/consol
 import { billingFeatureEnabled, getClientBilling } from "@/lib/billing/config";
 import { listInvoices, tzOf } from "@/lib/billing/invoices";
 import { cardLabel } from "@/lib/billing/notify";
-import { localDate, nextChargeDate } from "@/lib/billing/schedule";
-import { deriveStatus, STATUS_LABEL } from "@/lib/billing/status";
+import { creditsChargeDate, localDate } from "@/lib/billing/schedule";
+import { deriveStatus, paymentIssue, STATUS_LABEL } from "@/lib/billing/status";
 import { DEFAULT_TZ, parseRange, rangeToPeriod } from "@/lib/filters";
 import { getClientDetail } from "@/lib/olivia/agency";
 import { dayLabel } from "@/lib/usage";
@@ -23,13 +23,15 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       const status = deriveStatus({
         enabled: cb?.enabled ?? false,
         hasCard: Boolean(cb?.card),
-        lastInvoiceStatus: invoices[0]?.status ?? null,
+        suspended: Boolean(cb?.suspension),
+        issue: paymentIssue(invoices.map((i) => i.status)),
       });
       billing = {
         statusLabel: STATUS_LABEL[status],
         cardLabel: cardLabel(cb?.card ?? null),
-        nextCharge: cb?.enabled
-          ? dayLabel(nextChargeDate(localDate(new Date(), tzOf(detail.client.timezone)), cb.effective.anchorDay))
+        // The next weekly AI Power Credits charge (the service fee has its own day on the Billing page).
+        nextCharge: cb?.enabled && !cb.suspension
+          ? dayLabel(creditsChargeDate(localDate(new Date(), tzOf(detail.client.timezone))))
           : null,
       };
     } catch (e) {

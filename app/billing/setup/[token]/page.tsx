@@ -92,15 +92,13 @@ export default async function BillingSetupPage({
       } else if (state !== "valid") {
         body = <Unavailable reason={COPY.invalid} />;
       } else {
-        // Before an admin configures the client there is no billing row: the platform defaults apply.
+        // Before an admin configures the client there is no billing row: the agency defaults (no fee) apply.
         const [cb, settings] = await Promise.all([loadClientBilling(link.clientId), loadBillingSettings()]);
-        const terms = chargeTerms(cb, settings);
         body = (
           <SetupCard
             token={token}
             clientName={clientName}
-            feeCents={terms.feeCents}
-            anchorDay={terms.anchorDay}
+            terms={chargeTerms(cb, settings)}
             cancelled={one(sp.setup) === "cancelled"}
             incomplete={incomplete}
             failed={one(sp.error) === "failed"}
@@ -142,7 +140,7 @@ function Done({ clientName, card }: { clientName: string; card: CardOnFile | nul
         ) : (
           <>A card is on file for {clientName}.</>
         )}{" "}
-        It will be used for your monthly Emma billing. You can close this page.
+        It will be used for your weekly AI Power Credits and your monthly service fee. You can close this page.
       </p>
     </div>
   );

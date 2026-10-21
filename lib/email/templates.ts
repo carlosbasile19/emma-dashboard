@@ -100,10 +100,8 @@ export function buildVerifyUrl(d: SupabaseEmailData): string {
 export interface BillingSetupLinkArgs {
   clientName: string;
   setupUrl: string;
-  /** "$300.00" or "" when there is no fee. */
-  feeLabel: string;
-  /** "3rd" */
-  anchorLabel: string;
+  /** The full charge sentence (lib/billing/copy.ts `chargeSummary`): both streams, the agency's fee and currency. */
+  chargeSummary: string;
   expiresInDays: number;
 }
 
@@ -111,11 +109,11 @@ export function billingSetupLink(
   a: BillingSetupLinkArgs,
 ): { subject: string; html: string; text: string } {
   const { html, text } = renderShell({
-    preheader: `Add a card to ${a.clientName}'s Hey Emma account for automatic monthly billing.`,
+    preheader: `Add a card to ${a.clientName}'s Hey Emma account for automatic billing.`,
     eyebrow: "Billing setup",
     heading: "Add a card for automatic billing",
     bodyParagraphs: [
-      `Hey Emma will charge ${a.clientName}'s card on the ${a.anchorLabel} of each month for the previous month's Emma usage${a.feeLabel ? ` plus the ${a.feeLabel} monthly fee` : ""}.`,
+      a.chargeSummary,
       "Add a card securely with Stripe — it takes a minute, and you can replace or remove it at any time from your Billing page.",
     ],
     cta: { label: "Add your card", url: a.setupUrl },
@@ -181,6 +179,7 @@ export function billingCardRemoved(
 
 export interface BillingPaymentFailedAdminArgs {
   clientName: string;
+  /** "AI Power Credits · 6 Oct 2026 – 12 Oct 2026" */
   periodLabel: string;
   amount: string;
   reason: string;
@@ -201,7 +200,7 @@ export function billingPaymentFailedAdmin(
       `Reason: ${a.reason}`,
       needsAuth
         ? "The client has been emailed a link to authenticate the payment with their bank. Nothing further is needed from you unless they don't complete it."
-        : "Stripe will retry automatically. The client has been emailed a link to update their card; you can also retry the charge from the console once a new card is on file.",
+        : "The charge is retried once in about a day. If the retry fails too, the client is suspended: no new charges are raised and you'll be asked to pause their service in Emma. The client has been emailed a link to update their card; a new card retries the charge straight away.",
     ],
     cta: { label: "Open billing", url: a.consoleUrl },
   });
@@ -214,6 +213,7 @@ export function billingPaymentFailedAdmin(
 
 export interface BillingPaymentFailedClientArgs {
   clientName: string;
+  /** "AI Power Credits · 6 Oct 2026 – 12 Oct 2026" */
   periodLabel: string;
   amount: string;
   reason: string;
@@ -231,11 +231,11 @@ export function billingPaymentFailedClient(
     eyebrow: "Billing",
     heading: needsAuth ? "Please authenticate your payment" : "We couldn't charge your card",
     bodyParagraphs: [
-      `The ${a.amount} invoice for ${a.clientName}'s Emma usage in ${a.periodLabel} ${needsAuth ? "needs a quick confirmation with your bank" : "could not be charged to the card on file"}.`,
+      `The ${a.amount} charge for ${a.clientName} (${a.periodLabel}) ${needsAuth ? "needs a quick confirmation with your bank" : "could not be charged to the card on file"}.`,
       `Reason: ${a.reason}`,
       needsAuth
-        ? "Use the button below to complete the payment securely with Stripe."
-        : "Add a new card below and we'll retry the charge. Your Emma service continues in the meantime.",
+        ? "Use the button below to complete the payment securely with Stripe. If it isn't completed within about a day, your Emma service is paused until it is."
+        : "Add a new card below and we'll retry the charge straight away. Otherwise we retry once in about a day; if that fails too, your Emma service is paused until payment succeeds.",
     ],
     cta: { label: a.actionLabel, url: a.actionUrl },
   });
@@ -256,8 +256,8 @@ export function billingUsageUnavailable(
     eyebrow: "Billing",
     heading: "Usage could not be loaded",
     bodyParagraphs: [
-      `Emma's usage figures for ${a.clientName} in ${a.periodLabel} could not be loaded, so no invoice was created and nothing was charged. The daily run will try again tomorrow.`,
-      "If this repeats, check the Usage report for the same month — a figure that is missing there is missing here.",
+      `Emma's usage figures for ${a.clientName} (${a.periodLabel}) could not be loaded, so no AI Power Credits invoice was created and nothing was charged. The daily run will try again tomorrow.`,
+      "If this repeats, check the Usage report for the same days — a figure that is missing there is missing here.",
     ],
     cta: { label: "Open billing", url: a.consoleUrl },
   });
@@ -278,7 +278,7 @@ export function billingNoCard(
     eyebrow: "Billing",
     heading: "No card on file",
     bodyParagraphs: [
-      `${a.periodLabel} is due for ${a.clientName}, but they have no card on file, so nothing was charged. Send them a setup link from the console; the month will be invoiced on the next run after a card is added.`,
+      `A charge for ${a.periodLabel} is due for ${a.clientName}, but they have no card on file, so nothing was charged. Send them a setup link from the console; everything owed is charged on the next run after a card is added.`,
     ],
     cta: { label: "Open billing", url: a.consoleUrl },
   });
@@ -289,7 +289,7 @@ export interface BillingRunSummaryArgs {
   /** "2 invoiced, 1 failed" */
   headline: string;
   dateLabel: string;
-  /** One line per client-month, already formatted. */
+  /** One line per charge, already formatted. */
   lines: string[];
   consoleUrl: string;
 }
@@ -305,4 +305,99 @@ export function billingRunSummary(
     cta: { label: "Open billing", url: a.consoleUrl },
   });
   return { subject: `Billing run ${a.dateLabel}: ${a.headline}`, html, text };
+}
+
+export interface BillingPaymentReceivedArgs {
+  clientName: string;
+  /** "AI Power Credits · 6 Oct 2026 – 12 Oct 2026" */
+  periodLabel: string;
+  /** "$120.40 USD" */
+  amount: string;
+  consoleUrl: string;
+}
+
+/** The agency's receipt copy: the client gets Stripe's own receipt. */
+export function billingPaymentReceived(
+  a: BillingPaymentReceivedArgs,
+): { subject: string; html: string; text: string } {
+  const { html, text } = renderShell({
+    preheader: `${a.clientName} paid ${a.amount}.`,
+    eyebrow: "Billing receipt",
+    heading: "Payment received",
+    bodyParagraphs: [`${a.clientName} was charged ${a.amount} for ${a.periodLabel}. The payment succeeded.`],
+    cta: { label: "Open billing", url: a.consoleUrl },
+  });
+  return { subject: `Payment received: ${a.clientName} · ${a.amount}`, html, text };
+}
+
+export interface BillingSuspendedAgencyArgs {
+  clientName: string;
+  reason: string;
+  consoleUrl: string;
+}
+
+export function billingSuspendedAgency(
+  a: BillingSuspendedAgencyArgs,
+): { subject: string; html: string; text: string } {
+  const { html, text } = renderShell({
+    preheader: `${a.clientName} is suspended for non-payment. Pause their service in Emma.`,
+    eyebrow: "Billing",
+    heading: "Client suspended: action needed",
+    bodyParagraphs: [
+      `${a.clientName} has been suspended for non-payment. ${a.reason}.`,
+      "No new charges are raised while they're suspended. Emma can't pause calls automatically yet, so pause this client's campaigns in Emma now to stop calls and credit use, then tick \"Service paused in Emma\" in the console.",
+      "The suspension lifts itself as soon as the outstanding charges are paid; the client has been emailed a link to update their card.",
+    ],
+    cta: { label: "Open billing", url: a.consoleUrl },
+  });
+  return { subject: `Suspended: ${a.clientName} (payment failed twice)`, html, text };
+}
+
+export interface BillingSuspendedClientArgs {
+  clientName: string;
+  actionUrl: string;
+}
+
+export function billingSuspendedClient(
+  a: BillingSuspendedClientArgs,
+): { subject: string; html: string; text: string } {
+  const { html, text } = renderShell({
+    preheader: `Your Emma service for ${a.clientName} is paused until payment succeeds.`,
+    eyebrow: "Billing",
+    heading: "Your Emma service is paused",
+    bodyParagraphs: [
+      `A charge for ${a.clientName} failed and its retry failed too, so your Emma service is paused.`,
+      "Update your card below: the outstanding charges are retried straight away and your service resumes as soon as they're paid.",
+    ],
+    cta: { label: "Update your card", url: a.actionUrl },
+  });
+  return { subject: `Your Emma service for ${a.clientName} is paused`, html, text };
+}
+
+export interface BillingResumedArgs {
+  clientName: string;
+  /** Agency copy says what to do next; client copy just confirms. */
+  audience: "agency" | "client";
+  /** "paid": the outstanding charges were paid; "admin": the agency lifted it. */
+  why: "paid" | "admin";
+  url: string;
+}
+
+export function billingResumed(a: BillingResumedArgs): { subject: string; html: string; text: string } {
+  const agency = a.audience === "agency";
+  const { html, text } = renderShell({
+    preheader: `${a.clientName}'s Emma service can resume.`,
+    eyebrow: "Billing",
+    heading: agency ? "Suspension lifted" : "Your Emma service is back on",
+    bodyParagraphs: agency
+      ? [
+          a.why === "paid"
+            ? `${a.clientName}'s outstanding charges are paid, so their suspension has lifted.`
+            : `${a.clientName}'s suspension was lifted from the console. Outstanding charges get one more retry.`,
+          "If you paused their campaigns in Emma, resume them now. Missed charges are caught up on the next billing run.",
+        ]
+      : [`Thanks, payment for ${a.clientName} went through. Your Emma service is back on.`],
+    cta: { label: agency ? "Open billing" : "Open billing", url: a.url },
+  });
+  return { subject: agency ? `Suspension lifted: ${a.clientName}` : `Your Emma service for ${a.clientName} is back on`, html, text };
 }

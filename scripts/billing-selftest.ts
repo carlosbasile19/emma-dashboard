@@ -13,6 +13,8 @@ import {
   parseDollarsToCents,
   parseMonthKey,
   parsePercentToBps,
+  moneyWithCurrency,
+  parseFeeCurrency,
 } from "../lib/billing/money";
 import type { LeadDetail, Overview, Timeseries } from "../lib/types";
 import {
@@ -25,20 +27,36 @@ import {
   prevMonth,
   reenableNeedsBillFrom,
   shouldAlertNoCard,
+  chargeableFeeMonths,
+  creditsChargeDate,
+  creditsCursor,
+  dueCreditPeriods,
+  dueFeeMonths,
+  earlyCreditPeriod,
+  isoWeekday,
+  nextFeeChargeDate,
+  nextMonday,
+  thresholdCrossed,
+  weekStart,
 } from "../lib/billing/schedule";
-import { chargeTermsText, mandateText, ordinal } from "../lib/billing/copy";
+import { chargeSummary, checkoutSubmitMessage, mandateText, ordinal } from "../lib/billing/copy";
 import {
   billingCardAdded,
   billingCardRemoved,
   billingNoCard,
   billingPaymentFailedAdmin,
   billingPaymentFailedClient,
+  billingPaymentReceived,
+  billingResumed,
   billingRunSummary,
   billingSetupLink,
+  billingSuspendedAgency,
+  billingSuspendedClient,
   billingUsageUnavailable,
 } from "../lib/email/templates";
 import {
   deriveStatus,
+  paymentIssue,
   eventSubject,
   invoiceStatusFromStripe,
   planTransition,
@@ -261,26 +279,97 @@ assert.equal(ordinal(13), "13th");
 assert.equal(ordinal(21), "21st");
 assert.equal(ordinal(22), "22nd");
 assert.equal(ordinal(23), "23rd");
-assert.match(mandateText(3), /on the 3rd of each month/);
-assert.doesNotMatch(mandateText(3), /Olivia/);
-// The plan line on the client's Billing page: charge day, usage, and the fee only when there is one.
-assert.match(chargeTermsText(3, 30000), /on the 3rd of each month/);
-assert.match(chargeTermsText(3, 30000), /plus a \$300\.00 monthly fee/);
-assert.match(chargeTermsText(15, 0), /on the 15th of each month for the previous month's Emma usage\.$/);
-assert.doesNotMatch(chargeTermsText(15, 0), /fee/, "no fee clause when the fee is 0");
+// The client-facing charge sentence: both streams, the agency's own fee and currency, nothing else.
+const AUD_TERMS = { feeCents: 45000, feeCurrency: "aud", anchorDay: 3 };
+assert.equal(
+  chargeSummary(AUD_TERMS),
+  "Your card will be charged weekly (every Monday) for AI Power Credits in USD, plus your monthly service fee of $450.00 AUD on the 3rd of each month.",
+);
+assert.equal(
+  chargeSummary({ feeCents: 0, feeCurrency: "usd", anchorDay: 3 }),
+  "Your card will be charged weekly (every Monday) for AI Power Credits in USD.",
+  "no fee clause when the agency set no fee",
+);
+assert.match(chargeSummary({ feeCents: 29999, feeCurrency: "usd", anchorDay: 15 }), /\$299\.99 USD on the 15th/);
+assert.match(mandateText(AUD_TERMS), /every Monday/);
+assert.match(mandateText(AUD_TERMS), /on the 3rd of each month/);
+assert.match(mandateText(AUD_TERMS), /service is paused until payment succeeds/);
+assert.doesNotMatch(mandateText({ ...AUD_TERMS, feeCents: 0 }), /service fee/);
+assert.ok(checkoutSubmitMessage(AUD_TERMS).length <= 1200, "Stripe's custom_text limit");
+for (const t of [chargeSummary(AUD_TERMS), mandateText(AUD_TERMS), checkoutSubmitMessage(AUD_TERMS)]) {
+  assert.doesNotMatch(t, /Olivia|wholesale|\$300/);
+}
+
+// ---- currencies ----
+assert.equal(moneyWithCurrency(45000, "aud"), "$450.00 AUD");
+assert.equal(moneyWithCurrency(123456, "usd"), "$1,234.56 USD");
+assert.equal(parseFeeCurrency(" AUD "), "aud");
+assert.equal(parseFeeCurrency("usd"), "usd");
+assert.equal(parseFeeCurrency("eur"), null);
+
+// ---- Stream A: weekly credits ----
+assert.equal(isoWeekday("2026-10-19"), 0); // Monday
+assert.equal(isoWeekday("2026-10-25"), 6); // Sunday
+assert.equal(weekStart("2026-10-21"), "2026-10-19");
+assert.equal(weekStart("2026-10-19"), "2026-10-19");
+assert.equal(nextMonday("2026-10-19"), "2026-10-26");
+assert.equal(nextMonday("2026-10-25"), "2026-10-26");
+assert.equal(creditsChargeDate("2026-10-19"), "2026-10-19");
+assert.equal(creditsChargeDate("2026-10-21"), "2026-10-26");
+// Monday: last week closed → billed; mid-week: nothing new is due.
+assert.deepEqual(dueCreditPeriods("2026-10-19", "2026-10-12"), [{ from: "2026-10-12", to: "2026-10-18" }]);
+assert.deepEqual(dueCreditPeriods("2026-10-21", "2026-10-19"), []);
+// Catch-up: one period per week, never one giant invoice.
+assert.deepEqual(dueCreditPeriods("2026-10-21", "2026-10-01"), [
+  { from: "2026-10-01", to: "2026-10-04" },
+  { from: "2026-10-05", to: "2026-10-11" },
+  { from: "2026-10-12", to: "2026-10-18" },
+]);
+// After a mid-week early charge (through Wed 14th) the Monday charge covers Thu–Sun only.
+assert.deepEqual(dueCreditPeriods("2026-10-19", "2026-10-15"), [{ from: "2026-10-15", to: "2026-10-18" }]);
+// Across a year end.
+assert.deepEqual(dueCreditPeriods("2027-01-04", "2026-12-28"), [{ from: "2026-12-28", to: "2027-01-03" }]);
+// Cursor: the day after the latest billed period, else bill-from's 1st.
+assert.equal(creditsCursor("2026-10", []), "2026-10-01");
+assert.equal(creditsCursor("2026-10", ["2026-10-04", "2026-10-11"]), "2026-10-12");
+assert.equal(creditsCursor("2026-10", ["2026-10-11", "2026-10-04"]), "2026-10-12", "order does not matter");
+// Early charge: closed days only.
+assert.deepEqual(earlyCreditPeriod("2026-10-22", "2026-10-19"), { from: "2026-10-19", to: "2026-10-21" });
+assert.equal(earlyCreditPeriod("2026-10-19", "2026-10-19"), null, "nothing closed yet");
+// Threshold: off at null/0, never on unknown usage.
+assert.equal(thresholdCrossed(5000, 5000), true);
+assert.equal(thresholdCrossed(4999, 5000), false);
+assert.equal(thresholdCrossed(null, 5000), false);
+assert.equal(thresholdCrossed(999999, null), false);
+assert.equal(thresholdCrossed(999999, 0), false);
+
+// ---- Stream B: service fee, in advance ----
+const FEE = { anchorDay: 3, billFromMonth: "2026-10", invoicedMonths: [] as string[] };
+assert.deepEqual(dueFeeMonths({ ...FEE, today: "2026-10-02" }), [], "before the fee day");
+assert.deepEqual(dueFeeMonths({ ...FEE, today: "2026-10-03" }), ["2026-10"], "the current month, in advance");
+assert.deepEqual(dueFeeMonths({ ...FEE, today: "2026-11-01" }), ["2026-10"], "an earlier month is due at once");
+assert.deepEqual(dueFeeMonths({ ...FEE, today: "2026-11-05", invoicedMonths: ["2026-10"] }), ["2026-11"]);
+assert.deepEqual(dueFeeMonths({ ...FEE, today: "2026-11-05", invoicedMonths: ["2026-10", "2026-11"] }), []);
+assert.deepEqual(chargeableFeeMonths("2026-11-01", "2026-10", ["2026-10"]), ["2026-11"]);
+assert.equal(nextFeeChargeDate("2026-10-01", 3, []), "2026-10-03");
+assert.equal(nextFeeChargeDate("2026-10-21", 3, ["2026-10"]), "2026-11-03");
+assert.equal(nextFeeChargeDate("2026-10-21", 3, []), "2026-10-21", "unbilled and past the day: the next run");
 
 console.log("billing-selftest: schedule + copy OK");
 
-// ---- deriveStatus ----
-assert.equal(deriveStatus({ enabled: false, hasCard: true, lastInvoiceStatus: "paid" }), "off");
-assert.equal(deriveStatus({ enabled: true, hasCard: false, lastInvoiceStatus: null }), "no_card");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: null }), "active");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "paid" }), "active");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "open" }), "active");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "failed" }), "payment_failed");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "uncollectible" }), "payment_failed");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "action_required" }), "action_required");
-assert.equal(deriveStatus({ enabled: true, hasCard: true, lastInvoiceStatus: "skipped_zero" }), "active");
+// ---- deriveStatus / paymentIssue ----
+const ST = { enabled: true, hasCard: true, suspended: false, issue: null } as const;
+assert.equal(deriveStatus({ ...ST, enabled: false }), "off");
+assert.equal(deriveStatus({ ...ST, hasCard: false }), "no_card");
+assert.equal(deriveStatus(ST), "active");
+assert.equal(deriveStatus({ ...ST, issue: "failed" }), "payment_failed");
+assert.equal(deriveStatus({ ...ST, issue: "action_required" }), "action_required");
+assert.equal(deriveStatus({ ...ST, issue: "failed", suspended: true }), "suspended");
+assert.equal(deriveStatus({ ...ST, enabled: false, suspended: true }), "suspended", "suspension outranks everything");
+assert.equal(paymentIssue(["paid", "open", "skipped_zero"]), null);
+assert.equal(paymentIssue(["paid", "failed"]), "failed");
+assert.equal(paymentIssue(["uncollectible"]), "failed");
+assert.equal(paymentIssue(["failed", "action_required", "paid"]), "action_required");
 
 // ---- invoiceStatusFromStripe ----
 assert.equal(invoiceStatusFromStripe("paid"), "paid");
@@ -374,7 +463,7 @@ assert.deepEqual(planTransition(ev("customer.deleted", { id: "cus_1" }), CTX_C1)
 assert.equal(planTransition(ev("customer.deleted", { id: "cus_other" }), CTX_NONE).kind, "ignore");
 
 // invoice.* events are scoped by metadata; the status and the notification flags are data.
-const INV = { id: "in_1", status: "paid", hosted_invoice_url: "https://inv", invoice_pdf: "https://pdf", metadata: { emma_client_id: "c1", emma_period: "2026-09" } };
+const INV = { id: "in_1", status: "paid", hosted_invoice_url: "https://inv", invoice_pdf: "https://pdf", metadata: { emma_client_id: "c1", emma_stream: "service_fee", emma_period: "2026-09" } };
 const paid = planTransition(ev("invoice.paid", { ...INV, status_transitions: { paid_at: 1_790_000_000 } }), CTX_NONE);
 assert.equal(paid.kind, "invoice_status");
 if (paid.kind === "invoice_status") {
@@ -383,8 +472,14 @@ if (paid.kind === "invoice_status") {
   assert.equal(paid.hostedInvoiceUrl, "https://inv");
   assert.equal(paid.notifyAdmins, false);
   assert.equal(paid.clientId, "c1");
-  assert.equal(paid.periodMonth, "2026-09");
+  assert.equal(paid.periodKey, "2026-09");
+  assert.equal(paid.stream, "service_fee");
 }
+// A credits invoice carries its stream; an unknown stream is not ours.
+const cred = planTransition(ev("invoice.paid", { ...INV, metadata: { emma_client_id: "c1", emma_stream: "credits", emma_period: "2026-10-12" } }), CTX_NONE);
+if (cred.kind === "invoice_status") assert.equal(cred.stream, "credits");
+else assert.fail("expected invoice_status");
+assert.equal(planTransition(ev("invoice.paid", { ...INV, metadata: { emma_client_id: "c1", emma_stream: "other", emma_period: "x" } }), CTX_NONE).kind, "ignore");
 const failed = planTransition(ev("invoice.payment_failed", { ...INV, status: "open" }), CTX_NONE);
 if (failed.kind === "invoice_status") {
   assert.equal(failed.status, "failed");
@@ -417,7 +512,7 @@ console.log("billing-selftest: status + transitions OK");
 
 // Every billing email: branded shell, the CTA url present in html + text, never the vendor name.
 const tpl = [
-  billingSetupLink({ clientName: "Freedom Boat Club", setupUrl: "https://x.test/billing/setup/tok", feeLabel: "$300.00", anchorLabel: "3rd", expiresInDays: 7 }),
+  billingSetupLink({ clientName: "Freedom Boat Club", setupUrl: "https://x.test/billing/setup/tok", chargeSummary: chargeSummary(AUD_TERMS), expiresInDays: 7 }),
   billingCardAdded({ clientName: "Freedom Boat Club", cardLabel: "Visa ····4242 (exp 12/30)", consoleUrl: "https://x.test/console/billing/c1", billingOn: true }),
   billingCardRemoved({ clientName: "Freedom Boat Club", detail: "removed from the Billing page", consoleUrl: "https://x.test/console/billing/c1", billingOn: true }),
   billingPaymentFailedAdmin({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", amount: "$1,113.49", reason: "Your card has insufficient funds.", kind: "failed", consoleUrl: "https://x.test/console/billing/c1" }),
@@ -425,6 +520,11 @@ const tpl = [
   billingUsageUnavailable({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", consoleUrl: "https://x.test/console/billing/c1" }),
   billingNoCard({ clientName: "Freedom Boat Club", periodLabel: "Sep 2026", consoleUrl: "https://x.test/console/billing/c1" }),
   billingRunSummary({ headline: "2 invoiced, 1 failed", dateLabel: "11 Oct 2026", lines: ["SOLVI · Sep 2026: invoiced $813.49 — paid"], consoleUrl: "https://x.test/console/billing" }),
+  billingPaymentReceived({ clientName: "Freedom Boat Club", periodLabel: "AI Power Credits · 12 Oct 2026 – 18 Oct 2026", amount: "$120.40 USD", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingSuspendedAgency({ clientName: "Freedom Boat Club", reason: "A charge failed and its retry failed too", consoleUrl: "https://x.test/console/billing/c1" }),
+  billingSuspendedClient({ clientName: "Freedom Boat Club", actionUrl: "https://x.test/billing/setup/tok" }),
+  billingResumed({ clientName: "Freedom Boat Club", audience: "agency", why: "paid", url: "https://x.test/console/billing/c1" }),
+  billingResumed({ clientName: "Freedom Boat Club", audience: "client", why: "paid", url: "https://x.test/dashboard/billing" }),
 ];
 for (const t of tpl) {
   assert.ok(t.subject.length > 0);
@@ -434,7 +534,10 @@ for (const t of tpl) {
   assert.doesNotMatch(t.subject, /Olivia/);
 }
 assert.match(tpl[0]!.subject, /Freedom Boat Club/);
-assert.match(tpl[0]!.html, /3rd/);
+assert.match(tpl[0]!.html, /\$450\.00 AUD on the 3rd/);
+assert.match(tpl[0]!.html, /every Monday/);
+assert.match(tpl[9]!.text, /pause this client&#39;s campaigns in Emma|pause this client's campaigns in Emma/);
+assert.match(tpl[10]!.subject, /paused/);
 assert.match(tpl[3]!.subject, /Payment failed/);
 assert.match(tpl[4]!.html, /Update your card/);
 assert.match(tpl[7]!.html, /SOLVI · Sep 2026/);

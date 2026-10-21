@@ -1,17 +1,18 @@
 import { removeMyCard, saveBillingEmail, startCardSetup } from "@/app/dashboard/billing/actions";
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
 import type { CardOnFile } from "@/lib/billing/config";
-import { BILLING_NOT_STARTED_COPY, BILLING_PAUSED_COPY, chargeTermsText, mandateText, ordinal } from "@/lib/billing/copy";
-import type { InvoiceRow } from "@/lib/billing/invoices";
-import { INVOICE_STATUS_LABEL, type InvoiceStatus } from "@/lib/billing/status";
-import { centsToMoneyExact, dayLabel, monthLabel } from "@/lib/usage";
-
-export interface BillingEstimate {
-  label: string;
-  usageCents: number | null;
-  totalCents: number | null;
-  nextChargeDate: string;
-}
+import {
+  BILLING_NOT_STARTED_COPY,
+  BILLING_PAUSED_COPY,
+  chargeSummary,
+  mandateText,
+  SUSPENDED_COPY,
+  type ChargeTerms,
+} from "@/lib/billing/copy";
+import type { CreditsFigure, InvoiceRow } from "@/lib/billing/invoices";
+import { moneyWithCurrency } from "@/lib/billing/money";
+import { INVOICE_STATUS_LABEL, STREAM_LABEL, type InvoiceStatus } from "@/lib/billing/status";
+import { dayLabel } from "@/lib/usage";
 
 export interface BillingViewProps {
   clientName: string;
@@ -19,10 +20,14 @@ export interface BillingViewProps {
   automatic: boolean;
   card: CardOnFile | null;
   billingEmail: string | null;
-  anchorDay: number;
-  feeCents: number;
-  /** This month so far; null while automatic billing is off. */
-  estimate: BillingEstimate | null;
+  /** The agency's service fee, its currency and charge day. */
+  terms: ChargeTerms;
+  /** Paused for non-payment. */
+  suspended: boolean;
+  /** Unbilled AI Power Credits; null while automatic billing is off. */
+  credits: CreditsFigure | null;
+  /** Next service-fee charge date; null when off or no fee. */
+  nextFee: string | null;
   invoices: InvoiceRow[];
   notice: string | null;
   error: string | null;
@@ -70,9 +75,16 @@ export function BillingView(p: BillingViewProps) {
     <div className="mx-auto max-w-[1000px]">
       <div className="mb-5 text-[14px] text-muted">
         {p.automatic
-          ? `Automatic monthly billing for ${p.clientName} · charged on the ${ordinal(p.anchorDay)} of each month`
+          ? `Automatic billing for ${p.clientName} · ${STREAM_LABEL.credits} weekly (Mondays, USD)${p.terms.feeCents > 0 ? " · monthly service fee" : ""}`
           : `Billing for ${p.clientName} · ${paused ? "automatic billing is paused" : "automatic billing hasn't started yet"}`}
       </div>
+
+      {p.suspended ? (
+        <div className="mb-5 rounded-[13px] border-2 border-danger bg-danger/8 px-4 py-3.5">
+          <div className="text-[14px] font-semibold text-danger">{SUSPENDED_COPY.title}</div>
+          <div className="mt-1 text-[13px] leading-relaxed text-ink/80">{SUSPENDED_COPY.body}</div>
+        </div>
+      ) : null}
 
       {noticeText ? (
         <div className="mb-5 rounded-[13px] border border-success/30 bg-success/10 px-4 py-3 text-[13px] text-ink/80">
@@ -129,8 +141,8 @@ export function BillingView(p: BillingViewProps) {
                 {p.automatic
                   ? "Add a card to be billed automatically. Until then nothing is charged."
                   : paused
-                    ? "Save a card for your monthly Emma billing."
-                    : "Save a card for your monthly Emma billing. Nothing is charged until automatic billing starts."}
+                    ? "Save a card for your Emma billing."
+                    : "Save a card for your Emma billing. Nothing is charged until automatic billing starts."}
               </div>
               <form action={startCardSetup} className="mt-4">
                 <SubmitButton
@@ -143,26 +155,28 @@ export function BillingView(p: BillingViewProps) {
             </div>
           )}
           <div className="border-t border-lavender px-5 py-3 text-[11.5px] leading-relaxed text-muted">
-            {mandateText(p.anchorDay)}
+            {mandateText(p.terms)}
           </div>
         </Panel>
 
         {/* next charge, or how billing will work before it starts */}
-        {p.automatic && p.estimate ? (
-          <Panel title="Next charge" subtitle={`${p.estimate.label} · estimate`}>
+        {p.automatic && p.credits ? (
+          <Panel title="Next charges" subtitle="estimate · same card, two charges">
             <div className="flex flex-col">
-              <Line label="Emma usage so far" value={p.estimate.usageCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.usageCents)} />
-              <Line label="Monthly fee" value={centsToMoneyExact(p.feeCents)} />
-              <div className="flex items-center justify-between gap-3 bg-lavender px-5 py-3">
-                <span className="text-[12.5px] font-semibold">Estimated total</span>
-                <span className="font-mono text-[14px] font-bold text-violet tabular-nums">
-                  {p.estimate.totalCents == null ? "Unavailable" : centsToMoneyExact(p.estimate.totalCents)}
-                </span>
-              </div>
-              <div className="px-5 py-3 text-[12px] text-muted">
-                Charged on <span className="font-medium text-ink">{dayLabel(p.estimate.nextChargeDate)}</span> for the
-                full month. Usage accrues until the month closes, so the final amount can be higher.
-                {p.estimate.usageCents == null ? " Usage could not be loaded just now; this is not a zero." : ""}
+              <Line
+                label={`${STREAM_LABEL.credits} since ${dayLabel(p.credits.from)}`}
+                value={p.credits.usageCents == null ? "Unavailable" : moneyWithCurrency(p.credits.usageCents, "usd")}
+              />
+              <Line label="Charged weekly, next on" value={dayLabel(p.credits.nextChargeDate)} />
+              {p.terms.feeCents > 0 ? (
+                <>
+                  <Line label={STREAM_LABEL.service_fee} value={moneyWithCurrency(p.terms.feeCents, p.terms.feeCurrency)} />
+                  {p.nextFee ? <Line label="Charged monthly, next on" value={dayLabel(p.nextFee)} /> : null}
+                </>
+              ) : null}
+              <div className="px-5 py-3 text-[12px] leading-relaxed text-muted">
+                {chargeSummary(p.terms)} Credits accrue until the week closes, so the Monday amount can be higher.
+                {p.credits.usageCents == null ? " Usage could not be loaded just now; this is not a zero." : ""}
               </div>
             </div>
           </Panel>
@@ -173,7 +187,7 @@ export function BillingView(p: BillingViewProps) {
               <div className="mt-1 text-[13px] leading-relaxed text-muted">{offCopy.body}</div>
             </div>
             <div className="border-t border-lavender px-5 py-3 text-[12.5px] leading-relaxed text-ink/80">
-              {chargeTermsText(p.anchorDay, p.feeCents)}
+              When automatic billing is on: {chargeSummary(p.terms)}
             </div>
           </Panel>
         )}
@@ -181,7 +195,7 @@ export function BillingView(p: BillingViewProps) {
 
       {/* invoices — once billing is on, or when earlier invoices exist */}
       {p.automatic || p.invoices.length > 0 ? (
-        <Panel title="Invoices" subtitle="one per calendar month">
+        <Panel title="Invoices" subtitle="credits weekly · service fee monthly">
           {p.invoices.length === 0 ? (
             <div className="px-5 py-8 text-center text-[13px] text-muted">
               No invoices yet. Your first one appears after the first charge date.
@@ -191,10 +205,10 @@ export function BillingView(p: BillingViewProps) {
               <table className="w-full border-collapse text-[13px]">
                 <thead>
                   <tr className="bg-surface-tint">
-                    {["Period", "Usage", "Fee", "Total", "Status", ""].map((h, i) => (
+                    {["Item", "Period", "Amount", "Status", ""].map((h, i) => (
                       <th
                         key={h || i}
-                        className={`px-5 py-[11px] font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted ${i >= 1 && i <= 3 ? "text-right" : "text-left"}`}
+                        className={`px-5 py-[11px] font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted ${i === 2 ? "text-right" : "text-left"}`}
                       >
                         {h}
                       </th>
@@ -204,15 +218,10 @@ export function BillingView(p: BillingViewProps) {
                 <tbody>
                   {p.invoices.map((inv, i) => (
                     <tr key={inv.id} className={i % 2 ? "bg-lavender/40" : "bg-white"}>
-                      <td className="border-b border-lavender px-5 py-2.5 font-medium">{monthLabel(inv.periodMonth)}</td>
-                      <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
-                        {inv.billedUsageCents == null ? "—" : centsToMoneyExact(inv.billedUsageCents)}
-                      </td>
-                      <td className="border-b border-lavender px-5 py-2.5 text-right font-mono tabular-nums">
-                        {inv.feeCents == null ? "—" : centsToMoneyExact(inv.feeCents)}
-                      </td>
+                      <td className="border-b border-lavender px-5 py-2.5 font-medium">{STREAM_LABEL[inv.stream]}</td>
+                      <td className="border-b border-lavender px-5 py-2.5">{inv.periodLabel}</td>
                       <td className="border-b border-lavender px-5 py-2.5 text-right font-mono font-semibold tabular-nums">
-                        {inv.totalCents == null ? "—" : centsToMoneyExact(inv.totalCents)}
+                        {inv.totalCents == null ? "—" : moneyWithCurrency(inv.totalCents, inv.currency)}
                       </td>
                       <td className="border-b border-lavender px-5 py-2.5">
                         <span className={`inline-flex rounded-full border px-2 py-[2px] font-mono text-[10.5px] ${PILL[inv.status]}`}>

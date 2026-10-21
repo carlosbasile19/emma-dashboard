@@ -1,8 +1,7 @@
 import { startLinkCheckout } from "@/app/billing/setup/actions";
 import { LogoWordmark } from "@/components/brand/Logo";
 import { SubmitButton } from "@/components/ui/states/SubmitButton";
-import { mandateText, ordinal } from "@/lib/billing/copy";
-import { centsToMoneyExact } from "@/lib/usage";
+import { chargeSummary, mandateText, type ChargeTerms } from "@/lib/billing/copy";
 
 /**
  * The public card-setup card. Server component: the form posts to a server action, so no
@@ -12,16 +11,15 @@ import { centsToMoneyExact } from "@/lib/usage";
 export function SetupCard({
   token,
   clientName,
-  feeCents,
-  anchorDay,
+  terms,
   cancelled,
   incomplete,
   failed,
 }: {
   token: string;
   clientName: string;
-  feeCents: number;
-  anchorDay: number;
+  /** The agency's own fee, currency and day. Emma's wholesale price is never passed here. */
+  terms: ChargeTerms;
   cancelled: boolean;
   incomplete: boolean;
   failed: boolean;
@@ -35,19 +33,7 @@ export function SetupCard({
         Billing setup
       </div>
       <h1 className="text-[22px] font-bold tracking-[-0.01em]">Add a card for {clientName}</h1>
-      <p className="mt-2.5 text-[14px] leading-[1.55] text-muted">
-        Hey Emma charges this card on the{" "}
-        <span className="font-medium text-ink">{ordinal(anchorDay)}</span> of each month for the
-        previous month&apos;s Emma usage
-        {feeCents > 0 ? (
-          <>
-            {" "}
-            plus a <span className="font-medium text-ink">{centsToMoneyExact(feeCents)}</span>{" "}
-            monthly fee
-          </>
-        ) : null}
-        .
-      </p>
+      <p className="mt-2.5 text-[14px] leading-[1.55] text-muted">{chargeSummary(terms)}</p>
 
       {cancelled ? (
         <div className="mt-4 rounded-[10px] border border-warning/40 bg-warning/10 px-3.5 py-2.5 text-[13px] text-ink/80">
@@ -78,7 +64,7 @@ export function SetupCard({
         </SubmitButton>
       </form>
 
-      <p className="mt-4 text-[12px] leading-[1.55] text-muted">{mandateText(anchorDay)}</p>
+      <p className="mt-4 text-[12px] leading-[1.55] text-muted">{mandateText(terms)}</p>
     </div>
   );
 }

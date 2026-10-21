@@ -2,7 +2,14 @@ import "server-only";
 import { cache } from "react";
 import { getSessionClientId, PLATFORM_ADMIN_ROLE } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { effectiveMarkupBps, isValidAnchorDay, isValidBps, isValidFeeCents } from "./money";
+import {
+  effectiveMarkupBps,
+  isFeeCurrency,
+  isValidAnchorDay,
+  isValidBps,
+  isValidFeeCents,
+  type FeeCurrency,
+} from "./money";
 
 /**
  * Billing configuration: the platform defaults row and one row per client, read through the
@@ -23,20 +30,28 @@ export function billingMarkupEnabled(): boolean {
   return process.env.BILLING_MARKUP_ENABLED === "true";
 }
 
+/**
+ * The agency's defaults. There is deliberately no default service fee: the fee is each client's
+ * retail price, set per client, and Emma's wholesale price never lives in this app.
+ */
 export interface BillingSettings {
   markupBps: number;
-  feeCents: number;
+  /** Service-fee charge day (1–28). */
   anchorDay: number;
-  currency: string;
+  /** Default service-fee currency. */
+  feeCurrency: FeeCurrency;
+  /** Default early-charge threshold for unbilled credits, USD cents; null = off. */
+  lowBalanceCents: number | null;
+  /** Default agency billing contact; null = the earliest platform admin. */
   alertEmail: string | null;
   updatedAt: string | null;
 }
 
 export const DEFAULT_SETTINGS: BillingSettings = {
   markupBps: 0,
-  feeCents: 0,
   anchorDay: 3,
-  currency: "usd",
+  feeCurrency: "usd",
+  lowBalanceCents: null,
   alertEmail: null,
   updatedAt: null,
 };
@@ -58,10 +73,27 @@ export interface ClientBilling {
   stripeLivemode: boolean | null;
   billingEmail: string | null;
   billFromMonth: string | null;
-  /** Per-client overrides; null = platform default. */
-  overrides: { markupBps: number | null; feeCents: number | null; anchorDay: number | null };
+  /** Per-client values; null = agency default (fee: no fee; lowBalance 0 = off for this client). */
+  overrides: {
+    markupBps: number | null;
+    feeCents: number | null;
+    feeCurrency: FeeCurrency | null;
+    anchorDay: number | null;
+    lowBalanceCents: number | null;
+  };
   /** What actually applies to this client. */
-  effective: { markupBps: number; feeCents: number; anchorDay: number; currency: string };
+  effective: {
+    markupBps: number;
+    /** The agency's retail service fee in `feeCurrency` cents; 0 = none. */
+    feeCents: number;
+    feeCurrency: FeeCurrency;
+    anchorDay: number;
+    /** Early-charge threshold for unbilled credits (USD cents); null = off. */
+    lowBalanceCents: number | null;
+  };
+  /** Agency-side contact as stored; null = the agency default (see `agencyContactFor`). */
+  agencyContactEmail: string | null;
+  suspension: { at: string; reason: string | null; invoiceRowId: string | null; servicePausedAt: string | null } | null;
   card: CardOnFile | null;
   cardRemovedAt: string | null;
   noCardAlertedMonth: string | null;
@@ -78,16 +110,16 @@ export async function loadBillingSettings(): Promise<BillingSettings> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("billing_settings")
-    .select("markup_bps, fee_cents, anchor_day, currency, alert_email, updated_at")
+    .select("markup_bps, anchor_day, fee_currency, low_balance_cents, alert_email, updated_at")
     .eq("id", 1)
     .maybeSingle();
   if (error) throw new Error(`billing_settings read failed: ${error.message}`);
   if (!data) return DEFAULT_SETTINGS;
   return {
     markupBps: num(data.markup_bps) ?? 0,
-    feeCents: num(data.fee_cents) ?? 0,
     anchorDay: num(data.anchor_day) ?? 3,
-    currency: text(data.currency) ?? "usd",
+    feeCurrency: isFeeCurrency(data.fee_currency) ? data.fee_currency : "usd",
+    lowBalanceCents: num(data.low_balance_cents),
     alertEmail: text(data.alert_email),
     updatedAt: text(data.updated_at),
   };
@@ -98,15 +130,20 @@ export const getBillingSettings = cache(loadBillingSettings);
 const CLIENT_COLS =
   "olivia_client_id, enabled, stripe_customer_id, stripe_livemode, billing_email, bill_from_month, " +
   "markup_bps, fee_cents, anchor_day, default_payment_method_id, card_brand, card_last4, " +
-  "card_exp_month, card_exp_year, card_added_at, card_removed_at, no_card_alerted_month, updated_at";
+  "card_exp_month, card_exp_year, card_added_at, card_removed_at, no_card_alerted_month, updated_at, " +
+  "fee_currency, low_balance_cents, agency_contact_email, suspended_at, suspended_reason, " +
+  "suspended_invoice_id, service_paused_at";
 
 export function rowToClientBilling(r: Row, s: BillingSettings): ClientBilling {
   const pm = text(r.default_payment_method_id);
   const overrides = {
     markupBps: num(r.markup_bps),
     feeCents: num(r.fee_cents),
+    feeCurrency: isFeeCurrency(r.fee_currency) ? r.fee_currency : null,
     anchorDay: num(r.anchor_day),
+    lowBalanceCents: num(r.low_balance_cents),
   };
+  const suspendedAt = text(r.suspended_at);
   return {
     clientId: String(r.olivia_client_id),
     enabled: r.enabled === true,
@@ -117,10 +154,20 @@ export function rowToClientBilling(r: Row, s: BillingSettings): ClientBilling {
     overrides,
     effective: {
       markupBps: effectiveMarkupBps(overrides.markupBps, s.markupBps, billingMarkupEnabled()),
-      feeCents: overrides.feeCents ?? s.feeCents,
+      feeCents: overrides.feeCents ?? 0,
+      feeCurrency: overrides.feeCurrency ?? s.feeCurrency,
       anchorDay: overrides.anchorDay ?? s.anchorDay,
-      currency: s.currency,
+      lowBalanceCents: effectiveThreshold(overrides.lowBalanceCents, s.lowBalanceCents),
     },
+    agencyContactEmail: text(r.agency_contact_email),
+    suspension: suspendedAt
+      ? {
+          at: suspendedAt,
+          reason: text(r.suspended_reason),
+          invoiceRowId: text(r.suspended_invoice_id),
+          servicePausedAt: text(r.service_paused_at),
+        }
+      : null,
     card: pm
       ? {
           paymentMethodId: pm,
@@ -149,14 +196,48 @@ export async function loadClientBilling(clientId: string): Promise<ClientBilling
 
 export const getClientBilling = cache(loadClientBilling);
 
+/** A client threshold of 0 switches it off; null inherits the agency default. */
+export function effectiveThreshold(override: number | null, agencyDefault: number | null): number | null {
+  const v = override ?? agencyDefault;
+  return v != null && v > 0 ? v : null;
+}
+
 /**
- * The fee and charge day a client is on: its effective values, or the platform defaults while it
- * has no billing row yet (a card can be saved before an admin configures anything).
+ * The service fee and charge day a client is on: its effective values, or the agency defaults
+ * (no fee) while it has no billing row yet (a card can be saved before anything is configured).
  */
-export function chargeTerms(cb: ClientBilling | null, s: BillingSettings): { feeCents: number; anchorDay: number } {
+export function chargeTerms(
+  cb: ClientBilling | null,
+  s: BillingSettings,
+): { feeCents: number; feeCurrency: FeeCurrency; anchorDay: number } {
   return cb
-    ? { feeCents: cb.effective.feeCents, anchorDay: cb.effective.anchorDay }
-    : { feeCents: s.feeCents, anchorDay: s.anchorDay };
+    ? { feeCents: cb.effective.feeCents, feeCurrency: cb.effective.feeCurrency, anchorDay: cb.effective.anchorDay }
+    : { feeCents: 0, feeCurrency: s.feeCurrency, anchorDay: s.anchorDay };
+}
+
+/**
+ * The agency's default billing contact: the alerts email when set, else the earliest platform
+ * admin (the agency owner). null only when the agency has no admin at all.
+ */
+export async function defaultAgencyContact(s?: BillingSettings): Promise<string | null> {
+  const settings = s ?? (await loadBillingSettings());
+  if (settings.alertEmail) return settings.alertEmail.toLowerCase();
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("workspace_members")
+    .select("user_id")
+    .eq("role", PLATFORM_ADMIN_ROLE)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!member) return null;
+  const { data } = await admin.auth.admin.getUserById(member.user_id as string);
+  return data.user?.email?.toLowerCase() ?? null;
+}
+
+/** Where this client's agency-side billing mail goes: its own contact, else the agency default. */
+export async function agencyContactFor(cb: ClientBilling | null): Promise<string | null> {
+  return cb?.agencyContactEmail ?? (await defaultAgencyContact());
 }
 
 /**
@@ -217,7 +298,10 @@ export interface ClientBillingPatch {
   billFromMonth?: string | null;
   markupBps?: number | null;
   feeCents?: number | null;
+  feeCurrency?: FeeCurrency | null;
   anchorDay?: number | null;
+  lowBalanceCents?: number | null;
+  agencyContactEmail?: string | null;
 }
 
 /**
@@ -233,6 +317,8 @@ export async function upsertClientBilling(
   if (patch.markupBps != null && !isValidBps(patch.markupBps)) throw new RangeError("invalid markup");
   if (patch.feeCents != null && !isValidFeeCents(patch.feeCents)) throw new RangeError("invalid fee");
   if (patch.anchorDay != null && !isValidAnchorDay(patch.anchorDay)) throw new RangeError("invalid anchor day");
+  if (patch.feeCurrency != null && !isFeeCurrency(patch.feeCurrency)) throw new RangeError("invalid currency");
+  if (patch.lowBalanceCents != null && !isValidFeeCents(patch.lowBalanceCents)) throw new RangeError("invalid threshold");
   const admin = createAdminClient();
   const cols: Row = {
     olivia_client_id: clientId,
@@ -245,6 +331,9 @@ export async function upsertClientBilling(
   if (patch.markupBps !== undefined) cols.markup_bps = patch.markupBps;
   if (patch.feeCents !== undefined) cols.fee_cents = patch.feeCents;
   if (patch.anchorDay !== undefined) cols.anchor_day = patch.anchorDay;
+  if (patch.feeCurrency !== undefined) cols.fee_currency = patch.feeCurrency;
+  if (patch.lowBalanceCents !== undefined) cols.low_balance_cents = patch.lowBalanceCents;
+  if (patch.agencyContactEmail !== undefined) cols.agency_contact_email = patch.agencyContactEmail;
   const { error } = await admin.from("client_billing").upsert(cols, { onConflict: "olivia_client_id" });
   if (error) throw new Error(`client_billing upsert failed: ${error.message}`);
   const row = await loadClientBilling(clientId);
@@ -279,17 +368,27 @@ export async function updateClientBillingColumns(clientId: string, cols: Row): P
 }
 
 export async function saveBillingSettings(
-  patch: { markupBps?: number; feeCents?: number; anchorDay?: number; alertEmail?: string | null },
+  patch: {
+    markupBps?: number;
+    anchorDay?: number;
+    feeCurrency?: FeeCurrency;
+    lowBalanceCents?: number | null;
+    alertEmail?: string | null;
+  },
   userId: string | null,
 ): Promise<void> {
   if (patch.markupBps !== undefined && !isValidBps(patch.markupBps)) throw new RangeError("invalid markup");
-  if (patch.feeCents !== undefined && !isValidFeeCents(patch.feeCents)) throw new RangeError("invalid fee");
   if (patch.anchorDay !== undefined && !isValidAnchorDay(patch.anchorDay)) throw new RangeError("invalid anchor day");
+  if (patch.feeCurrency !== undefined && !isFeeCurrency(patch.feeCurrency)) throw new RangeError("invalid currency");
+  if (patch.lowBalanceCents != null && (!isValidFeeCents(patch.lowBalanceCents) || patch.lowBalanceCents === 0)) {
+    throw new RangeError("invalid threshold");
+  }
   const admin = createAdminClient();
   const cols: Row = { id: 1, updated_at: new Date().toISOString(), updated_by: userId };
   if (patch.markupBps !== undefined) cols.markup_bps = patch.markupBps;
-  if (patch.feeCents !== undefined) cols.fee_cents = patch.feeCents;
   if (patch.anchorDay !== undefined) cols.anchor_day = patch.anchorDay;
+  if (patch.feeCurrency !== undefined) cols.fee_currency = patch.feeCurrency;
+  if (patch.lowBalanceCents !== undefined) cols.low_balance_cents = patch.lowBalanceCents;
   if (patch.alertEmail !== undefined) cols.alert_email = patch.alertEmail;
   const { error } = await admin.from("billing_settings").upsert(cols, { onConflict: "id" });
   if (error) throw new Error(`billing_settings upsert failed: ${error.message}`);

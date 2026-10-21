@@ -4,10 +4,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripe } from "@/lib/stripe/client";
 import { clientIdForCustomer, clientIdForPaymentMethod, loadClientBilling } from "./config";
 import { clearCustomer, refreshCardMirror, writeCardMirror } from "./customers";
-import { clientActionUrl } from "./invoices";
-import { clientDisplayName, notifyCardRemoved, notifyPaymentFailed } from "./notify";
+import { clientActionUrl, periodLabel } from "./invoices";
+import { clientDisplayName, notifyCardRemoved, notifyPaymentFailed, notifyPaymentReceived } from "./notify";
 import { reconcileCheckoutSession } from "./setup";
 import { eventSubject, planTransition, type BillingTransition, type WebhookEventShape } from "./status";
+import { maybeResume, onChargeFailed } from "./suspension";
 
 /** A concurrent delivery younger than this is presumed still running. */
 const IN_FLIGHT_MS = 60_000;
@@ -181,7 +182,7 @@ async function applyInvoiceStatus(plan: InvoiceStatusPlan, origin: string): Prom
   const admin = createAdminClient();
   const { data: row, error: rowErr } = await admin
     .from("billing_invoices")
-    .select("id, status, total_cents, hosted_invoice_url")
+    .select("id, status, total_cents, currency, period_to, hosted_invoice_url")
     .eq("stripe_invoice_id", plan.stripeInvoiceId)
     .maybeSingle();
   if (rowErr) throw new Error(`billing_invoices lookup: ${rowErr.message}`);
@@ -222,13 +223,42 @@ async function applyInvoiceStatus(plan: InvoiceStatusPlan, origin: string): Prom
     if (failErr) console.error("[stripe-webhook] could not record failure detail:", failErr.message);
   }
 
+  const label = periodLabel(plan.stream, plan.periodKey, (row.period_to as string | null) ?? null);
+  const currency = (row.currency as string | null) ?? "usd";
+
+  if (plan.status === "paid") {
+    await safeNotify("payment received", async () =>
+      notifyPaymentReceived({
+        clientId: plan.clientId,
+        clientName: await clientDisplayName(plan.clientId),
+        stream: plan.stream,
+        periodLabel: label,
+        totalCents: Number(row.total_cents ?? 0),
+        currency,
+        origin,
+      }),
+    );
+  }
+  // Paid / voided / written off: if that was the last unpaid charge, the suspension lifts.
+  if (plan.status === "paid" || plan.status === "void") {
+    try {
+      await maybeResume(plan.clientId, origin);
+    } catch (e) {
+      // The next daily run or card change re-checks; never fail the event over it.
+      console.error("[stripe-webhook] resume check failed", plan.clientId, e);
+    }
+  }
+  if (plan.status === "failed" || plan.status === "action_required") await onChargeFailed(row.id as string, origin);
+
   if (changed && (plan.notifyAdmins || plan.notifyClient) && (plan.status === "failed" || plan.status === "action_required")) {
     const kind = plan.status;
     await safeNotify("payment failed", async () =>
       notifyPaymentFailed({
         clientId: plan.clientId,
         clientName: await clientDisplayName(plan.clientId),
-        month: plan.periodMonth,
+        stream: plan.stream,
+        periodLabel: label,
+        currency,
         totalCents: Number(row.total_cents ?? 0),
         reason: failureMessage ?? "Payment failed",
         kind,
