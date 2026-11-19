@@ -44,16 +44,23 @@ export function prevPeriod(range: RangePreset, tz: string, now: Date = new Date(
   return { from: ymdUTC(from), to: ymdUTC(to), tz: tz || DEFAULT_TZ };
 }
 
-// ---- Brief Emma window ----
-// The "Brief Emma" modal carries its own date filter (an Olivia-style segmented control),
-// independent of the dashboard's ?range= so re-scoping the brief never reflows the KPI cards.
-// "week" = this calendar week so far (Mon → today); "30d"/"90d" reuse the rolling presets;
-// "custom" = an arbitrary from–to span (validated + clamped to 366 days, like every period).
+// ---- Talk to Emma window ----
+// The talk button uses the dashboard's ?range= (7d / 30d / 90d) so the conversation covers the
+// same period as the page. "week" and "custom" stay available for any caller that resolves a
+// different span server-side. "week" = this calendar week so far (Mon → today); "custom" is an
+// arbitrary from–to span (validated + clamped to 366 days, like every period).
 export type BriefWindow =
   | { kind: "week" }
+  | { kind: "7d" }
   | { kind: "30d" }
   | { kind: "90d" }
   | { kind: "custom"; from: string; to: string };
+
+/** Dashboard `?range=` → the window Talk to Emma briefs on. Unknown values fall back to 30 days. */
+export function rangeToBriefWindow(range: string): BriefWindow {
+  if (range === "7d" || range === "90d") return { kind: range };
+  return { kind: "30d" };
+}
 
 export type BriefWindowKind = BriefWindow["kind"];
 
@@ -83,7 +90,7 @@ export function briefWindowToPeriod(w: BriefWindow, tz: string, now: Date = new 
     }
     return { from, to, tz: zone };
   }
-  return rangeToPeriod(w.kind, zone, now); // "30d" | "90d"
+  return rangeToPeriod(w.kind, zone, now); // "7d" | "30d" | "90d"
 }
 
 /** YYYY-MM-DD → "Jun 25" (UTC, so it matches the day the period was built from). */
@@ -99,6 +106,8 @@ export function briefWindowLabel(w: BriefWindow): string {
   switch (w.kind) {
     case "week":
       return "This week";
+    case "7d":
+      return "Last 7 days";
     case "30d":
       return "Last 30 days";
     case "90d":

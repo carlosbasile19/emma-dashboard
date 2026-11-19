@@ -1,5 +1,4 @@
-import { BriefEmma } from "@/components/dashboard/brief/BriefEmma";
-import { ReportEmma } from "@/components/dashboard/report/ReportEmma";
+import { TalkToEmma } from "@/components/dashboard/brief/BriefEmma";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/states/EmptyState";
@@ -9,9 +8,7 @@ import { getWorkspace } from "@/lib/auth";
 import { EMPTY_COPY, ERROR_COPY, RANGE_LABELS } from "@/lib/copy";
 import { DEFAULT_TZ, parseRange, prevPeriod, rangeToPeriod } from "@/lib/filters";
 import { centsToMoney, num, pct } from "@/lib/format";
-import { buildNutshell } from "@/lib/narrate";
 import {
-  fetchAgents,
   fetchCampaigns,
   fetchLeads,
   fetchOutcomes,
@@ -30,19 +27,17 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
   const ws = await getWorkspace();
   const tz = ws.timezone ?? DEFAULT_TZ;
 
-  let cur, prev, ts, campaigns, agentsRes, leadsRes, outcomesRes;
+  let cur, prev, ts, campaigns, leadsRes, outcomesRes;
   try {
-    [cur, prev, ts, campaigns, agentsRes, leadsRes, outcomesRes] = await Promise.all([
+    [cur, prev, ts, campaigns, leadsRes, outcomesRes] = await Promise.all([
       fetchOverview(rangeToPeriod(range, tz)),
       fetchOverview(prevPeriod(range, tz)),
       fetchTimeseries(rangeToPeriod(range, tz)),
-      // campaigns power the brief; don't fail the whole overview if they error
+      // campaigns power the talk preview; don't fail the whole overview if they error
       fetchCampaigns().catch(() => null),
-      // agents power the reporting drill-down selector; best-effort
-      fetchAgents(rangeToPeriod(range, tz)).catch(() => null),
-      // leads power the brief's per-lead motivation/hesitation lines; best-effort
+      // leads power the per-lead motivation/hesitation lines; best-effort
       fetchLeads({ ...rangeToPeriod(range, tz), limit: 100 }).catch(() => null),
-      // booking outcomes power the brief's bookings count (stages don't always advance); best-effort
+      // booking outcomes power the bookings count (stages don't always advance); best-effort
       fetchOutcomes(rangeToPeriod(range, tz)).catch(() => null),
     ]);
   } catch {
@@ -65,11 +60,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
     leadsRes?.data.items ?? [],
     outcomesRes?.data.outcomes.booking_outcomes,
   );
-  const reportAgents = (agentsRes?.data ?? []).map((a) => ({ id: a.agent_id, name: a.name }));
-  // Seed the reporting preview with the dashboard range's nutshell; the modal refreshes it
-  // per-window when a report starts.
-  const reportNutshell = buildNutshell(k, prev.data.kpis);
-
   return (
     <>
       <FreshnessNote freshness={cur.freshness} />
@@ -92,8 +82,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: SP 
               period at a glance.
             </div>
             <div className="flex flex-wrap items-center">
-              <BriefEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
-              <ReportEmma range={range} agents={reportAgents} nutshell={reportNutshell} />
+              <TalkToEmma items={briefItems} rangeLabel={rangeLabel} range={range} />
             </div>
           </div>
           <div className="flex gap-[30px] font-mono">
