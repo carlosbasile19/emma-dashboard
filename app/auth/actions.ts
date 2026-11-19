@@ -143,10 +143,9 @@ export async function setActiveClient(formData: FormData) {
 }
 
 /**
- * Re-scope the "Brief Emma" list for a date window picked in the modal (This week / 30 / 90 days
- * / Custom). Recomputes the brief from a fresh overview + campaigns for that window only — the
- * dashboard's KPI cards keep their own ?range= and are untouched. The window is resolved
- * server-side from the session's timezone; the browser only chooses the preset/dates.
+ * Recompute the lead brief for a window other than the dashboard's ?range=. Talk to Emma uses
+ * the dashboard range (via beginBrief); this stays for a caller that needs a different span.
+ * The window is resolved server-side from the session's timezone.
  */
 export async function fetchBriefWindow(
   window: BriefWindow,

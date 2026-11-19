@@ -300,7 +300,8 @@ async function main() {
   const api = readFileSync("lib/olivia/api.ts", "utf8");
   const briefApi = api.slice(api.indexOf("// ---- Briefing bridge"), api.indexOf("// ---- Reporting bridge"));
   assert.ok(briefApi.length > 0 && !/retell|ice_servers|\btoken\b|\broom\b/i.test(briefApi), "briefing API types carry no Retell/token fields");
-  assert.ok(/retell-client-js-sdk/.test(readFileSync("components/dashboard/report/ReportEmma.tsx", "utf8")), "reporting still uses Retell");
+  const reportApi = api.slice(api.indexOf("// ---- Reporting bridge"));
+  assert.ok(reportApi.length > 0 && /retell/i.test(reportApi), "reporting API still describes Retell");
 
   console.log("brief-voice-selftest: OK");
 }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { briefWindowToPeriod, rangeToBriefWindow, rangeToPeriod } from "../lib/filters";
 import { buildBriefItems } from "../lib/overview";
 import type { Overview } from "../lib/types";
 
@@ -61,5 +62,16 @@ const bookingsItem = (items: ReturnType<typeof buildBriefItems>) =>
   // Nothing anywhere → no bookings item.
   assert.equal(bookingsItem(buildBriefItems(overview(0), [], [])), undefined);
 })();
+
+// Talk to Emma follows the dashboard range. 7 days must be the same span the KPI cards use.
+{
+  const now = new Date("2026-11-19T15:00:00Z");
+  const tz = "America/New_York";
+  assert.deepEqual(rangeToBriefWindow("7d"), { kind: "7d" });
+  assert.deepEqual(rangeToBriefWindow("90d"), { kind: "90d" });
+  assert.deepEqual(rangeToBriefWindow("30d"), { kind: "30d" });
+  assert.deepEqual(rangeToBriefWindow("nope"), { kind: "30d" });
+  assert.deepEqual(briefWindowToPeriod(rangeToBriefWindow("7d"), tz, now), rangeToPeriod("7d", tz, now));
+}
 
 console.log("brief-items-selftest: all assertions passed");
